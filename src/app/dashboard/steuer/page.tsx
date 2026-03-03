@@ -126,7 +126,7 @@ export default function SteuerPage() {
     })
   }, [bookings, taxConfig])
 
-  // Dresden Melde-format: 7 official line items
+  // Tax summary: 7 line items
   const melde = useMemo(() => {
     const allBookings = taxData
     const airbnbBookings = taxData.filter((d) => d.tax.exemptReason === 'Airbnb führt ab')
@@ -198,7 +198,7 @@ export default function SteuerPage() {
     ])
     const meldeSection = [
       [],
-      ['Meldeformat Dresden'],
+      ['Beherbergungssteuer-Übersicht'],
       ['Zeitraum', range.label],
       ['Stadt', taxConfig.city],
       ['Steuersatz', `${taxConfig.rate}%`],
@@ -258,10 +258,10 @@ export default function SteuerPage() {
         </div>
       </div>
 
-      {/* Dresden Meldeformat */}
+      {/* Tax summary */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Meldeformat {taxConfig.city} – {range.label}</CardTitle>
+          <CardTitle className="text-base">Übersicht – {range.label}</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (

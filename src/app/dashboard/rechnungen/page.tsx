@@ -183,10 +183,12 @@ function RechnungenContent() {
 
     // Beherbergungssteuer (0% USt – passed through to city)
     if (cityTax > 0) {
+      const taxCity = (booking.properties as Record<string, unknown>)?.accommodation_tax_city as string | undefined
+      const cityLabel = taxCity ? ` (${taxCity})` : ''
       items.push({
         description: booking.channel === 'Airbnb'
-          ? 'Beherbergungssteuer (Stadt Dresden, über Airbnb abgeführt)'
-          : 'Beherbergungssteuer (Stadt Dresden)',
+          ? `Beherbergungssteuer${cityLabel}, über Airbnb abgeführt`
+          : `Beherbergungssteuer${cityLabel}`,
         quantity: 1,
         unitPrice: Math.round(cityTax * 100) / 100,
         vatRate: 0,
