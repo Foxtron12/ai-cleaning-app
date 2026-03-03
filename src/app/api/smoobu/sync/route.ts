@@ -56,6 +56,23 @@ export async function POST() {
           .single()
         if (inserted) {
           propertyMap.set(apartment.id, inserted.id)
+          // Auto-set tax config from city_tax_rules if city matches
+          if (propertyData.city) {
+            const { data: rule } = await supabase
+              .from('city_tax_rules')
+              .select('tax_model, tax_rate')
+              .eq('city', propertyData.city)
+              .single()
+            if (rule) {
+              await supabase
+                .from('properties')
+                .update({
+                  accommodation_tax_model: rule.tax_model,
+                  accommodation_tax_rate: rule.tax_rate,
+                })
+                .eq('id', inserted.id)
+            }
+          }
         }
       }
     }

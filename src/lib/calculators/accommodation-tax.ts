@@ -1,4 +1,4 @@
-import type { Booking } from '../types'
+import type { Booking, Property, CityTaxRule } from '../types'
 import { parsePriceDetails, extractCityTaxFromDetails } from '../smoobu'
 
 export type TaxModel = 'net_percentage' | 'gross_percentage' | 'per_person_per_night'
@@ -26,6 +26,30 @@ export interface TaxResult {
  */
 export function getCleaningFee(booking: Booking, defaultFee = DEFAULT_CLEANING_FEE): number {
   return (booking.cleaning_fee ?? 0) > 0 ? (booking.cleaning_fee ?? 0) : defaultFee
+}
+
+/**
+ * Resolve tax config for a property using city_tax_rules lookup with fallback.
+ */
+export function getTaxConfigForProperty(
+  property: Property,
+  cityRules: CityTaxRule[]
+): TaxConfig {
+  const rule = cityRules.find(
+    (r) => r.city === (property.accommodation_tax_city ?? property.city)
+  )
+  if (rule) {
+    return {
+      model: rule.tax_model as TaxModel,
+      rate: rule.tax_rate,
+      city: rule.city,
+    }
+  }
+  return {
+    model: (property.accommodation_tax_model as TaxModel) ?? 'gross_percentage',
+    rate: property.accommodation_tax_rate ?? 6,
+    city: property.accommodation_tax_city ?? property.city ?? 'Unbekannt',
+  }
 }
 
 /**

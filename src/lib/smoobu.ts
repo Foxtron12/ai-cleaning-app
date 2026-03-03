@@ -191,10 +191,10 @@ export function mapSmoobuApartment(apartment: SmoobuApartment): PropertyInsert {
     country: apartment.location?.country ?? 'DE',
     timezone: apartment.timezone ?? 'Europe/Berlin',
     currency: apartment.currency ?? 'EUR',
-    // Dresden defaults
-    accommodation_tax_model: 'gross_percentage',
-    accommodation_tax_rate: 6.0,
-    accommodation_tax_city: 'Dresden',
+    // Tax city from Smoobu location (resolved via city_tax_rules on sync)
+    accommodation_tax_city: apartment.location?.city ?? null,
+    accommodation_tax_model: null,
+    accommodation_tax_rate: null,
     synced_at: new Date().toISOString(),
   }
 }

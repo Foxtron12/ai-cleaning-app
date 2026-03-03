@@ -11,6 +11,8 @@ export type RegistrationForm = Database['public']['Tables']['registration_forms'
 export type RegistrationFormInsert = Database['public']['Tables']['registration_forms']['Insert']
 export type Settings = Database['public']['Tables']['settings']['Row']
 export type SettingsUpdate = Database['public']['Tables']['settings']['Update']
+export type CityTaxRule = Database['public']['Tables']['city_tax_rules']['Row']
+export type CityTaxRuleInsert = Database['public']['Tables']['city_tax_rules']['Insert']
 
 // Booking with joined property
 export type BookingWithProperty = Booking & {

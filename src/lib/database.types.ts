@@ -140,6 +140,36 @@ export type Database = {
           },
         ]
       }
+      city_tax_rules: {
+        Row: {
+          city: string
+          created_at: string | null
+          description: string | null
+          id: string
+          tax_model: string
+          tax_rate: number
+          updated_at: string | null
+        }
+        Insert: {
+          city: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          tax_model?: string
+          tax_rate?: number
+          updated_at?: string | null
+        }
+        Update: {
+          city?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          tax_model?: string
+          tax_rate?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       invoices: {
         Row: {
           booking_id: string | null
@@ -267,6 +297,7 @@ export type Database = {
           name: string
           street: string | null
           synced_at: string | null
+          tags: string[] | null
           timezone: string | null
           updated_at: string | null
           zip: string | null
@@ -285,6 +316,7 @@ export type Database = {
           name: string
           street?: string | null
           synced_at?: string | null
+          tags?: string[] | null
           timezone?: string | null
           updated_at?: string | null
           zip?: string | null
@@ -303,6 +335,7 @@ export type Database = {
           name?: string
           street?: string | null
           synced_at?: string | null
+          tags?: string[] | null
           timezone?: string | null
           updated_at?: string | null
           zip?: string | null
