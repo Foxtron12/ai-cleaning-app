@@ -31,8 +31,8 @@ export type TripPurpose = 'leisure' | 'business' | 'unknown'
 // Invoice status
 export type InvoiceStatus = 'draft' | 'created' | 'paid' | 'cancelled'
 
-// Registration form status
-export type RegistrationFormStatus = 'created' | 'printed' | 'signed'
+// Registration form status (aligned with tech design: only created / archived)
+export type RegistrationFormStatus = 'created' | 'archived'
 
 // Accommodation tax model
 export type AccommodationTaxModel = 'net_percentage' | 'gross_percentage' | 'per_person_per_night' | 'per_room_per_night'

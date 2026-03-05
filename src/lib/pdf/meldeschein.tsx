@@ -50,14 +50,7 @@ const styles = StyleSheet.create({
   col: {
     flex: 1,
   },
-  signatureArea: {
-    marginTop: 40,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  signatureBlock: {
-    width: '45%',
-  },
+  // BUG-3: signatureArea styles removed
   signatureLine: {
     borderTopWidth: 1,
     borderTopColor: '#333',
@@ -67,15 +60,13 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#555',
   },
-  signatureImage: {
-    width: 200,
-    height: 75,
-    marginBottom: 4,
+  signatureArea: {
+    marginTop: 40,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  signedLabel: {
-    fontSize: 8,
-    color: '#16a34a',
-    marginTop: 2,
+  signatureBlock: {
+    width: '45%',
   },
   footer: {
     position: 'absolute',
@@ -92,7 +83,21 @@ const styles = StyleSheet.create({
     color: '#888',
     lineHeight: 1.4,
   },
+  logo: {
+    maxWidth: 120,
+    maxHeight: 50,
+    marginBottom: 8,
+    objectFit: 'contain',
+  },
 })
+
+// BUG-10: Format YYYY-MM-DD birthdate to DD.MM.YYYY
+function formatBirthdate(raw: string | undefined): string {
+  if (!raw) return '_______________'
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return raw
+  return `${match[3]}.${match[2]}.${match[1]}`
+}
 
 export interface MeldescheinData {
   // Property
@@ -123,8 +128,8 @@ export interface MeldescheinData {
   // Landlord
   landlordName?: string
   landlordAddress?: string
-  // Signature
-  signature?: string
+  // BUG-9: optional logo URL rendered in PDF header
+  logoUrl?: string
 }
 
 export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
@@ -133,6 +138,10 @@ export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
+          {/* BUG-9: Logo rendered if configured in settings */}
+          {data.logoUrl && (
+            <Image src={data.logoUrl} style={styles.logo} />
+          )}
           <Text style={styles.title}>Meldeschein</Text>
           <Text style={styles.subtitle}>
             gemäß § 29 BMG / Beherbergungsstatistikgesetz
@@ -210,7 +219,8 @@ export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>Geburtsdatum:</Text>
-                <Text style={styles.value}>{data.birthdate || '_______________'}</Text>
+                {/* BUG-10: formatted as DD.MM.YYYY */}
+                <Text style={styles.value}>{formatBirthdate(data.birthdate)}</Text>
               </View>
             </View>
             <View style={styles.col}>
@@ -239,7 +249,7 @@ export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
                 <Text style={styles.label}>{i + 1}.</Text>
                 <Text style={styles.value}>
                   {ct.firstname} {ct.lastname}
-                  {ct.birthdate ? `, geb. ${ct.birthdate}` : ''}
+                  {ct.birthdate ? `, geb. ${formatBirthdate(ct.birthdate)}` : ''}
                   {ct.nationality ? `, ${ct.nationality}` : ''}
                 </Text>
               </View>
@@ -247,23 +257,13 @@ export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
           </View>
         )}
 
-        {/* Unterschrift */}
+        {/* BUG-3: Signature section replaced with two plain signature lines (no digital signature) */}
         <View style={styles.signatureArea}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureLine}>Ort, Datum</Text>
           </View>
           <View style={styles.signatureBlock}>
-            {data.signature ? (
-              <>
-                <Image src={data.signature} style={styles.signatureImage} />
-                <Text style={styles.signatureLine}>Elektronische Unterschrift des Gastes</Text>
-                <Text style={styles.signedLabel}>
-                  Elektronisch signiert am {new Date().toLocaleDateString('de-DE')}
-                </Text>
-              </>
-            ) : (
-              <Text style={styles.signatureLine}>Unterschrift des Gastes</Text>
-            )}
+            <Text style={styles.signatureLine}>Unterschrift des Gastes</Text>
           </View>
         </View>
 

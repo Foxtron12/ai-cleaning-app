@@ -65,7 +65,13 @@ export default function EinstellungenPage() {
     setSyncing(true)
     setSyncResult(null)
     try {
-      const response = await fetch('/api/smoobu/sync', { method: 'POST' })
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/smoobu/sync', {
+        method: 'POST',
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {},
+      })
       const data = await response.json()
       if (data.success) {
         setSyncResult({

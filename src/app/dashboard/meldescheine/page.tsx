@@ -1,14 +1,14 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
-import { Plus, Download, FileText } from 'lucide-react'
+import { Plus, Trash2, Download, FileText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { MeldescheinPDF, type MeldescheinData } from '@/lib/pdf/meldeschein'
-import type { BookingWithProperty, Settings } from '@/lib/types'
+import type { BookingWithProperty } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,9 +35,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { SignaturePad } from '@/components/dashboard/signature-pad'
+
+// SEC-8: Only select columns needed – smoobu_api_key and billing fields are excluded
+interface SettingsData {
+  id: string
+  landlord_name: string | null
+  landlord_street: string | null
+  landlord_zip: string | null
+  landlord_city: string | null
+  landlord_logo_url: string | null // BUG-9: needed for PDF logo
+}
 
 interface RegistrationForm {
   id: string
@@ -48,7 +56,6 @@ interface RegistrationForm {
   status: string
   created_at: string | null
   trip_purpose: string | null
-  signature: string | null
 }
 
 interface CoTraveller {
@@ -58,9 +65,9 @@ interface CoTraveller {
   nationality: string
 }
 
+// BUG-5 (type fix): Only Erstellt / Archiviert per tech design
 const STATUS_LABELS: Record<string, string> = {
   created: 'Erstellt',
-  signed: 'Unterschrieben',
   archived: 'Archiviert',
 }
 
@@ -78,10 +85,12 @@ function MeldescheineContent() {
 
   const [forms, setForms] = useState<RegistrationForm[]>([])
   const [bookings, setBookings] = useState<BookingWithProperty[]>([])
-  const [settings, setSettings] = useState<Settings | null>(null)
+  const [settings, setSettings] = useState<SettingsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [autoGenInfo, setAutoGenInfo] = useState<string | null>(null)
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState<string>('')
@@ -99,7 +108,6 @@ function MeldescheineContent() {
   const [checkIn, setCheckIn] = useState('')
   const [checkOut, setCheckOut] = useState('')
   const [coTravellers, setCoTravellers] = useState<CoTraveller[]>([])
-  const [signature, setSignature] = useState<string | null>(null)
 
   useEffect(() => {
     async function fetchData() {
@@ -107,19 +115,24 @@ function MeldescheineContent() {
         await Promise.all([
           supabase
             .from('registration_forms')
-            .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose, signature')
+            .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
             .order('created_at', { ascending: false }),
           supabase
             .from('bookings')
             .select('*, properties(*)')
             .order('check_in', { ascending: false })
             .limit(100),
-          supabase.from('settings').select('*').limit(1).single(),
+          // SEC-8: Explicit column list – smoobu_api_key is NOT included
+          supabase
+            .from('settings')
+            .select('id, landlord_name, landlord_street, landlord_zip, landlord_city, landlord_logo_url')
+            .limit(1)
+            .single(),
         ])
 
       setForms(formsData ?? [])
       setBookings((bookingsData ?? []) as BookingWithProperty[])
-      setSettings(settingsData)
+      setSettings(settingsData as SettingsData | null)
       setLoading(false)
 
       // Auto-open dialog if booking param
@@ -131,6 +144,30 @@ function MeldescheineContent() {
           fillFromBooking(booking)
           setDialogOpen(true)
         }
+      }
+
+      // BUG-6 (auto-generate): Call on page load with auth token
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch('/api/meldescheine/auto-generate', {
+          method: 'POST',
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {},
+        })
+        if (res.ok) {
+          const { created } = await res.json() as { created: number }
+          if (created > 0) {
+            setAutoGenInfo(`${created} Meldeschein${created > 1 ? 'e' : ''} automatisch erstellt`)
+            const { data: refreshed } = await supabase
+              .from('registration_forms')
+              .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
+              .order('created_at', { ascending: false })
+            setForms(refreshed ?? [])
+          }
+        }
+      } catch {
+        // Auto-generate is best-effort, don't block the page
       }
     }
     fetchData()
@@ -171,26 +208,54 @@ function MeldescheineContent() {
     setCheckIn('')
     setCheckOut('')
     setCoTravellers([])
-    setSignature(null)
+    setSaveError(null)
+  }
+
+  // BUG-1: All mandatory fields per BeherbStatG
+  const missingFields = [
+    !firstname && 'Vorname',
+    !lastname && 'Familienname',
+    !nationality && 'Staatsangehörigkeit',
+    !street && 'Wohnanschrift (Straße)',
+    !checkIn && 'Ankunft',
+    !checkOut && 'Abreise',
+  ].filter(Boolean) as string[]
+
+  const isFormValid = missingFields.length === 0
+
+  function buildLandlordAddress(): string | undefined {
+    if (!settings) return undefined
+    return [
+      settings.landlord_street,
+      [settings.landlord_zip, settings.landlord_city].filter(Boolean).join(' '),
+    ].filter(Boolean).join(', ') || undefined
   }
 
   async function handleSaveAndGeneratePDF() {
+    if (!isFormValid) return
     setGenerating(true)
+    setSaveError(null)
+
     try {
       const selectedBooking = bookings.find((b) => b.id === selectedBookingId)
       const property = selectedBooking?.properties
 
-      // Save to database
-      const { data: saved } = await supabase
-        .from('registration_forms')
-        .insert({
+      // BUG-8: Save via server API route with Zod validation (not direct Supabase)
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch('/api/meldescheine', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({
           booking_id: selectedBookingId || null,
           property_id: property?.id ?? null,
           guest_firstname: firstname,
           guest_lastname: lastname,
           guest_birthdate: birthdate || null,
-          guest_nationality: nationality || null,
-          guest_street: street || null,
+          guest_nationality: nationality,
+          guest_street: street,
           guest_city: city || null,
           guest_zip: zip || null,
           guest_country: country || null,
@@ -198,20 +263,24 @@ function MeldescheineContent() {
           check_out: checkOut,
           adults,
           children,
-          trip_purpose: tripPurpose,
-          co_travellers: coTravellers.length > 0 ? JSON.parse(JSON.stringify(coTravellers)) : null,
-          property_snapshot: JSON.parse(JSON.stringify({
+          trip_purpose: tripPurpose as 'leisure' | 'business' | 'unknown',
+          co_travellers: coTravellers.length > 0 ? coTravellers : null,
+          property_snapshot: {
             name: property?.name ?? '',
             street: property?.street ?? '',
             city: property?.city ?? '',
             zip: property?.zip ?? '',
-          })),
-          signature: signature ?? null,
-          status: signature ? 'signed' : 'created',
-        })
-        .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose, signature')
-        .single()
+          },
+        }),
+      })
 
+      if (!response.ok) {
+        const err = await response.json() as { error?: string }
+        setSaveError(err.error ?? 'Speichern fehlgeschlagen')
+        return
+      }
+
+      const { data: saved } = await response.json() as { data: RegistrationForm }
       if (saved) {
         setForms((prev) => [saved, ...prev])
       }
@@ -235,10 +304,8 @@ function MeldescheineContent() {
         tripPurpose,
         coTravellers: coTravellers.length > 0 ? coTravellers : undefined,
         landlordName: settings?.landlord_name ?? undefined,
-        landlordAddress: settings
-          ? [settings.landlord_street, [settings.landlord_zip, settings.landlord_city].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-          : undefined,
-        signature: signature ?? undefined,
+        landlordAddress: buildLandlordAddress(),
+        logoUrl: settings?.landlord_logo_url ?? undefined, // BUG-9
       }
 
       const blob = await pdf(<MeldescheinPDF data={pdfData} />).toBlob()
@@ -257,14 +324,14 @@ function MeldescheineContent() {
   }
 
   async function handleDownloadExisting(form: RegistrationForm) {
-    // Fetch full form data
     const { data } = await supabase
       .from('registration_forms')
-      .select('*')
+      .select('id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, trip_purpose, co_travellers, property_snapshot')
       .eq('id', form.id)
       .single()
     if (!data) return
 
+    // BUG-1: landlordAddress is now included (was missing before)
     const pdfData: MeldescheinData = {
       propertyName: (data.property_snapshot as Record<string, string>)?.name ?? 'Ferienwohnung',
       propertyAddress: [
@@ -286,7 +353,8 @@ function MeldescheineContent() {
       tripPurpose: data.trip_purpose ?? 'unknown',
       coTravellers: (data.co_travellers as unknown as CoTraveller[]) ?? undefined,
       landlordName: settings?.landlord_name ?? undefined,
-      signature: data.signature ?? undefined,
+      landlordAddress: buildLandlordAddress(), // BUG-1 fixed
+      logoUrl: settings?.landlord_logo_url ?? undefined, // BUG-9
     }
 
     const blob = await pdf(<MeldescheinPDF data={pdfData} />).toBlob()
@@ -298,21 +366,37 @@ function MeldescheineContent() {
     URL.revokeObjectURL(url)
   }
 
+  // BUG-8 (updateStatus): Error check before optimistic update
   async function updateStatus(formId: string, newStatus: string) {
-    await supabase
+    const { error } = await supabase
       .from('registration_forms')
       .update({ status: newStatus })
       .eq('id', formId)
+    if (error) {
+      console.error('Status update failed:', error.message)
+      return
+    }
     setForms((prev) =>
       prev.map((f) => (f.id === formId ? { ...f, status: newStatus } : f))
     )
   }
 
+  // BUG-5: Remove a co-traveller by index
+  function removeCoTraveller(index: number) {
+    setCoTravellers((prev) => prev.filter((_, i) => i !== index))
+  }
+
   return (
     <div className="space-y-6">
+      {autoGenInfo && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          {autoGenInfo}
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Meldescheine</h2>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm() }}>
           <DialogTrigger asChild>
             <Button onClick={resetForm}>
               <Plus className="mr-2 h-4 w-4" />
@@ -348,8 +432,8 @@ function MeldescheineContent() {
                 </Select>
               </div>
 
-              {/* Guest data */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Guest data – BUG-6: grid-cols-1 sm:grid-cols-2 for mobile */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Vorname *</Label>
                   <Input value={firstname} onChange={(e) => setFirstname(e.target.value)} />
@@ -364,14 +448,24 @@ function MeldescheineContent() {
                 </div>
                 <div className="space-y-2">
                   <Label>Staatsangehörigkeit *</Label>
-                  <Input value={nationality} onChange={(e) => setNationality(e.target.value)} placeholder="z.B. deutsch" />
+                  <Input
+                    value={nationality}
+                    onChange={(e) => setNationality(e.target.value)}
+                    placeholder="z.B. deutsch"
+                    className={!nationality ? 'border-destructive' : ''}
+                  />
                 </div>
               </div>
 
               {/* Address */}
               <div className="space-y-2">
                 <Label>Wohnanschrift *</Label>
-                <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Straße, Nr." />
+                <Input
+                  value={street}
+                  onChange={(e) => setStreet(e.target.value)}
+                  placeholder="Straße, Nr."
+                  className={!street ? 'border-destructive' : ''}
+                />
                 <div className="grid grid-cols-3 gap-2">
                   <Input value={zip} onChange={(e) => setZip(e.target.value)} placeholder="PLZ" />
                   <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Ort" className="col-span-2" />
@@ -379,8 +473,8 @@ function MeldescheineContent() {
                 <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Land" />
               </div>
 
-              {/* Stay */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Stay – BUG-6: same responsive grid */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Ankunft *</Label>
                   <Input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
@@ -413,7 +507,7 @@ function MeldescheineContent() {
                 </Select>
               </div>
 
-              {/* Co-travellers */}
+              {/* Co-travellers – BUG-5: remove button added; BUG-11: responsive grid */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>Mitreisende</Label>
@@ -433,66 +527,74 @@ function MeldescheineContent() {
                   </Button>
                 </div>
                 {coTravellers.map((ct, i) => (
-                  <div key={i} className="grid grid-cols-4 gap-2">
-                    <Input
-                      placeholder="Vorname"
-                      value={ct.firstname}
-                      onChange={(e) => {
-                        const updated = [...coTravellers]
-                        updated[i] = { ...updated[i], firstname: e.target.value }
-                        setCoTravellers(updated)
-                      }}
-                    />
-                    <Input
-                      placeholder="Nachname"
-                      value={ct.lastname}
-                      onChange={(e) => {
-                        const updated = [...coTravellers]
-                        updated[i] = { ...updated[i], lastname: e.target.value }
-                        setCoTravellers(updated)
-                      }}
-                    />
-                    <Input
-                      type="date"
-                      placeholder="Geb."
-                      value={ct.birthdate}
-                      onChange={(e) => {
-                        const updated = [...coTravellers]
-                        updated[i] = { ...updated[i], birthdate: e.target.value }
-                        setCoTravellers(updated)
-                      }}
-                    />
-                    <Input
-                      placeholder="Nationalität"
-                      value={ct.nationality}
-                      onChange={(e) => {
-                        const updated = [...coTravellers]
-                        updated[i] = { ...updated[i], nationality: e.target.value }
-                        setCoTravellers(updated)
-                      }}
-                    />
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Input
+                        placeholder="Vorname"
+                        value={ct.firstname}
+                        onChange={(e) => {
+                          const updated = [...coTravellers]
+                          updated[i] = { ...updated[i], firstname: e.target.value }
+                          setCoTravellers(updated)
+                        }}
+                      />
+                      <Input
+                        placeholder="Nachname"
+                        value={ct.lastname}
+                        onChange={(e) => {
+                          const updated = [...coTravellers]
+                          updated[i] = { ...updated[i], lastname: e.target.value }
+                          setCoTravellers(updated)
+                        }}
+                      />
+                      <Input
+                        type="date"
+                        value={ct.birthdate}
+                        onChange={(e) => {
+                          const updated = [...coTravellers]
+                          updated[i] = { ...updated[i], birthdate: e.target.value }
+                          setCoTravellers(updated)
+                        }}
+                      />
+                      <Input
+                        placeholder="Nationalität"
+                        value={ct.nationality}
+                        onChange={(e) => {
+                          const updated = [...coTravellers]
+                          updated[i] = { ...updated[i], nationality: e.target.value }
+                          setCoTravellers(updated)
+                        }}
+                      />
+                    </div>
+                    {/* BUG-5: Remove button */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeCoTraveller(i)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))}
               </div>
 
-              {/* Signature */}
-              <SignaturePad onChange={setSignature} />
-
               {/* Missing fields warning */}
-              {(!firstname || !lastname || !checkIn || !checkOut) && (
+              {missingFields.length > 0 && (
                 <p className="text-sm text-destructive">
-                  Pflichtfelder fehlen: {[
-                    !firstname && 'Vorname',
-                    !lastname && 'Familienname',
-                    !checkIn && 'Ankunft',
-                    !checkOut && 'Abreise',
-                  ].filter(Boolean).join(', ')}
+                  Pflichtfelder fehlen: {missingFields.join(', ')}
                 </p>
+              )}
+
+              {/* Save error */}
+              {saveError && (
+                <p className="text-sm text-destructive">{saveError}</p>
               )}
 
               <Button
                 className="w-full"
-                disabled={!firstname || !lastname || !checkIn || !checkOut || generating}
+                disabled={!isFormValid || generating}
                 onClick={handleSaveAndGeneratePDF}
               >
                 <FileText className="mr-2 h-4 w-4" />
@@ -503,7 +605,7 @@ function MeldescheineContent() {
         </Dialog>
       </div>
 
-      {/* Archive table */}
+      {/* Archive table – BUG-7: overflow-x-auto wrapper for mobile */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Archiv</CardTitle>
@@ -520,14 +622,14 @@ function MeldescheineContent() {
               Noch keine Meldescheine erstellt
             </p>
           ) : (
-            <div className="rounded-md border">
+            <div className="overflow-x-auto rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Gast</TableHead>
                     <TableHead>Zeitraum</TableHead>
                     <TableHead>Reisezweck</TableHead>
-                    <TableHead>Signatur</TableHead>
+                    <TableHead>Erstellt</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Aktionen</TableHead>
                   </TableRow>
@@ -535,34 +637,31 @@ function MeldescheineContent() {
                 <TableBody>
                   {forms.map((form) => (
                     <TableRow key={form.id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium whitespace-nowrap">
                         {form.guest_firstname} {form.guest_lastname}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-nowrap">
                         {format(new Date(form.check_in + 'T00:00:00'), 'dd.MM.yy', { locale: de })} –{' '}
                         {format(new Date(form.check_out + 'T00:00:00'), 'dd.MM.yy', { locale: de })}
                       </TableCell>
                       <TableCell>
                         {form.trip_purpose === 'business' ? 'Geschäftlich' : form.trip_purpose === 'leisure' ? 'Privat' : '–'}
                       </TableCell>
-                      <TableCell>
-                        {form.signature ? (
-                          <Badge variant="default" className="bg-green-600">Signiert</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-muted-foreground">Fehlt</Badge>
-                        )}
+                      <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                        {form.created_at
+                          ? format(new Date(form.created_at), 'dd.MM.yy', { locale: de })
+                          : '–'}
                       </TableCell>
                       <TableCell>
                         <Select
                           value={form.status}
                           onValueChange={(v) => updateStatus(form.id, v)}
                         >
-                          <SelectTrigger className="h-7 w-[130px]">
+                          <SelectTrigger className="h-7 w-[120px]">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="created">{STATUS_LABELS.created}</SelectItem>
-                            <SelectItem value="signed">{STATUS_LABELS.signed}</SelectItem>
                             <SelectItem value="archived">{STATUS_LABELS.archived}</SelectItem>
                           </SelectContent>
                         </Select>

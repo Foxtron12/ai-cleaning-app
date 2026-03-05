@@ -1,13 +1,19 @@
-import { NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase'
+import { NextRequest, NextResponse } from 'next/server'
+import { createServiceClient, verifyAuth } from '@/lib/supabase'
 import {
   SmoobuClient,
   mapSmoobuApartment,
   mapSmoobuReservation,
   calculateBookingStatus,
 } from '@/lib/smoobu'
+import { autoGenerateMeldescheine } from '@/lib/auto-generate-meldeschein'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const authorized = await verifyAuth(request.headers.get('authorization'))
+  if (!authorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const apiKey = process.env.SMOOBU_API_KEY
     if (!apiKey) {
@@ -149,6 +155,9 @@ export async function POST() {
       .update({ smoobu_last_sync: new Date().toISOString() })
       .not('id', 'is', null)
 
+    // 4. Auto-generate missing Meldescheine for newly synced bookings
+    const { created: meldescheineCreated } = await autoGenerateMeldescheine()
+
     return NextResponse.json({
       success: true,
       properties: apartments.length,
@@ -157,6 +166,7 @@ export async function POST() {
         created,
         updated,
       },
+      meldescheineCreated,
       syncedAt: new Date().toISOString(),
     })
   } catch (error) {

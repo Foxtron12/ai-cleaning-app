@@ -18,3 +18,16 @@ export function createServiceClient() {
     auth: { persistSession: false },
   })
 }
+
+/**
+ * Verifies a Supabase JWT from an Authorization: Bearer <token> header.
+ * Use in API routes to guard against unauthenticated requests.
+ * Returns true if the token belongs to a valid user, false otherwise.
+ */
+export async function verifyAuth(authorizationHeader: string | null): Promise<boolean> {
+  if (!authorizationHeader?.startsWith('Bearer ')) return false
+  const token = authorizationHeader.slice(7)
+  const client = createClient<Database>(supabaseUrl, supabaseAnonKey)
+  const { data: { user } } = await client.auth.getUser(token)
+  return user !== null
+}
