@@ -2,6 +2,7 @@
 
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -13,6 +14,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { BookingStatusBadge } from './booking-status-badge'
 import type { BookingWithProperty } from '@/lib/types'
+
+export type SortColumn = 'guest' | 'check_in' | 'check_out' | 'nights' | 'amount_gross'
+export type SortDirection = 'asc' | 'desc'
 
 function formatCurrency(value: number | null): string {
   if (value === null || value === undefined) return '–'
@@ -26,14 +30,27 @@ function formatDate(dateStr: string): string {
   return format(new Date(dateStr + 'T00:00:00'), 'dd.MM.yy', { locale: de })
 }
 
+function SortIcon({ column, sortColumn, sortDirection }: { column: SortColumn; sortColumn: SortColumn; sortDirection: SortDirection }) {
+  if (column !== sortColumn) return <ArrowUpDown className="ml-1 h-3 w-3 inline opacity-40" />
+  return sortDirection === 'asc'
+    ? <ArrowUp className="ml-1 h-3 w-3 inline" />
+    : <ArrowDown className="ml-1 h-3 w-3 inline" />
+}
+
 export function BookingTable({
   bookings,
   loading,
   onRowClick,
+  sortColumn,
+  sortDirection,
+  onSort,
 }: {
   bookings: BookingWithProperty[]
   loading: boolean
   onRowClick?: (booking: BookingWithProperty) => void
+  sortColumn: SortColumn
+  sortDirection: SortDirection
+  onSort: (col: SortColumn) => void
 }) {
   if (loading) {
     return (
@@ -53,17 +70,27 @@ export function BookingTable({
     )
   }
 
+  const th = (col: SortColumn, label: string, className?: string) => (
+    <TableHead
+      className={`cursor-pointer select-none ${className ?? ''}`}
+      onClick={() => onSort(col)}
+    >
+      {label}
+      <SortIcon column={col} sortColumn={sortColumn} sortDirection={sortDirection} />
+    </TableHead>
+  )
+
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Gast</TableHead>
+            {th('guest', 'Gast')}
             <TableHead className="hidden sm:table-cell">Objekt</TableHead>
-            <TableHead>Check-in</TableHead>
-            <TableHead>Check-out</TableHead>
-            <TableHead className="hidden md:table-cell text-center">Nächte</TableHead>
-            <TableHead className="text-right">Betrag</TableHead>
+            {th('check_in', 'Check-in')}
+            {th('check_out', 'Check-out')}
+            {th('nights', 'Nächte', 'hidden md:table-cell text-center')}
+            {th('amount_gross', 'Betrag', 'text-right')}
             <TableHead className="hidden md:table-cell">Kanal</TableHead>
             <TableHead>Status</TableHead>
           </TableRow>

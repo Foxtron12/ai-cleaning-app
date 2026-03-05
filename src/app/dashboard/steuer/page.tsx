@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { Download, Plus, Trash2, Pencil, ChevronDown, ChevronRight, X, Settings2 } from 'lucide-react'
+import { Download, Plus, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
@@ -12,7 +12,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -30,17 +29,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 
 type BookingWithProp = Booking & { properties: Property | null }
 
@@ -97,6 +85,7 @@ function formatModelLabel(model: string): string {
     case 'gross_percentage': return 'Brutto %'
     case 'net_percentage': return 'Netto %'
     case 'per_person_per_night': return 'Pro Person/Nacht'
+    case 'per_room_per_night': return 'Pro Zimmer/Nacht'
     default: return model
   }
 }
@@ -129,15 +118,6 @@ export default function SteuerPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('this_quarter')
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-
-  // Rules editor state
-  const [rulesOpen, setRulesOpen] = useState(false)
-  const [ruleDialog, setRuleDialog] = useState(false)
-  const [editingRule, setEditingRule] = useState<CityTaxRule | null>(null)
-  const [ruleCity, setRuleCity] = useState('')
-  const [ruleModel, setRuleModel] = useState('gross_percentage')
-  const [ruleRate, setRuleRate] = useState('6')
-  const [ruleDescription, setRuleDescription] = useState('')
 
   // Tag editor state
   const [tagPropertyId, setTagPropertyId] = useState<string | null>(null)
@@ -200,9 +180,19 @@ export default function SteuerPage() {
     })
   }, [filteredBookings, cityRules])
 
-  // Group by property for "Alle" view
+  // Group by property for "Alle" view – include properties without bookings
   const groupedByProperty = useMemo(() => {
     const groups = new Map<string, { property: Property | null; items: TaxDataItem[] }>()
+
+    // Seed with all relevant properties (respecting tag filter)
+    const relevantProperties = selectedTags.length > 0
+      ? properties.filter((p) => (p.tags ?? []).some((t) => selectedTags.includes(t)))
+      : properties
+    for (const prop of relevantProperties) {
+      groups.set(prop.id, { property: prop, items: [] })
+    }
+
+    // Add booking data
     for (const item of taxData) {
       const propId = item.booking.property_id ?? 'unknown'
       if (!groups.has(propId)) {
@@ -210,8 +200,30 @@ export default function SteuerPage() {
       }
       groups.get(propId)!.items.push(item)
     }
+
     return Array.from(groups.values())
-  }, [taxData])
+  }, [taxData, properties, selectedTags])
+
+  // Group by city for "Alle" view
+  const groupedByCity = useMemo(() => {
+    const cityMap = new Map<string, { city: string; config: TaxConfig | null; properties: typeof groupedByProperty; items: TaxDataItem[] }>()
+
+    for (const group of groupedByProperty) {
+      const config = group.property
+        ? getTaxConfigForProperty(group.property, cityRules)
+        : null
+      const city = config?.city ?? group.property?.city ?? 'Unbekannt'
+
+      if (!cityMap.has(city)) {
+        cityMap.set(city, { city, config, properties: [], items: [] })
+      }
+      const cityGroup = cityMap.get(city)!
+      cityGroup.properties.push(group)
+      cityGroup.items.push(...group.items)
+    }
+
+    return Array.from(cityMap.values()).sort((a, b) => a.city.localeCompare(b.city))
+  }, [groupedByProperty, cityRules])
 
   const totalSummary = useMemo(() => computeSummary(taxData), [taxData])
 
@@ -222,52 +234,6 @@ export default function SteuerPage() {
     setBookings((prev) =>
       prev.map((b) => (b.id === bookingId ? { ...b, trip_purpose: newPurpose } : b))
     )
-  }
-
-  // --- City tax rules CRUD ---
-  function openAddRule() {
-    setEditingRule(null)
-    setRuleCity('')
-    setRuleModel('gross_percentage')
-    setRuleRate('6')
-    setRuleDescription('')
-    setRuleDialog(true)
-  }
-
-  function openEditRule(rule: CityTaxRule) {
-    setEditingRule(rule)
-    setRuleCity(rule.city)
-    setRuleModel(rule.tax_model)
-    setRuleRate(String(rule.tax_rate))
-    setRuleDescription(rule.description ?? '')
-    setRuleDialog(true)
-  }
-
-  async function saveRule() {
-    const data = {
-      city: ruleCity.trim(),
-      tax_model: ruleModel,
-      tax_rate: parseFloat(ruleRate) || 0,
-      description: ruleDescription.trim() || null,
-      updated_at: new Date().toISOString(),
-    }
-    if (editingRule) {
-      await supabase.from('city_tax_rules').update(data).eq('id', editingRule.id)
-      setCityRules((prev) => prev.map((r) => (r.id === editingRule.id ? { ...r, ...data } : r)))
-    } else {
-      const { data: inserted } = await supabase
-        .from('city_tax_rules')
-        .insert(data)
-        .select()
-        .single()
-      if (inserted) setCityRules((prev) => [...prev, inserted as CityTaxRule].sort((a, b) => a.city.localeCompare(b.city)))
-    }
-    setRuleDialog(false)
-  }
-
-  async function deleteRule(id: string) {
-    await supabase.from('city_tax_rules').delete().eq('id', id)
-    setCityRules((prev) => prev.filter((r) => r.id !== id))
   }
 
   // --- Tag management ---
@@ -414,110 +380,6 @@ export default function SteuerPage() {
         </div>
       )}
 
-      {/* City tax rules (collapsible) */}
-      <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="pb-3 cursor-pointer hover:bg-muted/50 transition-colors">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Settings2 className="h-4 w-4" />
-                  Steuerregeln nach Stadt
-                </CardTitle>
-                {rulesOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Stadt</TableHead>
-                      <TableHead>Modell</TableHead>
-                      <TableHead className="text-right">Satz</TableHead>
-                      <TableHead>Beschreibung</TableHead>
-                      <TableHead className="text-right">Aktionen</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cityRules.map((rule) => (
-                      <TableRow key={rule.id}>
-                        <TableCell className="font-medium">{rule.city}</TableCell>
-                        <TableCell>{formatModelLabel(rule.tax_model)}</TableCell>
-                        <TableCell className="text-right">{rule.tax_rate}%</TableCell>
-                        <TableCell className="text-muted-foreground text-sm">{rule.description ?? '–'}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => openEditRule(rule)}>
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => deleteRule(rule.id)}>
-                            <Trash2 className="h-3 w-3 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {cityRules.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
-                          Keine Steuerregeln konfiguriert
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              <Button variant="outline" size="sm" className="mt-3" onClick={openAddRule}>
-                <Plus className="mr-1 h-3 w-3" />
-                Stadt hinzufügen
-              </Button>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
-
-      {/* Rule add/edit dialog */}
-      <Dialog open={ruleDialog} onOpenChange={setRuleDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingRule ? 'Steuerregel bearbeiten' : 'Neue Steuerregel'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Stadt</Label>
-              <Input value={ruleCity} onChange={(e) => setRuleCity(e.target.value)} placeholder="z.B. Dresden" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Steuermodell</Label>
-                <Select value={ruleModel} onValueChange={setRuleModel}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="gross_percentage">Brutto % (inkl. Nebenleistungen)</SelectItem>
-                    <SelectItem value="net_percentage">Netto % (nur Übernachtung)</SelectItem>
-                    <SelectItem value="per_person_per_night">Festbetrag pro Person/Nacht</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Satz ({ruleModel === 'per_person_per_night' ? 'EUR' : '%'})</Label>
-                <Input type="number" step="0.01" value={ruleRate} onChange={(e) => setRuleRate(e.target.value)} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Beschreibung (optional)</Label>
-              <Input value={ruleDescription} onChange={(e) => setRuleDescription(e.target.value)} placeholder="z.B. Bruttopreis inkl. Nebenleistungen" />
-            </div>
-            <Button className="w-full" onClick={saveRule} disabled={!ruleCity.trim()}>
-              {editingRule ? 'Speichern' : 'Hinzufügen'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Tax summaries */}
       {loading ? (
         <Card>
@@ -538,102 +400,126 @@ export default function SteuerPage() {
           property={properties.find((p) => p.id === selectedPropertyId) ?? null}
         />
       ) : (
-        // Grouped view
+        // Grouped view: Gesamtübersicht → per city → per property
         <>
-          {groupedByProperty.map((group, idx) => {
-            const config = group.property
-              ? getTaxConfigForProperty(group.property, cityRules)
-              : null
-            const summary = computeSummary(group.items)
+          {/* Gesamtübersicht – always shown */}
+          <Card className="border-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Gesamtübersicht – {range.label}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div>
+                  <p className="text-2xl font-bold tabular-nums">{totalSummary.totalNights}</p>
+                  <p className="text-xs text-muted-foreground">Nächte gesamt</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold tabular-nums">{totalSummary.remainingNights}</p>
+                  <p className="text-xs text-muted-foreground">Steuerpflichtig</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold tabular-nums">{formatEur(totalSummary.taxableRevenue)}</p>
+                  <p className="text-xs text-muted-foreground">Steuerpfl. Umsatz</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold tabular-nums text-emerald-600">{formatEur(totalSummary.collectedTax)}</p>
+                  <p className="text-xs text-muted-foreground">Eingez. Steuer</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Per-city sections */}
+          {groupedByCity.map((cityGroup) => {
+            const citySummary = computeSummary(cityGroup.items)
             return (
-              <Card key={idx}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">{group.property?.name ?? 'Unbekannt'}</CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        {config?.city ?? '–'} · {config?.rate ?? 0}% · {summary.bookingCount} Buchungen
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {(group.property?.tags ?? []).map((tag) => (
-                        <Badge key={tag} variant="secondary" className="text-xs">
-                          {tag}
-                          <button
-                            className="ml-1 hover:text-destructive"
-                            onClick={() => group.property && removeTag(group.property.id, tag)}
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        </Badge>
-                      ))}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-1.5 text-xs"
-                        onClick={() => {
-                          setTagPropertyId(group.property?.id ?? null)
-                          setTagInput('')
-                        }}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
-                      {tagPropertyId === group.property?.id && (
-                        <form
-                          className="flex items-center gap-1"
-                          onSubmit={(e) => {
-                            e.preventDefault()
-                            if (group.property) addTag(group.property.id, tagInput)
-                            setTagPropertyId(null)
-                          }}
-                        >
-                          <Input
-                            autoFocus
-                            className="h-6 w-24 text-xs"
-                            value={tagInput}
-                            onChange={(e) => setTagInput(e.target.value)}
-                            placeholder="Tag..."
-                            onBlur={() => setTagPropertyId(null)}
-                          />
-                        </form>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <CompactSummary summary={summary} rate={config?.rate ?? 0} />
-                </CardContent>
-              </Card>
+              <div key={cityGroup.city} className="space-y-3">
+                {/* City header */}
+                <div className="flex items-center gap-2 pt-2">
+                  <h3 className="text-lg font-semibold">{cityGroup.city}</h3>
+                  <span className="text-sm text-muted-foreground">
+                    · {cityGroup.config?.rate ?? 0}% · {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
+                  </span>
+                </div>
+
+                {/* City summary (if multiple properties in this city) */}
+                {cityGroup.properties.length > 1 && (
+                  <Card className="border-dashed">
+                    <CardContent className="pt-4 pb-3">
+                      <CompactSummary summary={citySummary} rate={cityGroup.config?.rate ?? 0} />
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Per-property cards within this city */}
+                {cityGroup.properties.map((group, idx) => {
+                  const summary = computeSummary(group.items)
+                  return (
+                    <Card key={idx}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-base">{group.property?.name ?? 'Unbekannt'}</CardTitle>
+                            <p className="text-sm text-muted-foreground">
+                              {group.property?.street ? `${group.property.street}, ` : ''}
+                              {group.property?.zip ? `${group.property.zip} ` : ''}
+                              {cityGroup.city} · {summary.bookingCount} Buchungen
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {(group.property?.tags ?? []).map((tag) => (
+                              <Badge key={tag} variant="secondary" className="text-xs">
+                                {tag}
+                                <button
+                                  className="ml-1 hover:text-destructive"
+                                  onClick={() => group.property && removeTag(group.property.id, tag)}
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </button>
+                              </Badge>
+                            ))}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-1.5 text-xs"
+                              onClick={() => {
+                                setTagPropertyId(group.property?.id ?? null)
+                                setTagInput('')
+                              }}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                            {tagPropertyId === group.property?.id && (
+                              <form
+                                className="flex items-center gap-1"
+                                onSubmit={(e) => {
+                                  e.preventDefault()
+                                  if (group.property) addTag(group.property.id, tagInput)
+                                  setTagPropertyId(null)
+                                }}
+                              >
+                                <Input
+                                  autoFocus
+                                  className="h-6 w-24 text-xs"
+                                  value={tagInput}
+                                  onChange={(e) => setTagInput(e.target.value)}
+                                  placeholder="Tag..."
+                                  onBlur={() => setTagPropertyId(null)}
+                                />
+                              </form>
+                            )}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <CompactSummary summary={summary} rate={cityGroup.config?.rate ?? 0} />
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
             )
           })}
-          {/* Grand total */}
-          {groupedByProperty.length > 1 && (
-            <Card className="border-2">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Gesamt – {range.label}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-4 gap-4 text-center">
-                  <div>
-                    <p className="text-2xl font-bold tabular-nums">{totalSummary.totalNights}</p>
-                    <p className="text-xs text-muted-foreground">Nächte gesamt</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold tabular-nums">{totalSummary.remainingNights}</p>
-                    <p className="text-xs text-muted-foreground">Steuerpflichtig</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold tabular-nums">{formatEur(totalSummary.taxableRevenue)}</p>
-                    <p className="text-xs text-muted-foreground">Steuerpfl. Umsatz</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold tabular-nums text-emerald-600">{formatEur(totalSummary.collectedTax)}</p>
-                    <p className="text-xs text-muted-foreground">Eingez. Steuer</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </>
       )}
 

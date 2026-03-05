@@ -8,13 +8,14 @@ import type { SmoobuReservation } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
   try {
-    // Validate webhook secret
+    // Validate webhook secret – fail closed if not configured
     const webhookSecret = process.env.SMOOBU_WEBHOOK_SECRET
-    if (webhookSecret) {
-      const providedSecret = request.nextUrl.searchParams.get('secret')
-      if (providedSecret !== webhookSecret) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
+    if (!webhookSecret) {
+      return NextResponse.json({ error: 'Webhook not configured' }, { status: 503 })
+    }
+    const providedSecret = request.nextUrl.searchParams.get('secret')
+    if (providedSecret !== webhookSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = await request.json()

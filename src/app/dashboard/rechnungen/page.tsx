@@ -8,13 +8,15 @@ import { pdf } from '@react-pdf/renderer'
 import { Plus, Download, FileText, Ban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
-import type { BookingWithProperty, Settings } from '@/lib/types'
+import type { BookingWithProperty, Settings, CityTaxRule } from '@/lib/types'
 import {
   getCleaningFee,
-  getCityTaxAmount,
   getAccommodationGrossWithoutCityTax,
-  getTotalGuestPays,
 } from '@/lib/calculators/booking-price'
+import {
+  calculateAccommodationTax,
+  getTaxConfigForProperty,
+} from '@/lib/calculators/accommodation-tax'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -87,6 +89,7 @@ function RechnungenContent() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [bookings, setBookings] = useState<BookingWithProperty[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [cityRules, setCityRules] = useState<CityTaxRule[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -100,7 +103,7 @@ function RechnungenContent() {
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: invoicesData }, { data: bookingsData }, { data: settingsData }] =
+      const [{ data: invoicesData }, { data: bookingsData }, { data: settingsData }, { data: rulesData }] =
         await Promise.all([
           supabase
             .from('invoices')
@@ -112,11 +115,14 @@ function RechnungenContent() {
             .order('check_in', { ascending: false })
             .limit(100),
           supabase.from('settings').select('*').limit(1).single(),
+          supabase.from('city_tax_rules').select('*').order('city'),
         ])
 
+      const rules = (rulesData ?? []) as CityTaxRule[]
       setInvoices((invoicesData ?? []) as InvoiceRow[])
       setBookings((bookingsData ?? []) as BookingWithProperty[])
       setSettings(settingsData)
+      setCityRules(rules)
       setLoading(false)
 
       if (bookingIdParam) {
@@ -124,7 +130,7 @@ function RechnungenContent() {
           (b: BookingWithProperty) => b.id === bookingIdParam
         ) as BookingWithProperty | undefined
         if (booking) {
-          fillFromBooking(booking, settingsData)
+          fillFromBooking(booking, settingsData, rules)
           setDialogOpen(true)
         }
       }
@@ -133,7 +139,7 @@ function RechnungenContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingIdParam])
 
-  function fillFromBooking(booking: BookingWithProperty, s: Settings | null) {
+  function fillFromBooking(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
     setSelectedBookingId(booking.id)
     const name = [booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ')
     setGuestName(name)
@@ -146,8 +152,18 @@ function RechnungenContent() {
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
     const cleaningFee = getCleaningFee(booking)
-    const cityTax = getCityTaxAmount(booking)
     const isKlein = s?.is_kleinunternehmer ?? false
+
+    // Calculate accommodation tax using city_tax_rules
+    const effectiveRules = rules ?? cityRules
+    const taxConfig = booking.properties
+      ? getTaxConfigForProperty(booking.properties, effectiveRules)
+      : null
+    const taxResult = taxConfig
+      ? calculateAccommodationTax(booking, taxConfig)
+      : null
+    const cityTax = taxResult?.taxAmount ?? 0
+    const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 
     // Calculate accommodation price (gross without tax minus cleaning)
     const accommodationGross = grossWithoutTax - cleaningFee
@@ -167,33 +183,33 @@ function RechnungenContent() {
       total: Math.round(accommodationGross * 100) / 100,
     })
 
-    // Cleaning (19% USt)
+    // Cleaning (7% USt – Teil der Beherbergungsleistung)
     if (cleaningFee > 0) {
-      const cleanNet = isKlein ? cleaningFee : cleaningFee / 1.19
+      const cleanNet = isKlein ? cleaningFee : cleaningFee / 1.07
       const cleanVat = isKlein ? 0 : cleaningFee - cleanNet
       items.push({
         description: 'Endreinigung',
         quantity: 1,
         unitPrice: Math.round(cleanNet * 100) / 100,
-        vatRate: 19,
+        vatRate: 7,
         vatAmount: Math.round(cleanVat * 100) / 100,
         total: Math.round(cleaningFee * 100) / 100,
       })
     }
 
-    // Beherbergungssteuer (0% USt – passed through to city)
+    // Beherbergungssteuer (calculated from city_tax_rules)
     if (cityTax > 0) {
-      const taxCity = (booking.properties as Record<string, unknown>)?.accommodation_tax_city as string | undefined
-      const cityLabel = taxCity ? ` (${taxCity})` : ''
+      const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
+      const isAirbnb = taxResult?.isExempt && taxResult?.exemptReason === 'Airbnb führt ab'
+      const airbnbNote = isAirbnb ? ', über Airbnb abgeführt' : ''
+      const taxVatAmount = isKlein ? 0 : Math.round(cityTax * (taxVatRate / 100) * 100) / 100
       items.push({
-        description: booking.channel === 'Airbnb'
-          ? `Beherbergungssteuer${cityLabel}, über Airbnb abgeführt`
-          : `Beherbergungssteuer${cityLabel}`,
+        description: `Beherbergungssteuer${cityLabel}${airbnbNote}`,
         quantity: 1,
         unitPrice: Math.round(cityTax * 100) / 100,
-        vatRate: 0,
-        vatAmount: 0,
-        total: Math.round(cityTax * 100) / 100,
+        vatRate: taxVatRate,
+        vatAmount: taxVatAmount,
+        total: Math.round((cityTax + taxVatAmount) * 100) / 100,
       })
     }
 
@@ -207,13 +223,24 @@ function RechnungenContent() {
     ])
   }
 
-  function updateLineItem(index: number, field: keyof InvoiceLineItem, value: string | number) {
+  function updateLineItem(index: number, field: keyof InvoiceLineItem | 'unitPriceGross', value: string | number) {
     setLineItems((prev) => {
       const updated = [...prev]
-      const item = { ...updated[index], [field]: value }
+      const item = { ...updated[index] }
       const isKlein = settings?.is_kleinunternehmer ?? false
 
-      if (field === 'quantity' || field === 'unitPrice' || field === 'vatRate') {
+      if (field === 'unitPriceGross') {
+        // Reverse-calculate net from gross
+        const grossPrice = Number(value)
+        const vatRate = Number(item.vatRate)
+        item.unitPrice = isKlein || vatRate === 0
+          ? grossPrice
+          : Math.round((grossPrice / (1 + vatRate / 100)) * 100) / 100
+      } else {
+        ;(item as Record<string, unknown>)[field] = value
+      }
+
+      if (['quantity', 'unitPrice', 'unitPriceGross', 'vatRate'].includes(field)) {
         const netTotal = Number(item.quantity) * Number(item.unitPrice)
         item.vatAmount = isKlein ? 0 : Math.round(netTotal * (Number(item.vatRate) / 100) * 100) / 100
         item.total = Math.round((netTotal + item.vatAmount) * 100) / 100
@@ -410,7 +437,7 @@ function RechnungenContent() {
                   value={selectedBookingId}
                   onValueChange={(v) => {
                     const booking = bookings.find((b) => b.id === v)
-                    if (booking) fillFromBooking(booking, settings)
+                    if (booking) fillFromBooking(booking, settings, cityRules)
                   }}
                 >
                   <SelectTrigger>
@@ -450,66 +477,81 @@ function RechnungenContent() {
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {lineItems.map((item, i) => (
-                    <div key={i} className="grid grid-cols-12 gap-2 items-end">
-                      <div className="col-span-4">
-                        {i === 0 && <Label className="text-xs">Beschreibung</Label>}
-                        <Input
-                          value={item.description}
-                          onChange={(e) => updateLineItem(i, 'description', e.target.value)}
-                          placeholder="Leistung"
-                        />
+                  {lineItems.map((item, i) => {
+                    const isKlein = settings?.is_kleinunternehmer ?? false
+                    const grossUnitPrice = isKlein || item.vatRate === 0
+                      ? item.unitPrice
+                      : Math.round(item.unitPrice * (1 + item.vatRate / 100) * 100) / 100
+                    return (
+                      <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-3">
+                          {i === 0 && <Label className="text-xs">Beschreibung</Label>}
+                          <Input
+                            value={item.description}
+                            onChange={(e) => updateLineItem(i, 'description', e.target.value)}
+                            placeholder="Leistung"
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          {i === 0 && <Label className="text-xs">Menge</Label>}
+                          <Input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => updateLineItem(i, 'quantity', Number(e.target.value))}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          {i === 0 && <Label className="text-xs">Netto-EP</Label>}
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={item.unitPrice}
+                            onChange={(e) => updateLineItem(i, 'unitPrice', Number(e.target.value))}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          {i === 0 && <Label className="text-xs">Brutto-EP</Label>}
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={grossUnitPrice}
+                            onChange={(e) => updateLineItem(i, 'unitPriceGross', Number(e.target.value))}
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          {i === 0 && <Label className="text-xs">USt%</Label>}
+                          <Select
+                            value={String(item.vatRate)}
+                            onValueChange={(v) => updateLineItem(i, 'vatRate', Number(v))}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">0%</SelectItem>
+                              <SelectItem value="7">7%</SelectItem>
+                              <SelectItem value="19">19%</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-2">
+                          {i === 0 && <Label className="text-xs">Gesamt</Label>}
+                          <Input value={formatEur(item.total)} disabled />
+                        </div>
+                        <div className="col-span-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeLineItem(i)}
+                            className="text-destructive"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="col-span-1">
-                        {i === 0 && <Label className="text-xs">Menge</Label>}
-                        <Input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) => updateLineItem(i, 'quantity', Number(e.target.value))}
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        {i === 0 && <Label className="text-xs">Netto-EP</Label>}
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={item.unitPrice}
-                          onChange={(e) => updateLineItem(i, 'unitPrice', Number(e.target.value))}
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        {i === 0 && <Label className="text-xs">USt%</Label>}
-                        <Select
-                          value={String(item.vatRate)}
-                          onValueChange={(v) => updateLineItem(i, 'vatRate', Number(v))}
-                        >
-                          <SelectTrigger className="h-9">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="0">0%</SelectItem>
-                            <SelectItem value="7">7%</SelectItem>
-                            <SelectItem value="19">19%</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="col-span-2">
-                        {i === 0 && <Label className="text-xs">Gesamt</Label>}
-                        <Input value={formatEur(item.total)} disabled />
-                      </div>
-                      <div className="col-span-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeLineItem(i)}
-                          className="text-destructive"
-                        >
-                          <Ban className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {/* Totals */}

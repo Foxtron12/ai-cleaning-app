@@ -13,8 +13,8 @@
 | ID | Feature | Status | Spec | Created |
 |----|---------|--------|------|---------|
 | PROJ-1 | Dashboard-Übersicht | Planned | [PROJ-1-dashboard-uebersicht.md](PROJ-1-dashboard-uebersicht.md) | 2026-03-03 |
-| PROJ-2 | Buchungsmanagement | Planned | [PROJ-2-buchungsmanagement.md](PROJ-2-buchungsmanagement.md) | 2026-03-03 |
-| PROJ-3 | Financial Reporting | Planned | [PROJ-3-financial-reporting.md](PROJ-3-financial-reporting.md) | 2026-03-03 |
+| PROJ-2 | Buchungsmanagement | In Review | [PROJ-2-buchungsmanagement.md](PROJ-2-buchungsmanagement.md) | 2026-03-03 |
+| PROJ-3 | Financial Reporting | Deployed | [PROJ-3-financial-reporting.md](PROJ-3-financial-reporting.md) | 2026-03-03 |
 | PROJ-4 | Meldebescheinigung | Planned | [PROJ-4-meldebescheinigung.md](PROJ-4-meldebescheinigung.md) | 2026-03-03 |
 | PROJ-5 | Rechnungserstellung (PDF) | Planned | [PROJ-5-rechnungserstellung.md](PROJ-5-rechnungserstellung.md) | 2026-03-03 |
 | PROJ-6 | Beherbergungssteuer-Tracking | Planned | [PROJ-6-beherbergungssteuer.md](PROJ-6-beherbergungssteuer.md) | 2026-03-03 |
@@ -31,12 +31,15 @@
 ### Phase 1 – MVP (Live-Daten aus Smoobu, Supabase DB)
 1. **PROJ-7** → Smoobu API-Sync + Supabase DB-Schema (Fundament)
 2. **PROJ-1** → Dashboard-Übersicht (Layout, Sidebar, KPI-Cards)
-3. **PROJ-2** → Buchungsmanagement (Liste, Filter, Detail-Sheet)
+3. **PROJ-2** → Buchungsmanagement (Liste, Filter, Detail-Sheet) — Wizard-Basis ohne Stripe/Rechnung
 4. **PROJ-3** → Financial Reporting (Charts, Export)
 5. **PROJ-4** → Meldebescheinigung (PDF-Generierung)
 6. **PROJ-5** → Rechnungserstellung (PDF, § 14 UStG konform)
-7. **PROJ-6** → Beherbergungssteuer-Tracking (Dresden 6%)
+7. **PROJ-6** → Beherbergungssteuer-Tracking
 
-### Phase 2 – Erweiterungen
-8. **PROJ-8** → Direktbuchungen + Stripe-Zahlung
+### Phase 2 – Direktbuchungs-Workflow
+8. **PROJ-8** → Stripe-Zahlung (Zahlungslink-Generierung für PROJ-2 Wizard)
+> Nach PROJ-5 + PROJ-8: PROJ-2 Wizard ist vollständig (Rechnung + Stripe-Link nach Buchungsanlage)
+
+### Phase 3 – Erweiterungen
 9. **PROJ-9** → Lexoffice-Integration (Rechnungen in Buchhaltung)

@@ -34,17 +34,30 @@ export async function POST() {
         .single()
 
       if (existing) {
-        // Update existing property
+        // Update existing property – sync location + set tax city if not manually configured
+        const updateData: Record<string, unknown> = {
+          name: propertyData.name,
+          street: propertyData.street,
+          city: propertyData.city,
+          zip: propertyData.zip,
+          country: propertyData.country,
+          timezone: propertyData.timezone,
+          synced_at: new Date().toISOString(),
+        }
+        // Auto-set accommodation_tax_city from Smoobu location if currently null
+        if (propertyData.city) {
+          const { data: currentProp } = await supabase
+            .from('properties')
+            .select('accommodation_tax_city')
+            .eq('id', existing.id)
+            .single()
+          if (!currentProp?.accommodation_tax_city) {
+            updateData.accommodation_tax_city = propertyData.city
+          }
+        }
         await supabase
           .from('properties')
-          .update({
-            name: propertyData.name,
-            street: propertyData.street,
-            city: propertyData.city,
-            zip: propertyData.zip,
-            country: propertyData.country,
-            synced_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq('id', existing.id)
         propertyMap.set(apartment.id, existing.id)
       } else {

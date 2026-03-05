@@ -40,6 +40,11 @@ const navItems = [
     icon: CalendarDays,
   },
   {
+    title: 'Objekte',
+    href: '/dashboard/properties',
+    icon: Building2,
+  },
+  {
     title: 'Reporting',
     href: '/dashboard/reporting',
     icon: BarChart3,

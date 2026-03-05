@@ -35,7 +35,7 @@ export type InvoiceStatus = 'draft' | 'created' | 'paid' | 'cancelled'
 export type RegistrationFormStatus = 'created' | 'printed' | 'signed'
 
 // Accommodation tax model
-export type AccommodationTaxModel = 'net_percentage' | 'gross_percentage' | 'per_person_per_night'
+export type AccommodationTaxModel = 'net_percentage' | 'gross_percentage' | 'per_person_per_night' | 'per_room_per_night'
 
 // Invoice line item (stored as JSONB)
 export interface InvoiceLineItem {
@@ -93,6 +93,7 @@ export interface SmoobuApartment {
     country?: string
   }
   timezone?: string
+  timeZone?: string // Smoobu API uses camelCase
   currency?: string
 }
 

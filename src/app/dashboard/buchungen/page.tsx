@@ -2,14 +2,16 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
-import { de } from 'date-fns/locale'
-import { Download, Search } from 'lucide-react'
+import { Download, Search, Plus } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import type { BookingWithProperty } from '@/lib/types'
-import { BookingTable } from '@/components/dashboard/booking-table'
+import { BookingTable, type SortColumn, type SortDirection } from '@/components/dashboard/booking-table'
 import { BookingDetailSheet } from '@/components/dashboard/booking-detail-sheet'
+import { CreateBookingWizard } from '@/components/dashboard/create-booking-wizard'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { calculateAccommodationTax, getTaxConfigForProperty, getCleaningFee } from '@/lib/calculators/accommodation-tax'
 import {
   Select,
   SelectContent,
@@ -28,9 +30,9 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Storniert',
 }
 
-type TimeRange = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'all'
+type TimeRange = 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'all' | 'custom'
 
-function getDateRange(range: TimeRange): { from: string; to: string } | null {
+function getDateRange(range: Exclude<TimeRange, 'custom'>): { from: string; to: string } | null {
   const now = new Date()
   switch (range) {
     case 'this_month':
@@ -64,39 +66,53 @@ function getDateRange(range: TimeRange): { from: string; to: string } | null {
   }
 }
 
-function exportCSV(bookings: BookingWithProperty[]) {
-  const headers = [
-    'Gast', 'E-Mail', 'Objekt', 'Check-in', 'Check-out', 'Nächte',
-    'Kanal', 'Status', 'Brutto', 'Provision', 'Host-Auszahlung',
-    'Reinigung', 'Kaution',
-  ]
-  const rows = bookings.map((b) => [
-    [b.guest_firstname, b.guest_lastname].filter(Boolean).join(' '),
-    b.guest_email ?? '',
-    b.properties?.name ?? '',
-    b.check_in,
-    b.check_out,
-    b.nights ?? '',
-    b.channel,
-    b.status,
-    b.amount_gross ?? '',
-    b.commission_amount ?? '',
-    b.amount_host_payout ?? '',
-    b.cleaning_fee ?? '',
-    b.security_deposit ?? '',
-  ])
+function exportXLSX(bookings: BookingWithProperty[]) {
+  const rows = bookings.map((b) => {
+    const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, []) : null
+    const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig) : null
+    const cityTax = taxResult?.taxAmount ?? 0
 
-  const csv = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
-    .join('\n')
+    const paidByGuest = b.channel === 'Airbnb'
+      ? (b.amount_gross ?? 0) + cityTax
+      : (b.amount_gross ?? 0)
 
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `buchungen-${format(new Date(), 'yyyy-MM-dd')}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+    const bruttoWithoutCityTax = b.channel === 'Booking.com'
+      ? (b.amount_gross ?? 0) - cityTax
+      : (b.amount_gross ?? 0)
+
+    const nettoAmount = bruttoWithoutCityTax > 0
+      ? Math.round((bruttoWithoutCityTax / 1.07) * 100) / 100
+      : 0
+
+    const hostPayout = (b.amount_host_payout ?? 0) > 0
+      ? b.amount_host_payout ?? 0
+      : (b.amount_gross ?? 0) - (b.commission_amount ?? 0)
+
+    return {
+      'Gast': [b.guest_firstname, b.guest_lastname].filter(Boolean).join(' '),
+      'E-Mail': b.guest_email ?? '',
+      'Telefon': b.guest_phone ?? '',
+      'Objekt': b.properties?.name ?? '',
+      'Check-in': b.check_in,
+      'Check-out': b.check_out,
+      'Nächte': b.nights ?? '',
+      'Kanal': b.channel,
+      'Status': b.status,
+      'Vom Gast bezahlt (€)': paidByGuest,
+      'Bruttobetrag ohne City Tax (€)': bruttoWithoutCityTax,
+      'Nettobetrag ohne MwSt 7% (€)': nettoAmount,
+      'Provision (€)': b.commission_amount ?? 0,
+      'Host-Auszahlung (€)': hostPayout,
+      'Reinigungsgebühr (€)': getCleaningFee(b),
+      'Beherbergungssteuer (€)': cityTax,
+      'Kaution (€)': b.security_deposit ?? 0,
+    }
+  })
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Buchungen')
+  XLSX.writeFile(wb, `buchungen-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
 }
 
 const PAGE_SIZE = 20
@@ -108,13 +124,21 @@ export default function BuchungenPage() {
   const [channel, setChannel] = useState('Alle')
   const [status, setStatus] = useState('Alle')
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [page, setPage] = useState(0)
   const [selectedBooking, setSelectedBooking] = useState<BookingWithProperty | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [sortColumn, setSortColumn] = useState<SortColumn>('check_in')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
   useEffect(() => {
     async function fetchBookings() {
-      const dateRange = getDateRange(timeRange)
+      const dateRange = timeRange === 'custom'
+        ? (customFrom && customTo ? { from: customFrom, to: customTo } : null)
+        : getDateRange(timeRange as Exclude<TimeRange, 'custom'>)
+
       let query = supabase
         .from('bookings')
         .select('*, properties(*)')
@@ -132,7 +156,13 @@ export default function BuchungenPage() {
     setLoading(true)
     setPage(0)
     fetchBookings()
-  }, [timeRange])
+  }, [timeRange, customFrom, customTo])
+
+  const handleSort = useCallback((col: SortColumn) => {
+    setSortDirection((prev) => col === sortColumn ? (prev === 'asc' ? 'desc' : 'asc') : 'desc')
+    setSortColumn(col)
+    setPage(0)
+  }, [sortColumn])
 
   const filtered = useMemo(() => {
     let result = allBookings
@@ -153,8 +183,24 @@ export default function BuchungenPage() {
       )
     }
 
+    result = [...result].sort((a, b) => {
+      const dir = sortDirection === 'asc' ? 1 : -1
+      switch (sortColumn) {
+        case 'guest': {
+          const nameA = `${a.guest_lastname ?? ''} ${a.guest_firstname ?? ''}`.toLowerCase()
+          const nameB = `${b.guest_lastname ?? ''} ${b.guest_firstname ?? ''}`.toLowerCase()
+          return nameA.localeCompare(nameB) * dir
+        }
+        case 'check_in': return a.check_in.localeCompare(b.check_in) * dir
+        case 'check_out': return a.check_out.localeCompare(b.check_out) * dir
+        case 'nights': return ((a.nights ?? 0) - (b.nights ?? 0)) * dir
+        case 'amount_gross': return ((a.amount_gross ?? 0) - (b.amount_gross ?? 0)) * dir
+        default: return 0
+      }
+    })
+
     return result
-  }, [allBookings, channel, status, search])
+  }, [allBookings, channel, status, search, sortColumn, sortDirection])
 
   const paginated = useMemo(() => {
     return filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -171,10 +217,16 @@ export default function BuchungenPage() {
     <div className="space-y-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Buchungen</h2>
-        <Button variant="outline" size="sm" onClick={() => exportCSV(filtered)}>
-          <Download className="mr-2 h-4 w-4" />
-          CSV Export
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportXLSX(filtered)}>
+            <Download className="mr-2 h-4 w-4" />
+            XLSX Export
+          </Button>
+          <Button size="sm" onClick={() => setWizardOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Buchung anlegen
+          </Button>
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -188,7 +240,7 @@ export default function BuchungenPage() {
             className="pl-9"
           />
         </div>
-        <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
+        <Select value={timeRange} onValueChange={(v) => { setTimeRange(v as TimeRange); setPage(0) }}>
           <SelectTrigger className="w-[160px]">
             <SelectValue />
           </SelectTrigger>
@@ -198,8 +250,26 @@ export default function BuchungenPage() {
             <SelectItem value="this_quarter">Dieses Quartal</SelectItem>
             <SelectItem value="this_year">Dieses Jahr</SelectItem>
             <SelectItem value="all">Alle</SelectItem>
+            <SelectItem value="custom">Benutzerdefiniert</SelectItem>
           </SelectContent>
         </Select>
+        {timeRange === 'custom' && (
+          <>
+            <Input
+              type="date"
+              value={customFrom}
+              onChange={(e) => { setCustomFrom(e.target.value); setPage(0) }}
+              className="w-[145px]"
+            />
+            <span className="text-muted-foreground text-sm">–</span>
+            <Input
+              type="date"
+              value={customTo}
+              onChange={(e) => { setCustomTo(e.target.value); setPage(0) }}
+              className="w-[145px]"
+            />
+          </>
+        )}
         <Select value={channel} onValueChange={(v) => { setChannel(v); setPage(0) }}>
           <SelectTrigger className="w-[150px]">
             <SelectValue />
@@ -236,6 +306,9 @@ export default function BuchungenPage() {
         bookings={paginated}
         loading={loading}
         onRowClick={handleRowClick}
+        sortColumn={sortColumn}
+        sortDirection={sortDirection}
+        onSort={handleSort}
       />
 
       {/* Pagination */}
@@ -268,6 +341,15 @@ export default function BuchungenPage() {
         booking={selectedBooking}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+      />
+
+      {/* Direktbuchungs-Wizard */}
+      <CreateBookingWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onBookingCreated={(booking) => {
+          setAllBookings((prev) => [booking, ...prev])
+        }}
       />
     </div>
   )

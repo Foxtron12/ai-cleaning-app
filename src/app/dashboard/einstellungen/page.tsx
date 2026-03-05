@@ -22,8 +22,21 @@ export default function EinstellungenPage() {
 
   useEffect(() => {
     async function fetchSettings() {
-      const { data } = await supabase.from('settings').select('*').limit(1).single()
-      setSettings(data)
+      // Explicitly select columns – never expose smoobu_api_key to the browser
+      const { data } = await supabase
+        .from('settings')
+        .select(`
+          id, created_at, updated_at,
+          landlord_name, landlord_street, landlord_zip, landlord_city,
+          landlord_phone, landlord_email, landlord_website,
+          tax_number, vat_id, finanzamt, is_kleinunternehmer,
+          bank_iban, bank_bic, bank_name,
+          invoice_prefix, invoice_next_number, invoice_payment_days,
+          smoobu_last_sync
+        `)
+        .limit(1)
+        .single()
+      setSettings(data as Parameters<typeof setSettings>[0])
       setLoading(false)
     }
     fetchSettings()

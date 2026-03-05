@@ -1,7 +1,11 @@
 import type { Booking, Property, CityTaxRule } from '../types'
 import { parsePriceDetails, extractCityTaxFromDetails } from '../smoobu'
 
-export type TaxModel = 'net_percentage' | 'gross_percentage' | 'per_person_per_night'
+export type TaxModel =
+  | 'net_percentage'
+  | 'gross_percentage'
+  | 'per_person_per_night'
+  | 'per_room_per_night'
 
 /** Default cleaning fee when Smoobu doesn't provide one */
 export const DEFAULT_CLEANING_FEE = 50
@@ -11,6 +15,9 @@ export interface TaxConfig {
   rate: number // percentage or EUR amount
   city: string
   defaultCleaningFee?: number
+  vatType?: string        // '7' | '19' | '0' | 'exempt'
+  personLimit?: number    // max persons for calculation
+  taxTreatment?: string   // 'exclusive' | 'inclusive'
 }
 
 export interface TaxResult {
@@ -18,6 +25,8 @@ export interface TaxResult {
   taxAmount: number
   isExempt: boolean
   exemptReason?: string
+  vatType?: string
+  taxTreatment?: string
 }
 
 /**
@@ -43,6 +52,9 @@ export function getTaxConfigForProperty(
       model: rule.tax_model as TaxModel,
       rate: rule.tax_rate,
       city: rule.city,
+      vatType: rule.vat_type ?? '0',
+      personLimit: rule.person_limit ?? undefined,
+      taxTreatment: rule.tax_treatment ?? 'exclusive',
     }
   }
   return {
@@ -54,7 +66,6 @@ export function getTaxConfigForProperty(
 
 /**
  * Calculate accommodation tax for a booking.
- * Dresden default: 6% on gross price including cleaning fee.
  *
  * Exemptions:
  * - Airbnb bookings (Airbnb remits tax directly to the city)
@@ -64,29 +75,22 @@ export function calculateAccommodationTax(
   booking: Booking,
   config: TaxConfig
 ): TaxResult {
-  // Airbnb remits accommodation tax directly to the city
-  if (booking.channel === 'Airbnb') {
-    return {
-      taxableAmount: 0,
-      taxAmount: 0,
-      isExempt: true,
-      exemptReason: 'Airbnb führt ab',
-    }
-  }
+  const baseResult = { vatType: config.vatType, taxTreatment: config.taxTreatment }
 
-  // Business travelers are exempt
+  // Business travelers are exempt (no tax to calculate)
   if (booking.trip_purpose === 'business') {
     return {
       taxableAmount: 0,
       taxAmount: 0,
       isExempt: true,
       exemptReason: 'Geschäftsreise',
+      ...baseResult,
     }
   }
 
   const nights = booking.nights ?? 0
   if (nights === 0) {
-    return { taxableAmount: 0, taxAmount: 0, isExempt: false }
+    return { taxableAmount: 0, taxAmount: 0, isExempt: false, ...baseResult }
   }
 
   const cleaningFee = getCleaningFee(booking, config.defaultCleaningFee)
@@ -103,8 +107,9 @@ export function calculateAccommodationTax(
         const cityTax = extractCityTaxFromDetails(details) ?? 0
         gross -= cityTax
       }
-      const bookingCleaningInGross = (booking.cleaning_fee ?? 0) > 0
-      taxableAmount = bookingCleaningInGross ? gross : gross + cleaningFee
+      // Airbnb: cleaning is always included in amount_gross (even though booking.cleaning_fee = 0)
+      const cleaningInGross = (booking.cleaning_fee ?? 0) > 0 || booking.channel === 'Airbnb'
+      taxableAmount = cleaningInGross ? gross : gross + cleaningFee
       taxAmount = taxableAmount * (config.rate / 100)
       break
     }
@@ -115,9 +120,18 @@ export function calculateAccommodationTax(
       break
     }
     case 'per_person_per_night': {
-      // Flat rate per person per night
+      // Flat rate per person per night (with optional person limit)
       const adults = booking.adults ?? 1
-      taxableAmount = config.rate * adults * nights
+      const effectivePersons = config.personLimit
+        ? Math.min(adults, config.personLimit)
+        : adults
+      taxableAmount = config.rate * effectivePersons * nights
+      taxAmount = taxableAmount
+      break
+    }
+    case 'per_room_per_night': {
+      // Flat rate per room per night (1 room per booking)
+      taxableAmount = config.rate * nights
       taxAmount = taxableAmount
       break
     }
@@ -126,9 +140,18 @@ export function calculateAccommodationTax(
       taxAmount = 0
   }
 
-  return {
+  const result: TaxResult = {
     taxableAmount: Math.round(taxableAmount * 100) / 100,
     taxAmount: Math.round(taxAmount * 100) / 100,
     isExempt: false,
+    ...baseResult,
   }
+
+  // Airbnb: tax is calculated (for invoices) but collected by Airbnb
+  if (booking.channel === 'Airbnb') {
+    result.isExempt = true
+    result.exemptReason = 'Airbnb führt ab'
+  }
+
+  return result
 }

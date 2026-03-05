@@ -69,10 +69,24 @@ export class SmoobuClient {
     }
   }
 
-  /** Fetch all apartments/properties */
+  /** Fetch all apartments/properties with full details (incl. location) */
   async getApartments(): Promise<SmoobuApartment[]> {
-    const data = await this.fetch<{ apartments: SmoobuApartment[] }>('/apartments')
-    return data.apartments ?? []
+    // List endpoint only returns { id, name } – no location data
+    const data = await this.fetch<{ apartments: Array<{ id: number; name: string }> }>('/apartments')
+    const list = data.apartments ?? []
+
+    // Fetch each apartment individually for full details (location, timezone, etc.)
+    const detailed = await Promise.all(
+      list.map(async (apt) => {
+        try {
+          return await this.fetch<SmoobuApartment>(`/apartments/${apt.id}`)
+        } catch {
+          // Fallback to list data if detail fetch fails
+          return { id: apt.id, name: apt.name } as SmoobuApartment
+        }
+      })
+    )
+    return detailed
   }
 
   /** Fetch reservations with date range */
@@ -93,6 +107,108 @@ export class SmoobuClient {
     if (params.modifiedFrom) searchParams.set('modifiedFrom', params.modifiedFrom)
 
     return this.fetch<SmoobuReservationsResponse>(`/reservations?${searchParams}`)
+  }
+
+  /** Check rates & availability for a property + date range */
+  async getRates(params: {
+    apartmentId: number
+    arrivalDate: string
+    departureDate: string
+    adults?: number
+    children?: number
+    promoCode?: string
+  }): Promise<{
+    available: boolean
+    price: number | null
+    priceDetails: string | null
+    cleaningFee: number | null
+    currency: string
+  }> {
+    // Smoobu rates endpoint uses apartments[] array notation
+    const searchParams = new URLSearchParams()
+    searchParams.set('apartments[]', String(params.apartmentId))
+    searchParams.set('start_date', params.arrivalDate)
+    searchParams.set('end_date', params.departureDate)
+
+    // Response is wrapped: { "data": { "<apartmentId>": { "<date>": { available, price, ... } } } }
+    const response = await this.fetch<{ data: Record<string, Record<string, unknown>> }>(
+      `/rates?${searchParams}`
+    )
+
+    const apartmentData = response.data?.[String(params.apartmentId)]
+
+    if (!apartmentData) {
+      return { available: false, price: null, priceDetails: null, cleaningFee: null, currency: 'EUR' }
+    }
+
+    // Filter to date-keyed entries only, excluding the departure date (not a chargeable night)
+    const dateEntries = Object.entries(apartmentData).filter(([key]) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(key) && key < params.departureDate
+    )
+
+    if (dateEntries.length === 0) {
+      return { available: false, price: null, priceDetails: null, cleaningFee: null, currency: 'EUR' }
+    }
+
+    // available is 0 or 1 (integer), not boolean
+    const allAvailable = dateEntries.every(
+      ([, val]) => (val as Record<string, unknown>)?.available === 1
+    )
+
+    if (!allAvailable) {
+      return { available: false, price: null, priceDetails: null, cleaningFee: null, currency: 'EUR' }
+    }
+
+    // Sum up nightly prices
+    const totalPrice = dateEntries.reduce((sum, [, val]) => {
+      const price = (val as Record<string, unknown>)?.price
+      return sum + (typeof price === 'number' ? price : 0)
+    }, 0)
+
+    return {
+      available: true,
+      price: totalPrice,
+      priceDetails: null,
+      cleaningFee: null,
+      currency: 'EUR',
+    }
+  }
+
+  /** Create a reservation in Smoobu */
+  async createReservation(params: {
+    apartmentId: number
+    arrivalDate: string
+    departureDate: string
+    firstName: string
+    lastName: string
+    email: string
+    phone?: string
+    adults?: number
+    children?: number
+    price: number
+    cleaningFee?: number
+    note?: string
+  }): Promise<{ id: number }> {
+    const body = {
+      apartmentId: params.apartmentId,
+      arrivalDate: params.arrivalDate,
+      departureDate: params.departureDate,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      email: params.email,
+      phone: params.phone ?? '',
+      adults: params.adults ?? 1,
+      children: params.children ?? 0,
+      price: params.price,
+      notice: params.note ?? '',
+    }
+
+    const result = await this.fetch<{ id: number }>('/reservations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+
+    return result
   }
 
   /** Fetch ALL reservations (paginated) for a date range */
@@ -168,6 +284,18 @@ export function extractCityTaxFromDetails(details: ParsedPriceDetail[]): number 
   return item?.amount ?? null
 }
 
+/**
+ * Extract "Payment charge is EUR X.XX" from Booking.com notes.
+ * Returns the amount or 0 if not found.
+ */
+export function extractPaymentChargeFromNotes(notice: string | null | undefined): number {
+  if (!notice) return 0
+  const match = notice.match(/Payment charge is EUR\s*([\d.,]+)/i)
+  if (!match) return 0
+  const amount = parseFloat(match[1].replace(',', '.'))
+  return isNaN(amount) ? 0 : amount
+}
+
 /** Map Smoobu channel name to our BookingChannel type */
 function mapChannel(channelName: string): BookingChannel {
   const normalized = channelName.toLowerCase()
@@ -189,7 +317,7 @@ export function mapSmoobuApartment(apartment: SmoobuApartment): PropertyInsert {
     city: apartment.location?.city ?? null,
     zip: apartment.location?.zip ?? null,
     country: apartment.location?.country ?? 'DE',
-    timezone: apartment.timezone ?? 'Europe/Berlin',
+    timezone: apartment.timeZone ?? apartment.timezone ?? 'Europe/Berlin',
     currency: apartment.currency ?? 'EUR',
     // Tax city from Smoobu location (resolved via city_tax_rules on sync)
     accommodation_tax_city: apartment.location?.city ?? null,
@@ -219,6 +347,15 @@ export function mapSmoobuReservation(
     commissionAmount = reservation.price - reservation['host-payout']
   }
 
+  // Booking.com: add "Payment charge" from notes to commission
+  const channel = mapChannel(reservation.channel?.name ?? 'Direct')
+  if (channel === 'Booking.com') {
+    const paymentCharge = extractPaymentChargeFromNotes(reservation.notice)
+    if (paymentCharge > 0) {
+      commissionAmount = (commissionAmount ?? 0) + paymentCharge
+    }
+  }
+
   // Parse price-details to extract cleaning fee if the API field is missing
   const priceDetailsRaw = reservation['price-details'] ?? null
   const parsedDetails = parsePriceDetails(priceDetailsRaw)
@@ -243,7 +380,7 @@ export function mapSmoobuReservation(
     check_out: reservation.departure,
     adults: reservation.adults ?? 1,
     children: reservation.children ?? 0,
-    channel: mapChannel(reservation.channel?.name ?? 'Direct'),
+    channel,
     channel_id: reservation.channel?.id ?? null,
     amount_gross: reservation.price ?? null,
     amount_host_payout: reservation['host-payout'] ?? null,
