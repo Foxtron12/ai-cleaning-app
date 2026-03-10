@@ -300,11 +300,12 @@ export function extractPaymentChargeFromNotes(notice: string | null | undefined)
 function mapChannel(channelName: string): BookingChannel {
   const normalized = channelName.toLowerCase()
   if (normalized.includes('airbnb')) return 'Airbnb'
+  // "Direct booking" must be checked BEFORE "booking" to avoid false match
+  if (normalized.includes('direct') || normalized.includes('manual') || normalized.includes('homepage') || normalized.includes('website')) return 'Direct'
   if (normalized.includes('booking.com') || normalized.includes('booking')) return 'Booking.com'
   if (normalized.includes('vrbo') || normalized.includes('homeaway')) return 'VRBO'
   if (normalized.includes('expedia')) return 'Expedia'
   if (normalized.includes('google')) return 'Google'
-  if (normalized.includes('direct') || normalized.includes('manual') || normalized.includes('homepage')) return 'Direct'
   return 'Other'
 }
 

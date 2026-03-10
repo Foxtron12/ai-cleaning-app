@@ -6,6 +6,7 @@ import { format, addDays } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import { Plus, Download, FileText, Ban } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
 import type { BookingWithProperty, Settings, CityTaxRule } from '@/lib/types'
@@ -50,10 +51,29 @@ interface InvoiceRow {
   id: string
   invoice_number: string
   issued_date: string | null
+  due_date: string | null
   total_gross: number
+  total_vat: number
+  subtotal_net: number
+  vat_7_net: number | null
+  vat_7_amount: number | null
+  vat_19_net: number | null
+  vat_19_amount: number | null
   status: string
   booking_id: string | null
+  is_kleinunternehmer: boolean | null
+  service_period_start: string | null
+  service_period_end: string | null
+  landlord_snapshot: Record<string, string>
   guest_snapshot: Record<string, string>
+  line_items: Array<{
+    description: string
+    quantity: number
+    unit_price: number
+    vat_rate: number
+    vat_amount: number
+    total: number
+  }>
 }
 
 function formatEur(value: number): string {
@@ -93,6 +113,8 @@ function RechnungenContent() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const { toast } = useToast()
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState('')
@@ -107,7 +129,7 @@ function RechnungenContent() {
         await Promise.all([
           supabase
             .from('invoices')
-            .select('id, invoice_number, issued_date, total_gross, status, booking_id, guest_snapshot')
+            .select('id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items')
             .order('created_at', { ascending: false }),
           supabase
             .from('bookings')
@@ -131,6 +153,26 @@ function RechnungenContent() {
       setSettings(settingsData as Settings | null)
       setCityRules(rules)
       setLoading(false)
+
+      // Auto-generate invoice drafts for bookings without invoices
+      try {
+        const res = await fetch('/api/rechnungen/auto-generate', { method: 'POST' })
+        const result = await res.json()
+        if (result.created > 0) {
+          toast({
+            title: `${result.created} neue Rechnungsentwürfe erstellt`,
+            description: 'Automatisch aus Buchungsdaten generiert.',
+          })
+          // Refetch invoices to show newly created drafts
+          const { data: refreshed } = await supabase
+            .from('invoices')
+            .select('id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items')
+            .order('created_at', { ascending: false })
+          if (refreshed) setInvoices(refreshed as InvoiceRow[])
+        }
+      } catch {
+        // Non-blocking: page still works without auto-generation
+      }
 
       if (bookingIdParam) {
         const booking = (bookingsData ?? []).find(
@@ -261,7 +303,7 @@ function RechnungenContent() {
     setLineItems((prev) => prev.filter((_, i) => i !== index))
   }
 
-  async function handleSaveAndGeneratePDF() {
+  async function handleSave() {
     if (!settings) return
     setGenerating(true)
     try {
@@ -284,7 +326,6 @@ function RechnungenContent() {
       const prefix = settings.invoice_prefix ?? 'RE'
       const nextNumber = settings.invoice_next_number ?? 1
       const invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
-      const dueDateStr = format(addDays(new Date(issuedDate), paymentDays), 'dd.MM.yyyy')
 
       const selectedBooking = bookings.find((b) => b.id === selectedBookingId)
 
@@ -298,31 +339,35 @@ function RechnungenContent() {
         total: item.total,
       }))
 
+      const landlordSnapshotData = {
+        name: settings.landlord_name ?? '',
+        street: settings.landlord_street ?? '',
+        city: settings.landlord_city ?? '',
+        zip: settings.landlord_zip ?? '',
+        country: settings.landlord_country ?? 'DE',
+        phone: settings.landlord_phone ?? '',
+        email: settings.landlord_email ?? '',
+        tax_number: settings.tax_number ?? '',
+        vat_id: settings.vat_id ?? '',
+        bank_iban: settings.bank_iban ?? '',
+        bank_bic: settings.bank_bic ?? '',
+        bank_name: settings.bank_name ?? '',
+      }
+
+      const guestSnapshotData = {
+        firstname: guestName.split(' ')[0] ?? '',
+        lastname: guestName.split(' ').slice(1).join(' ') ?? '',
+        address: guestAddress,
+      }
+
       const { data: saved } = await supabase
         .from('invoices')
         .insert({
           invoice_number: invoiceNumber,
           booking_id: selectedBookingId || null,
           property_id: selectedBooking?.property_id ?? null,
-          landlord_snapshot: {
-            name: settings.landlord_name ?? '',
-            street: settings.landlord_street ?? '',
-            city: settings.landlord_city ?? '',
-            zip: settings.landlord_zip ?? '',
-            country: settings.landlord_country ?? 'DE',
-            phone: settings.landlord_phone ?? '',
-            email: settings.landlord_email ?? '',
-            tax_number: settings.tax_number ?? '',
-            vat_id: settings.vat_id ?? '',
-            bank_iban: settings.bank_iban ?? '',
-            bank_bic: settings.bank_bic ?? '',
-            bank_name: settings.bank_name ?? '',
-          },
-          guest_snapshot: {
-            firstname: guestName.split(' ')[0] ?? '',
-            lastname: guestName.split(' ').slice(1).join(' ') ?? '',
-            address: guestAddress,
-          },
+          landlord_snapshot: landlordSnapshotData,
+          guest_snapshot: guestSnapshotData,
           line_items: lineItemsJson,
           subtotal_net: Math.round(subtotalNet * 100) / 100,
           vat_7_net: Math.round(vat7Net * 100) / 100,
@@ -338,7 +383,7 @@ function RechnungenContent() {
           service_period_end: selectedBooking?.check_out ?? null,
           status: 'created',
         })
-        .select('id, invoice_number, issued_date, total_gross, status, booking_id, guest_snapshot')
+        .select('id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items')
         .single()
 
       // Increment invoice number
@@ -351,39 +396,76 @@ function RechnungenContent() {
         setInvoices((prev) => [saved as InvoiceRow, ...prev])
       }
 
-      // Generate PDF
+      setDialogOpen(false)
+      toast({ title: 'Rechnung gespeichert', description: invoiceNumber })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  /** Generate PDF on-demand from stored invoice data (no re-query needed) */
+  async function handleDownloadPDF(inv: InvoiceRow) {
+    setDownloading(inv.id)
+    try {
+      const ls = inv.landlord_snapshot ?? {}
+      const gs = inv.guest_snapshot ?? {}
+      const items = (inv.line_items ?? []) as InvoiceRow['line_items']
+      const isKlein = inv.is_kleinunternehmer ?? false
+      const paymentDays = settings?.invoice_payment_days ?? 14
+
       const landlordAddress = [
-        settings.landlord_street,
-        [settings.landlord_zip, settings.landlord_city].filter(Boolean).join(' '),
+        ls.street,
+        [ls.zip, ls.city].filter(Boolean).join(' '),
       ].filter(Boolean).join(', ')
 
+      const guestAddress = gs.address
+        ?? [gs.street, [gs.zip, gs.city].filter(Boolean).join(' '), gs.country]
+            .filter(Boolean)
+            .join(', ')
+
+      const servicePeriod =
+        inv.service_period_start && inv.service_period_end
+          ? `${format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')}`
+          : ''
+
+      const pdfLineItems: InvoiceLineItem[] = items.map((i) => ({
+        description: i.description,
+        quantity: i.quantity,
+        unitPrice: i.unit_price,
+        vatRate: i.vat_rate,
+        vatAmount: i.vat_amount,
+        total: i.total,
+      }))
+
       const pdfData: InvoicePDFData = {
-        invoiceNumber,
-        issuedDate: format(new Date(issuedDate), 'dd.MM.yyyy'),
-        dueDate: dueDateStr,
-        servicePeriod: selectedBooking
-          ? `${format(new Date(selectedBooking.check_in + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(selectedBooking.check_out + 'T00:00:00'), 'dd.MM.yyyy')}`
+        invoiceNumber: inv.invoice_number,
+        issuedDate: inv.issued_date
+          ? format(new Date(inv.issued_date + 'T00:00:00'), 'dd.MM.yyyy')
           : '',
-        landlordName: settings.landlord_name ?? '',
+        dueDate: inv.due_date
+          ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy')
+          : '',
+        servicePeriod,
+        landlordName: ls.name ?? '',
         landlordAddress,
-        taxNumber: settings.tax_number ?? undefined,
-        vatId: settings.vat_id ?? undefined,
-        phone: settings.landlord_phone ?? undefined,
-        email: settings.landlord_email ?? undefined,
-        website: settings.landlord_website ?? undefined,
-        guestName,
+        taxNumber: ls.tax_number || undefined,
+        vatId: ls.vat_id || undefined,
+        phone: ls.phone || undefined,
+        email: ls.email || undefined,
+        website: ls.website || undefined,
+        guestName: [gs.firstname, gs.lastname].filter(Boolean).join(' '),
         guestAddress,
-        lineItems,
-        subtotalNet: Math.round(subtotalNet * 100) / 100,
-        vat7Net: Math.round(vat7Net * 100) / 100,
-        vat7Amount: Math.round(vat7Amount * 100) / 100,
-        vat19Net: Math.round(vat19Net * 100) / 100,
-        vat19Amount: Math.round(vat19Amount * 100) / 100,
-        totalVat: Math.round(totalVat * 100) / 100,
-        totalGross: Math.round(totalGross * 100) / 100,
-        bankIban: settings.bank_iban ?? undefined,
-        bankBic: settings.bank_bic ?? undefined,
-        bankName: settings.bank_name ?? undefined,
+        lineItems: pdfLineItems,
+        subtotalNet: inv.subtotal_net,
+        vat7Net: inv.vat_7_net ?? 0,
+        vat7Amount: inv.vat_7_amount ?? 0,
+        vat19Net: inv.vat_19_net ?? 0,
+        vat19Amount: inv.vat_19_amount ?? 0,
+        totalVat: inv.total_vat,
+        totalGross: inv.total_gross,
+        bankIban: ls.bank_iban || undefined,
+        bankBic: ls.bank_bic || undefined,
+        bankName: ls.bank_name || undefined,
         paymentDays,
         isKleinunternehmer: isKlein,
       }
@@ -392,13 +474,11 @@ function RechnungenContent() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${invoiceNumber}.pdf`
+      a.download = `${inv.invoice_number}.pdf`
       a.click()
       URL.revokeObjectURL(url)
-
-      setDialogOpen(false)
     } finally {
-      setGenerating(false)
+      setDownloading(null)
     }
   }
 
@@ -582,10 +662,10 @@ function RechnungenContent() {
               <Button
                 className="w-full"
                 disabled={lineItems.length === 0 || !guestName || generating}
-                onClick={handleSaveAndGeneratePDF}
+                onClick={handleSave}
               >
                 <FileText className="mr-2 h-4 w-4" />
-                {generating ? 'Wird generiert...' : 'Rechnung erstellen & PDF herunterladen'}
+                {generating ? 'Wird gespeichert...' : 'Speichern'}
               </Button>
             </div>
           </DialogContent>
@@ -659,7 +739,12 @@ function RechnungenContent() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={downloading === inv.id}
+                          onClick={() => handleDownloadPDF(inv)}
+                        >
                           <Download className="h-4 w-4" />
                         </Button>
                       </TableCell>

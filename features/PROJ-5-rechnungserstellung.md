@@ -1,8 +1,8 @@
 # PROJ-5: Rechnungserstellung (PDF)
 
-## Status: Planned
+## Status: In Progress
 **Created:** 2026-03-03
-**Last Updated:** 2026-03-03
+**Last Updated:** 2026-03-10
 
 ## Dependencies
 - Requires: PROJ-1 (Dashboard-Übersicht) - Layout
@@ -71,36 +71,85 @@ Erstellung rechtssicherer Rechnungen nach deutschen Vorschriften (§ 14 UStG) f�
 
 ---
 
-## Tech Design (Solution Architect)
+## Tech Design (Solution Architect) – Update 2026-03-10
 
 > Basis-Architektur: siehe PROJ-1 (Gesamtarchitektur, Datenmodell, Datenfluss)
 
-#### Komponenten-Baum
+### Änderungen gegenüber Ursprungsdesign
+
+#### A) Auto-Generierung bei vollständigen Buchungsdaten
+
+**Vorbild:** PROJ-4 (Meldescheine) – identisches Pattern.
+
+**Logik:** Sobald eine Buchung die Mindest-Pflichtfelder enthält, wird automatisch ein `invoices`-Eintrag als Draft erstellt (kein PDF, nur DB-Record mit berechneten Positionen).
+
+**Mindest-Pflichtfelder für Auto-Generierung:**
+- `guest_firstname` + `guest_lastname`
+- `check_in` + `check_out`
+- `amount_gross` > 0
+
+Weitere Felder (Gastadresse, Nationalität) werden gespeichert sofern vorhanden, sind aber nicht Voraussetzung.
+
+**Trigger-Zeitpunkte:**
+1. Nach Smoobu-Sync (`/api/smoobu/sync`)
+2. Beim Laden der Rechnungen-Seite (für bereits existierende Buchungen)
+
+**Neues API-Endpoint:** `POST /api/rechnungen/auto-generate`
+- Liest alle Buchungen aus `bookings` (inkl. `properties`)
+- Vergleicht mit existierenden `invoices` (per `booking_id`)
+- Erstellt fehlende Einträge für Buchungen mit ausreichenden Daten
+- Berechnet Line Items serverseitig (Beherbergung, Reinigung, Beherbergungssteuer)
+- Status der auto-generierten Rechnungen: `draft`
+- Rechnungsnummer wird automatisch vergeben, `settings.invoice_next_number` inkrementiert
+- Gibt Anzahl neu erstellter Rechnungen zurück
+
+#### B) PDF-Generierung on-demand (Lazy Generation)
+
+**PDF wird erst beim Klick auf "Download" erzeugt.**
+- Liest alle benötigten Daten aus dem gespeicherten `invoices`-Record (landlord_snapshot, guest_snapshot, line_items, Totals)
+- Keine erneute Berechnung oder Buchungs-Abfrage nötig
+- Keine PDFs werden serverseitig gespeichert
+- Generierung clientseitig via `@react-pdf/renderer`
+
+#### C) Manueller Dialog bleibt erhalten
+
+Für Direktbuchungen ohne vollständige Daten oder Sonderfälle:
+- "Neue Rechnung"-Button öffnet Dialog zum manuellen Erstellen
+- Dialog-Button wird zu "Speichern" (ohne direkten PDF-Download)
+- PDF-Download erfolgt dann über die Archiv-Tabelle
+
+### Komponenten-Baum (aktualisiert)
 ```
 Rechnungen-Seite
-├── "Neu erstellen"-Button
+├── Auto-Generierung beim Seitenload (ruft /api/rechnungen/auto-generate)
+│   └── Toast: "X neue Rechnungsentwürfe automatisch erstellt"
+├── "Neue Rechnung"-Button (manuell, für Direktbuchungen ohne vollständige Daten)
 ├── Rechnungsarchiv-Tabelle (shadcn Table)
-│   └── Zeilen-Aktionen: PDF, Status ändern, Stornorechnung
-└── Rechnungsformular (shadcn Dialog oder Sheet)
-    ├── Buchungs-Auswahl (Dropdown) → füllt Felder vor
-    ├── Vermieter-Briefkopf (aus Settings, nicht editierbar)
-    ├── Gastadresse (vorausgefüllt, editierbar)
-    ├── Rechnungsnummer (auto, überschreibbar)
+│   ├── Spalten: Nummer | Gast | Datum | Betrag | Status | Aktionen
+│   └── Zeilen-Aktionen:
+│       ├── PDF herunterladen (generiert on-demand aus gespeicherten Daten)
+│       ├── Status ändern (Entwurf → Erstellt → Bezahlt)
+│       └── Stornorechnung (bei GoBD-konformen Korrekturen)
+└── Rechnungsformular (shadcn Dialog – nur für manuelle Erstellung/Bearbeitung)
+    ├── Buchungs-Auswahl (Dropdown)
+    ├── Gastdaten (vorausgefüllt, editierbar)
     ├── Positionen-Tabelle (editierbar)
-    │   ├── Beherbergung: X Nächte × Y EUR (7% USt)
-    │   ├── Endreinigung: Z EUR (19% USt)
-    │   └── + Position hinzufügen
-    ├── USt-Aufschlüsselung (7% Summe + 19% Summe)
-    ├── Gesamt: Netto, USt, Brutto
-    ├── Zahlungsinformationen (IBAN aus Settings)
-    └── "PDF generieren"-Button
+    └── "Speichern"-Button [KEIN direkter PDF-Download mehr]
 ```
 
-#### Datenquelle
-- Liest Buchungsdaten aus `bookings`-Tabelle
-- Liest Vermieter-Stammdaten aus `settings`-Tabelle
+### Betroffene Dateien
+| Datei | Änderung |
+|-------|----------|
+| `src/app/dashboard/rechnungen/page.tsx` | Auto-Gen beim Load aufrufen, Download-Button mit on-demand PDF, Dialog-Button nur noch "Speichern" |
+| `src/app/api/rechnungen/auto-generate/route.ts` | Neues Endpoint: Auto-Generate-Logik |
+| `src/app/api/smoobu/sync/route.ts` | Auto-Gen nach Sync aufrufen (wie bei Meldescheinen) |
+
+### Datenquelle
+- Liest Buchungsdaten aus `bookings`-Tabelle (inkl. `properties` für Beherbergungssteuer)
+- Liest Vermieter-Stammdaten + Steuer-Config aus `settings`-Tabelle
+- Liest Beherbergungssteuer-Regeln aus `city_tax_rules`-Tabelle
 - Speichert Rechnungen in `invoices`-Tabelle (Supabase)
-- Rechnungsnummer: auto-increment aus `settings.invoicing.next_number`
+- Rechnungsnummer: auto-increment aus `settings.invoice_next_number`
 - line_items als JSONB-Feld (flexibel, beliebig viele Positionen)
 - PDF via `@react-pdf/renderer` mit Vorlage in `src/lib/pdf/invoice.tsx`
 - Rechnungen sind unveränderlich nach Finalisierung (GoBD) → nur Status-Updates erlaubt
