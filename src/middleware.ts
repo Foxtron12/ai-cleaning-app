@@ -36,6 +36,13 @@ export async function middleware(request: NextRequest) {
   // API routes that handle their own auth (admin secret, webhook secret, etc.)
   const publicApiRoutes = ['/api/admin/impersonate', '/api/webhooks/']
 
+  // API routes exempt from payment check (auth-related, webhooks, payment flow)
+  const paymentExemptApiRoutes = [
+    '/api/admin/impersonate',
+    '/api/webhooks/',
+    '/api/payments/',
+  ]
+
   // Protect API routes: return 401 JSON for unauthenticated requests
   if (!user && pathname.startsWith('/api/')) {
     const isPublic = publicApiRoutes.some((route) => pathname.startsWith(route))
@@ -44,11 +51,69 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // BUG-2 fix: Payment guard for protected API routes
+  if (user && pathname.startsWith('/api/')) {
+    const isPaymentExempt = paymentExemptApiRoutes.some((route) =>
+      pathname.startsWith(route)
+    )
+    if (!isPaymentExempt) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_paid')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile?.is_paid) {
+        return NextResponse.json(
+          { error: 'Zahlung erforderlich' },
+          { status: 403 }
+        )
+      }
+    }
+  }
+
   // Redirect unauthenticated users away from /dashboard routes
   if (!user && pathname.startsWith('/dashboard')) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     return NextResponse.redirect(loginUrl)
+  }
+
+  // Redirect unauthenticated users away from /onboarding routes
+  if (!user && pathname.startsWith('/onboarding')) {
+    const loginUrl = request.nextUrl.clone()
+    loginUrl.pathname = '/login'
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // Payment Guard: check is_paid for /dashboard routes
+  if (user && pathname.startsWith('/dashboard')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_paid')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.is_paid) {
+      const paymentUrl = request.nextUrl.clone()
+      paymentUrl.pathname = '/onboarding/payment'
+      return NextResponse.redirect(paymentUrl)
+    }
+  }
+
+  // Redirect paid users away from payment page
+  if (user && pathname === '/onboarding/payment') {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_paid')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.is_paid) {
+      const dashboardUrl = request.nextUrl.clone()
+      dashboardUrl.pathname = '/dashboard'
+      return NextResponse.redirect(dashboardUrl)
+    }
   }
 
   // Redirect authenticated users away from auth pages

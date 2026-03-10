@@ -337,8 +337,10 @@ export type Database = {
           created_at: string | null
           display_name: string | null
           id: string
+          is_paid: boolean
           logo_url: string | null
           street: string | null
+          stripe_customer_id: string | null
           tax_id: string | null
           updated_at: string | null
           zip: string | null
@@ -350,8 +352,10 @@ export type Database = {
           created_at?: string | null
           display_name?: string | null
           id: string
+          is_paid?: boolean
           logo_url?: string | null
           street?: string | null
+          stripe_customer_id?: string | null
           tax_id?: string | null
           updated_at?: string | null
           zip?: string | null
@@ -363,8 +367,10 @@ export type Database = {
           created_at?: string | null
           display_name?: string | null
           id?: string
+          is_paid?: boolean
           logo_url?: string | null
           street?: string | null
+          stripe_customer_id?: string | null
           tax_id?: string | null
           updated_at?: string | null
           zip?: string | null
