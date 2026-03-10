@@ -39,11 +39,17 @@ export function getCleaningFee(booking: Booking, defaultFee = DEFAULT_CLEANING_F
 
 /**
  * Resolve tax config for a property using city_tax_rules lookup with fallback.
+ * Returns null if no tax is configured for this property (model and rate are both null).
  */
 export function getTaxConfigForProperty(
   property: Property,
   cityRules: CityTaxRule[]
-): TaxConfig {
+): TaxConfig | null {
+  // No tax configured for this property
+  if (!property.accommodation_tax_model && !property.accommodation_tax_rate) {
+    return null
+  }
+
   const rule = cityRules.find(
     (r) => r.city === (property.accommodation_tax_city ?? property.city)
   )
@@ -62,6 +68,14 @@ export function getTaxConfigForProperty(
     rate: property.accommodation_tax_rate ?? 6,
     city: property.accommodation_tax_city ?? property.city ?? 'Unbekannt',
   }
+}
+
+/** Zero-tax result for properties without Beherbergungssteuer */
+export const NO_TAX_RESULT: TaxResult = {
+  taxableAmount: 0,
+  taxAmount: 0,
+  isExempt: true,
+  exemptReason: 'Keine Beherbergungssteuer',
 }
 
 /**

@@ -71,9 +71,9 @@ function getBruttoWithoutCityTax(b: BookingWithProperty, cityRules: CityTaxRule[
   if (b.channel === 'Booking.com') {
     const config = b.properties
       ? getTaxConfigForProperty(b.properties, cityRules)
-      : { model: 'gross_percentage' as const, rate: 6, city: 'Unbekannt' }
-    const taxResult = calculateAccommodationTax(b, config)
-    return (b.amount_gross ?? 0) - taxResult.taxAmount
+      : null
+    const taxResult = config ? calculateAccommodationTax(b, config) : null
+    return (b.amount_gross ?? 0) - (taxResult?.taxAmount ?? 0)
   }
   return b.amount_gross ?? 0
 }
@@ -309,8 +309,8 @@ export default function ReportingPage() {
       const commissionUnknown = b.commission_amount === null
       const commission = b.commission_amount ?? 0
       const vatAmount = vatRate > 0 ? gross * vatRate / (100 + vatRate) : 0
-      const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, cityRules) : { model: 'gross_percentage' as const, rate: 6, city: 'Unbekannt' }
-      const taxResult = calculateAccommodationTax(b, taxConfig)
+      const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, cityRules) : null
+      const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig) : null
       existing.bookings++
       existing.accommodation += accom
       existing.cleaning += clean
@@ -319,7 +319,7 @@ export default function ReportingPage() {
       existing.netVat += gross - vatAmount
       existing.commission += commission
       existing.hasUnknownCommission = existing.hasUnknownCommission || commissionUnknown
-      existing.tax += taxResult.isExempt ? 0 : taxResult.taxAmount
+      existing.tax += (taxResult?.isExempt ? 0 : taxResult?.taxAmount) ?? 0
       existing.net += gross - commission
       existing.nights += b.nights ?? 0
       map.set(key, existing)

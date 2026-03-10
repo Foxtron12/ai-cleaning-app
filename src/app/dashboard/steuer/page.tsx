@@ -37,7 +37,7 @@ type TimeRange = 'this_month' | 'last_month' | 'this_quarter' | 'this_year'
 interface TaxDataItem {
   booking: BookingWithProp
   tax: TaxResult
-  config: TaxConfig
+  config: TaxConfig | null
 }
 
 function getDateRange(range: TimeRange): { from: string; to: string; label: string } {
@@ -88,6 +88,14 @@ function formatModelLabel(model: string): string {
     case 'per_room_per_night': return 'Pro Zimmer/Nacht'
     default: return model
   }
+}
+
+function formatRate(config: TaxConfig | null | undefined): string {
+  if (!config) return '–'
+  if (config.model === 'per_person_per_night' || config.model === 'per_room_per_night') {
+    return `${config.rate.toFixed(2)} €`
+  }
+  return `${config.rate}%`
 }
 
 function computeSummary(items: TaxDataItem[]) {
@@ -174,8 +182,10 @@ export default function SteuerPage() {
     return filteredBookings.map((booking) => {
       const config = booking.properties
         ? getTaxConfigForProperty(booking.properties, cityRules)
-        : { model: 'gross_percentage' as const, rate: 6, city: 'Unbekannt' }
-      const tax = calculateAccommodationTax(booking, config)
+        : null
+      const tax = config
+        ? calculateAccommodationTax(booking, config)
+        : { taxableAmount: 0, taxAmount: 0, isExempt: true, exemptReason: 'Keine Beherbergungssteuer' } as TaxResult
       return { booking, tax, config }
     })
   }, [filteredBookings, cityRules])
@@ -271,7 +281,7 @@ export default function SteuerPage() {
       d.booking.check_out,
       d.booking.nights ?? 0,
       getAccommodationGrossWithoutCityTax(d.booking).toFixed(2),
-      `${d.config.rate}%`,
+      formatRate(d.config),
       d.tax.taxAmount.toFixed(2),
       d.tax.isExempt ? d.tax.exemptReason ?? 'Befreit' : '',
     ])
@@ -287,7 +297,7 @@ export default function SteuerPage() {
         [],
         ['Objekt', group.property?.name ?? 'Unbekannt'],
         ['Stadt', config?.city ?? '–'],
-        ['Steuersatz', config ? `${config.rate}%` : '–'],
+        ['Steuersatz', formatRate(config)],
         ['1. Entgeltliche Übernachtungen', s.totalNights],
         ['2. abzgl. Airbnb-Übernachtungen', s.airbnbNights],
         ['3. Umsätze verbleibend', s.nonAirbnbRevenue.toFixed(2)],
@@ -438,7 +448,7 @@ export default function SteuerPage() {
                 <div className="flex items-center gap-2 pt-2">
                   <h3 className="text-lg font-semibold">{cityGroup.city}</h3>
                   <span className="text-sm text-muted-foreground">
-                    · {cityGroup.config?.rate ?? 0}% · {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
+                    · {formatRate(cityGroup.config)} · {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
                   </span>
                 </div>
 
@@ -446,7 +456,7 @@ export default function SteuerPage() {
                 {cityGroup.properties.length > 1 && (
                   <Card className="border-dashed">
                     <CardContent className="pt-4 pb-3">
-                      <CompactSummary summary={citySummary} rate={cityGroup.config?.rate ?? 0} />
+                      <CompactSummary summary={citySummary} config={cityGroup.config} />
                     </CardContent>
                   </Card>
                 )}
@@ -512,7 +522,7 @@ export default function SteuerPage() {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <CompactSummary summary={summary} rate={cityGroup.config?.rate ?? 0} />
+                        <CompactSummary summary={summary} config={cityGroup.config} />
                       </CardContent>
                     </Card>
                   )
@@ -634,7 +644,7 @@ function SinglePropertySummary({
         </CardTitle>
         {config && (
           <p className="text-sm text-muted-foreground">
-            {config.city} · {config.rate}% ·{' '}
+            {config.city} · {formatRate(config)} ·{' '}
             {formatModelLabel(config.model)}
           </p>
         )}
@@ -648,7 +658,7 @@ function SinglePropertySummary({
           <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />
           <SummaryLine label="6. verbleibende steuerpflichtige Umsätze" value={formatEur(summary.taxableRevenue)} />
           <div className="flex justify-between py-3 bg-muted/50 rounded px-2 mt-2">
-            <span className="text-sm font-bold">7. eingezogene Beherbergungssteuer ({config?.rate ?? 0}%)</span>
+            <span className="text-sm font-bold">7. eingezogene Beherbergungssteuer ({formatRate(config)})</span>
             <span className="text-lg font-bold tabular-nums">{formatEur(summary.collectedTax)}</span>
           </div>
         </div>
@@ -666,7 +676,7 @@ function SummaryLine({ label, value, className }: { label: string; value: string
   )
 }
 
-function CompactSummary({ summary, rate }: { summary: ReturnType<typeof computeSummary>; rate: number }) {
+function CompactSummary({ summary, config }: { summary: ReturnType<typeof computeSummary>; config: TaxConfig | null | undefined }) {
   return (
     <div className="grid grid-cols-4 gap-4 text-center">
       <div>
@@ -683,7 +693,7 @@ function CompactSummary({ summary, rate }: { summary: ReturnType<typeof computeS
       </div>
       <div>
         <p className="text-lg font-bold tabular-nums text-emerald-600">{formatEur(summary.collectedTax)}</p>
-        <p className="text-xs text-muted-foreground">Steuer ({rate}%)</p>
+        <p className="text-xs text-muted-foreground">Steuer ({formatRate(config)})</p>
       </div>
     </div>
   )
