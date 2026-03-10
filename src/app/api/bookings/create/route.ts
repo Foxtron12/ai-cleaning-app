@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
-import { createServiceClient } from '@/lib/supabase'
+import { getServerUser } from '@/lib/supabase-server'
 import { z } from 'zod'
 
 
@@ -33,6 +33,11 @@ const createBookingSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  const { user, supabase } = await getServerUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
+  }
+
   try {
     const body = await request.json()
     const parsed = createBookingSchema.safeParse(body)
@@ -52,12 +57,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('smoobu_api_key')
+      .eq('user_id', user.id)
+      .single()
 
-    const apiKey = process.env.SMOOBU_API_KEY
+    const apiKey = settings?.smoobu_api_key ?? process.env.SMOOBU_API_KEY
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'SMOOBU_API_KEY nicht konfiguriert' },
-        { status: 500 }
+        { error: 'Smoobu API-Key nicht konfiguriert' },
+        { status: 400 }
       )
     }
 
@@ -91,7 +101,6 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Save in Supabase
-    const supabase = createServiceClient()
     const status = calculateBookingStatus(data.checkIn, data.checkOut)
 
     const { data: booking, error: insertError } = await supabase
@@ -127,6 +136,7 @@ export async function POST(request: NextRequest) {
         guest_nationality: data.guestNationality ?? null,
         guest_note: data.guestNote ?? null,
         synced_at: new Date().toISOString(),
+        user_id: user.id,
       })
       .select('*, properties(*)')
       .single()

@@ -1,7 +1,7 @@
 # Product Requirements Document
 
 ## Vision
-Ein zentrales Verwaltungs-Dashboard für Ferienvermieter, das alle buchungsrelevanten Daten aus Smoobu aggregiert und darauf basierend automatisch Meldebescheinigungen, Rechnungen und Steuerreports erstellt. Ziel ist es, den administrativen Aufwand bei der Ferienwohnungsvermietung drastisch zu reduzieren und eine rechtssichere Dokumentation (Meldepflicht, Beherbergungssteuer, Buchhaltung) zu gewährleisten.
+Eine Multi-Tenant SaaS-Plattform für Ferienvermieter: jeder Nutzer hat sein eigenes gesichertes Dashboard, das Buchungsdaten aus verschiedenen PMS-Systemen (Smoobu, Apaleo, Mews) aggregiert und darauf basierend automatisch Meldebescheinigungen, Rechnungen und Steuerreports erstellt. Ziel ist es, den administrativen Aufwand bei der Ferienwohnungsvermietung drastisch zu reduzieren und eine rechtssichere Dokumentation (Meldepflicht, Beherbergungssteuer, Buchhaltung) zu gewährleisten.
 
 ## Target Users
 **Primärer Nutzer: Privater Ferienvermieter (DE)**
@@ -24,6 +24,9 @@ Ein zentrales Verwaltungs-Dashboard für Ferienvermieter, das alle buchungsrelev
 | P0 (MVP) | Smoobu API-Integration | Planned | PROJ-7 |
 | P1 | Direktbuchungen + Stripe-Zahlung | Planned | PROJ-8 |
 | P2 | Lexoffice/Buchhaltungs-Integration | Planned | PROJ-9 |
+| P0 (Fundament) | User Authentication & Multi-Tenancy | Planned | PROJ-10 |
+| P0 (Fundament) | Self-Service PMS Integration | Planned | PROJ-11 |
+| P0 (Fundament) | Access Payment Gate (Einmalzahlung) | Planned | PROJ-12 |
 
 ## Success Metrics
 - Zeitersparnis: Meldeschein in < 30 Sekunden statt 5 Minuten
@@ -41,10 +44,11 @@ Ein zentrales Verwaltungs-Dashboard für Ferienvermieter, das alle buchungsrelev
 - **Budget:** Supabase Free Tier, Vercel Free Tier für MVP
 
 ## Non-Goals (Phase 1 MVP)
-- Kein Multi-Tenant / Mandanten-Verwaltung (ein User, eine Vermietungseinheit)
+- ~~Kein Multi-Tenant~~ → Multi-Tenancy kommt mit PROJ-10
 - Keine Gäste-Login-Funktion
-- Kein automatischer E-Mail-Versand
+- Kein automatischer E-Mail-Versand (außer Supabase Auth-Mails)
 - Keine mobile App (responsive Web reicht)
 - Keine automatische Steuerübermittlung an Finanzämter
-- Keine Stripe-Zahlung (kommt in PROJ-8)
+- Kein Stripe Abo / wiederkehrende Zahlung – nur Einmalzahlung (PROJ-12)
 - Keine Lexoffice-Integration (kommt in PROJ-9)
+- Kein Admin-Dashboard (Nutzerverwaltung erfolgt direkt über Supabase Studio)

@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { getServerUser } from '@/lib/supabase-server'
 import { autoGenerateMeldescheine } from '@/lib/auto-generate-meldeschein'
-import { verifyAuth } from '@/lib/supabase'
 
-export async function POST(request: NextRequest) {
-  const authorized = await verifyAuth(request.headers.get('authorization'))
-  if (!authorized) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function POST() {
+  const { user, supabase } = await getServerUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
   }
 
   try {
-    const result = await autoGenerateMeldescheine()
+    const result = await autoGenerateMeldescheine(user.id, supabase)
     return NextResponse.json({ success: true, created: result.created })
   } catch (error) {
     console.error('Auto-generate meldescheine route error:', error)

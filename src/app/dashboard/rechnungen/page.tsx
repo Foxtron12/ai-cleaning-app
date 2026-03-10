@@ -114,14 +114,21 @@ function RechnungenContent() {
             .select('*, properties(*)')
             .order('check_in', { ascending: false })
             .limit(100),
-          supabase.from('settings').select('*').limit(1).single(),
+          supabase.from('settings').select(`
+            id, created_at, updated_at,
+            landlord_name, landlord_street, landlord_zip, landlord_city,
+            landlord_phone, landlord_email, landlord_website, landlord_country,
+            tax_number, vat_id, finanzamt, is_kleinunternehmer,
+            bank_iban, bank_bic, bank_name,
+            invoice_prefix, invoice_next_number, invoice_payment_days
+          `).limit(1).single(),
           supabase.from('city_tax_rules').select('*').order('city'),
         ])
 
       const rules = (rulesData ?? []) as CityTaxRule[]
       setInvoices((invoicesData ?? []) as InvoiceRow[])
       setBookings((bookingsData ?? []) as BookingWithProperty[])
-      setSettings(settingsData)
+      setSettings(settingsData as Settings | null)
       setCityRules(rules)
       setLoading(false)
 
@@ -130,7 +137,7 @@ function RechnungenContent() {
           (b: BookingWithProperty) => b.id === bookingIdParam
         ) as BookingWithProperty | undefined
         if (booking) {
-          fillFromBooking(booking, settingsData, rules)
+          fillFromBooking(booking, settingsData as Settings | null, rules)
           setDialogOpen(true)
         }
       }

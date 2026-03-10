@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
-import { Plus, Trash2, Download, FileText } from 'lucide-react'
+import { Plus, Trash2, Download, FileText, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { MeldescheinPDF, type MeldescheinData } from '@/lib/pdf/meldeschein'
 import type { BookingWithProperty } from '@/lib/types'
@@ -91,6 +91,8 @@ function MeldescheineContent() {
   const [generating, setGenerating] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [autoGenInfo, setAutoGenInfo] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState<string>('')
@@ -116,6 +118,7 @@ function MeldescheineContent() {
           supabase
             .from('registration_forms')
             .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
+            .neq('status', 'deleted')
             .order('created_at', { ascending: false }),
           supabase
             .from('bookings')
@@ -162,6 +165,7 @@ function MeldescheineContent() {
             const { data: refreshed } = await supabase
               .from('registration_forms')
               .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
+              .neq('status', 'deleted')
               .order('created_at', { ascending: false })
             setForms(refreshed ?? [])
           }
@@ -366,19 +370,38 @@ function MeldescheineContent() {
     URL.revokeObjectURL(url)
   }
 
-  // BUG-8 (updateStatus): Error check before optimistic update
+  // BUG-11: Status update via server API route (service client, no auth required)
   async function updateStatus(formId: string, newStatus: string) {
-    const { error } = await supabase
-      .from('registration_forms')
-      .update({ status: newStatus })
-      .eq('id', formId)
-    if (error) {
-      console.error('Status update failed:', error.message)
+    const res = await fetch(`/api/meldescheine/${formId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    })
+    if (!res.ok) {
+      const err = await res.json() as { error?: string }
+      console.error('Status update failed:', err.error)
       return
     }
     setForms((prev) =>
       prev.map((f) => (f.id === formId ? { ...f, status: newStatus } : f))
     )
+  }
+
+  // BUG-12: Soft-delete via server API route (service client, no auth required)
+  async function handleDelete(formId: string) {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/meldescheine/${formId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json() as { error?: string }
+        console.error('Delete failed:', err.error)
+        return
+      }
+      setForms((prev) => prev.filter((f) => f.id !== formId))
+    } finally {
+      setDeleting(false)
+      setDeleteId(null)
+    }
   }
 
   // BUG-5: Remove a co-traveller by index
@@ -667,13 +690,23 @@ function MeldescheineContent() {
                         </Select>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDownloadExisting(form)}
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDownloadExisting(form)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setDeleteId(form.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -683,6 +716,33 @@ function MeldescheineContent() {
           )}
         </CardContent>
       </Card>
+
+      {/* BUG-12: Delete confirmation dialog */}
+      <Dialog open={deleteId !== null} onOpenChange={(open) => { if (!open) setDeleteId(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Meldeschein löschen?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Dieser Meldeschein wird unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDeleteId(null)} disabled={deleting}>
+              Abbrechen
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => { if (deleteId) handleDelete(deleteId) }}
+            >
+              {deleting ? 'Wird gelöscht...' : 'Löschen'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

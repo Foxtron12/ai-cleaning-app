@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createServiceClient, verifyAuth } from '@/lib/supabase'
+import { getServerUser } from '@/lib/supabase-server'
 
 const coTravellerSchema = z.object({
   firstname: z.string(),
@@ -35,9 +35,9 @@ const createMeldescheinSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const authorized = await verifyAuth(request.headers.get('authorization'))
-  if (!authorized) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { user, supabase } = await getServerUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
   }
 
   let body: unknown
@@ -64,14 +64,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const supabase = createServiceClient()
-
   // Prevent duplicate Meldeschein for the same booking (server-side guard)
   if (data.booking_id) {
     const { data: existing } = await supabase
       .from('registration_forms')
       .select('id')
       .eq('booking_id', data.booking_id)
+      .eq('user_id', user.id)
       .limit(1)
       .maybeSingle()
     if (existing) {
@@ -87,6 +86,7 @@ export async function POST(request: NextRequest) {
     .insert({
       booking_id: data.booking_id ?? null,
       property_id: data.property_id ?? null,
+      user_id: user.id,
       guest_firstname: data.guest_firstname,
       guest_lastname: data.guest_lastname,
       guest_birthdate: data.guest_birthdate ?? null,

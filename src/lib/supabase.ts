@@ -1,14 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from './database.types'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-// Client-side Supabase client (uses anon key, respects RLS)
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey)
+// ─── Browser client (Client Components) ──────────────────────────────────────
+// Cookie-based sessions, respects RLS. Use in 'use client' components.
+export function createBrowserSupabaseClient() {
+  return createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
+}
 
-// Server-side Supabase client (uses service role key, bypasses RLS)
-// Only use in API routes and Server Actions – never expose to frontend
+// Singleton for convenience in client components
+export const supabase = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
+
+// ─── Service-role client (API routes that need to bypass RLS) ─────────────────
+// Never expose to browser. Only use in server-side code.
 export function createServiceClient() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceRoleKey) {
@@ -17,17 +24,4 @@ export function createServiceClient() {
   return createClient<Database>(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false },
   })
-}
-
-/**
- * Verifies a Supabase JWT from an Authorization: Bearer <token> header.
- * Use in API routes to guard against unauthenticated requests.
- * Returns true if the token belongs to a valid user, false otherwise.
- */
-export async function verifyAuth(authorizationHeader: string | null): Promise<boolean> {
-  if (!authorizationHeader?.startsWith('Bearer ')) return false
-  const token = authorizationHeader.slice(7)
-  const client = createClient<Database>(supabaseUrl, supabaseAnonKey)
-  const { data: { user } } = await client.auth.getUser(token)
-  return user !== null
 }

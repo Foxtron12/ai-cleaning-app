@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          id: string
+          metadata: Json | null
+          target_user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          target_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          target_user_id?: string | null
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           adults: number | null
@@ -54,6 +78,7 @@ export type Database = {
           synced_at: string | null
           trip_purpose: string | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           adults?: number | null
@@ -94,6 +119,7 @@ export type Database = {
           synced_at?: string | null
           trip_purpose?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           adults?: number | null
@@ -134,6 +160,7 @@ export type Database = {
           synced_at?: string | null
           trip_purpose?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -156,6 +183,7 @@ export type Database = {
           tax_rate: number
           tax_treatment: string
           updated_at: string | null
+          user_id: string | null
           vat_type: string
         }
         Insert: {
@@ -168,6 +196,7 @@ export type Database = {
           tax_rate?: number
           tax_treatment?: string
           updated_at?: string | null
+          user_id?: string | null
           vat_type?: string
         }
         Update: {
@@ -180,6 +209,7 @@ export type Database = {
           tax_rate?: number
           tax_treatment?: string
           updated_at?: string | null
+          user_id?: string | null
           vat_type?: string
         }
         Relationships: []
@@ -209,6 +239,7 @@ export type Database = {
           total_gross: number
           total_vat: number
           updated_at: string | null
+          user_id: string | null
           vat_19_amount: number | null
           vat_19_net: number | null
           vat_7_amount: number | null
@@ -238,6 +269,7 @@ export type Database = {
           total_gross?: number
           total_vat?: number
           updated_at?: string | null
+          user_id?: string | null
           vat_19_amount?: number | null
           vat_19_net?: number | null
           vat_7_amount?: number | null
@@ -267,6 +299,7 @@ export type Database = {
           total_gross?: number
           total_vat?: number
           updated_at?: string | null
+          user_id?: string | null
           vat_19_amount?: number | null
           vat_19_net?: number | null
           vat_7_amount?: number | null
@@ -296,6 +329,48 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          city: string | null
+          company_name: string | null
+          country: string | null
+          created_at: string | null
+          display_name: string | null
+          id: string
+          logo_url: string | null
+          street: string | null
+          tax_id: string | null
+          updated_at: string | null
+          zip: string | null
+        }
+        Insert: {
+          city?: string | null
+          company_name?: string | null
+          country?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id: string
+          logo_url?: string | null
+          street?: string | null
+          tax_id?: string | null
+          updated_at?: string | null
+          zip?: string | null
+        }
+        Update: {
+          city?: string | null
+          company_name?: string | null
+          country?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id?: string
+          logo_url?: string | null
+          street?: string | null
+          tax_id?: string | null
+          updated_at?: string | null
+          zip?: string | null
+        }
+        Relationships: []
+      }
       properties: {
         Row: {
           accommodation_tax_city: string | null
@@ -315,6 +390,7 @@ export type Database = {
           tags: string[] | null
           timezone: string | null
           updated_at: string | null
+          user_id: string | null
           zip: string | null
         }
         Insert: {
@@ -335,6 +411,7 @@ export type Database = {
           tags?: string[] | null
           timezone?: string | null
           updated_at?: string | null
+          user_id?: string | null
           zip?: string | null
         }
         Update: {
@@ -355,6 +432,7 @@ export type Database = {
           tags?: string[] | null
           timezone?: string | null
           updated_at?: string | null
+          user_id?: string | null
           zip?: string | null
         }
         Relationships: []
@@ -383,6 +461,7 @@ export type Database = {
           status: string
           trip_purpose: string | null
           updated_at: string | null
+          user_id: string | null
         }
         Insert: {
           adults?: number | null
@@ -407,6 +486,7 @@ export type Database = {
           status?: string
           trip_purpose?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Update: {
           adults?: number | null
@@ -431,6 +511,7 @@ export type Database = {
           status?: string
           trip_purpose?: string | null
           updated_at?: string | null
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -474,6 +555,7 @@ export type Database = {
           smoobu_last_sync: string | null
           tax_number: string | null
           updated_at: string | null
+          user_id: string | null
           vat_id: string | null
         }
         Insert: {
@@ -500,6 +582,7 @@ export type Database = {
           smoobu_last_sync?: string | null
           tax_number?: string | null
           updated_at?: string | null
+          user_id?: string | null
           vat_id?: string | null
         }
         Update: {
@@ -526,6 +609,7 @@ export type Database = {
           smoobu_last_sync?: string | null
           tax_number?: string | null
           updated_at?: string | null
+          user_id?: string | null
           vat_id?: string | null
         }
         Relationships: []

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient, verifyAuth } from '@/lib/supabase'
+import { getServerUser } from '@/lib/supabase-server'
 import {
   SmoobuClient,
   mapSmoobuApartment,
@@ -9,22 +9,31 @@ import {
 import { autoGenerateMeldescheine } from '@/lib/auto-generate-meldeschein'
 
 export async function POST(request: NextRequest) {
-  const authorized = await verifyAuth(request.headers.get('authorization'))
-  if (!authorized) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  void request
+
+  const { user, supabase } = await getServerUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
   }
 
+  const userId = user.id
+
   try {
-    const apiKey = process.env.SMOOBU_API_KEY
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('smoobu_api_key')
+      .eq('user_id', userId)
+      .single()
+
+    const apiKey = settings?.smoobu_api_key ?? process.env.SMOOBU_API_KEY
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'SMOOBU_API_KEY not configured' },
-        { status: 500 }
+        { error: 'Smoobu API-Key nicht konfiguriert. Bitte in den Einstellungen hinterlegen.' },
+        { status: 400 }
       )
     }
 
     const smoobu = new SmoobuClient({ apiKey })
-    const supabase = createServiceClient()
 
     // 1. Sync apartments/properties
     const apartments = await smoobu.getApartments()
@@ -37,10 +46,10 @@ export async function POST(request: NextRequest) {
         .from('properties')
         .select('id')
         .eq('external_id', apartment.id)
+        .eq('user_id', userId)
         .single()
 
       if (existing) {
-        // Update existing property – sync location + set tax city if not manually configured
         const updateData: Record<string, unknown> = {
           name: propertyData.name,
           street: propertyData.street,
@@ -50,7 +59,6 @@ export async function POST(request: NextRequest) {
           timezone: propertyData.timezone,
           synced_at: new Date().toISOString(),
         }
-        // Auto-set accommodation_tax_city from Smoobu location if currently null
         if (propertyData.city) {
           const { data: currentProp } = await supabase
             .from('properties')
@@ -67,20 +75,19 @@ export async function POST(request: NextRequest) {
           .eq('id', existing.id)
         propertyMap.set(apartment.id, existing.id)
       } else {
-        // Insert new property
         const { data: inserted } = await supabase
           .from('properties')
-          .insert(propertyData)
+          .insert({ ...propertyData, user_id: userId })
           .select('id')
           .single()
         if (inserted) {
           propertyMap.set(apartment.id, inserted.id)
-          // Auto-set tax config from city_tax_rules if city matches
           if (propertyData.city) {
             const { data: rule } = await supabase
               .from('city_tax_rules')
               .select('tax_model, tax_rate')
               .eq('city', propertyData.city)
+              .eq('user_id', userId)
               .single()
             if (rule) {
               await supabase
@@ -113,7 +120,6 @@ export async function POST(request: NextRequest) {
     let updated = 0
 
     for (const reservation of reservations) {
-      // Skip blocked/maintenance bookings
       if (reservation['is-blocked-booking']) continue
 
       const propertyId = propertyMap.get(reservation.apartment?.id)
@@ -131,10 +137,10 @@ export async function POST(request: NextRequest) {
         .from('bookings')
         .select('id')
         .eq('external_id', reservation.id)
+        .eq('user_id', userId)
         .single()
 
       if (existing) {
-        // Update existing booking
         const { external_id: _, ...updateData } = bookingData
         await supabase
           .from('bookings')
@@ -142,8 +148,7 @@ export async function POST(request: NextRequest) {
           .eq('id', existing.id)
         updated++
       } else {
-        // Insert new booking
-        await supabase.from('bookings').insert(bookingData)
+        await supabase.from('bookings').insert({ ...bookingData, user_id: userId })
         created++
       }
       synced++
@@ -153,19 +158,15 @@ export async function POST(request: NextRequest) {
     await supabase
       .from('settings')
       .update({ smoobu_last_sync: new Date().toISOString() })
-      .not('id', 'is', null)
+      .eq('user_id', userId)
 
     // 4. Auto-generate missing Meldescheine for newly synced bookings
-    const { created: meldescheineCreated } = await autoGenerateMeldescheine()
+    const { created: meldescheineCreated } = await autoGenerateMeldescheine(userId, supabase)
 
     return NextResponse.json({
       success: true,
       properties: apartments.length,
-      reservations: {
-        total: synced,
-        created,
-        updated,
-      },
+      reservations: { total: synced, created, updated },
       meldescheineCreated,
       syncedAt: new Date().toISOString(),
     })

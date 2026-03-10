@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   LayoutDashboard,
   CalendarDays,
@@ -10,8 +11,9 @@ import {
   Receipt,
   Calculator,
   Settings,
-  RefreshCw,
   Building2,
+  LogOut,
+  User,
 } from 'lucide-react'
 
 import {
@@ -27,6 +29,7 @@ import {
   SidebarFooter,
   SidebarSeparator,
 } from '@/components/ui/sidebar'
+import { supabase } from '@/lib/supabase'
 
 const navItems = [
   {
@@ -76,6 +79,30 @@ const bottomItems = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const [userDisplayName, setUserDisplayName] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function loadUser() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      setUserEmail(user.email ?? null)
+
+      // Try to get display_name from profiles table
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .single()
+      setUserDisplayName(profile?.display_name ?? null)
+    }
+    loadUser()
+  }, [])
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -142,6 +169,24 @@ export function AppSidebar() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
+          {(userDisplayName || userEmail) && (
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip={userEmail ?? ''} className="text-muted-foreground">
+                <User className="size-4 shrink-0" />
+                <span className="truncate text-xs">{userDisplayName || userEmail}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip="Abmelden"
+              onClick={handleLogout}
+              className="text-destructive hover:text-destructive"
+            >
+              <LogOut />
+              <span>Abmelden</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>

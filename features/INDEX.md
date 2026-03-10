@@ -22,9 +22,13 @@
 | PROJ-8 | Direktbuchungen + Stripe-Zahlung | Planned | [PROJ-8-direktbuchungen-stripe.md](PROJ-8-direktbuchungen-stripe.md) | 2026-03-03 |
 | PROJ-9 | Lexoffice / Buchhaltungs-Integration | Planned | [PROJ-9-lexoffice-integration.md](PROJ-9-lexoffice-integration.md) | 2026-03-03 |
 
+| PROJ-10 | User Authentication & Multi-Tenancy | In Review | [PROJ-10-auth-multi-tenancy.md](PROJ-10-auth-multi-tenancy.md) | 2026-03-05 |
+| PROJ-11 | Self-Service PMS Integration | Planned | [PROJ-11-pms-integration.md](PROJ-11-pms-integration.md) | 2026-03-05 |
+| PROJ-12 | Access Payment Gate (Einmalzahlung) | Planned | [PROJ-12-payment-gate.md](PROJ-12-payment-gate.md) | 2026-03-05 |
+
 <!-- Add features above this line -->
 
-## Next Available ID: PROJ-10
+## Next Available ID: PROJ-13
 
 ## Build Order (Empfehlung)
 
@@ -43,3 +47,11 @@
 
 ### Phase 3 – Erweiterungen
 9. **PROJ-9** → Lexoffice-Integration (Rechnungen in Buchhaltung)
+
+### Phase 4 – Multi-Tenancy & SaaS
+> PROJ-10 muss VOR allen anderen Features deployed werden, da es die Datenisolation für alle sicherstellt.
+> Empfehlung: PROJ-10 → PROJ-12 → PROJ-11 → dann restliche Features auf Multi-User umstellen
+
+10. **PROJ-10** → User Authentication & Multi-Tenancy (Supabase Auth, RLS auf allen Tabellen, Profil-Seite)
+11. **PROJ-12** → Access Payment Gate (Stripe Einmalzahlung, Zugangs-Guard)
+12. **PROJ-11** → Self-Service PMS Integration (Smoobu Webhook + API-Key UI, Apaleo/Mews Scaffold)
