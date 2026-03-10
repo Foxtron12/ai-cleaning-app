@@ -51,7 +51,7 @@ export async function POST() {
       )
     }
 
-    // 3. Check if already paid
+    // 3. Check if already paid (has active subscription)
     const { data: profile } = await supabase
       .from("profiles")
       .select("is_paid, stripe_customer_id")
@@ -60,38 +60,41 @@ export async function POST() {
 
     if (profile?.is_paid) {
       return NextResponse.json(
-        { error: "Zugang bereits freigeschaltet" },
+        { error: "Abo bereits aktiv" },
         { status: 400 }
       )
     }
 
-    // 4. Create Stripe Checkout Session
+    // 4. Count user's properties for subscription quantity
+    const { count: propertyCount } = await supabase
+      .from("properties")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+
+    const quantity = Math.max(1, propertyCount ?? 0)
+
+    // 5. Create Stripe Checkout Session
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
       apiVersion: "2026-02-25.clover",
     })
 
-    // BUG-4 fix: Validate price amount is a positive integer
-    const rawPriceAmount = Number(process.env.STRIPE_PRICE_AMOUNT)
-    const priceAmount =
-      Number.isInteger(rawPriceAmount) && rawPriceAmount > 0
-        ? rawPriceAmount
-        : 19900
-    const productName =
-      process.env.STRIPE_PRODUCT_NAME ||
-      "Vermieter Dashboard – Lebenslanger Zugang"
+    const priceId = process.env.STRIPE_PRICE_ID
+    if (!priceId) {
+      return NextResponse.json(
+        { error: "STRIPE_PRICE_ID ist nicht konfiguriert" },
+        { status: 500 }
+      )
+    }
+
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      mode: "payment",
+      mode: "subscription",
       payment_method_types: ["card", "sepa_debit"],
       line_items: [
         {
-          price_data: {
-            currency: "eur",
-            product_data: { name: productName },
-            unit_amount: priceAmount,
-          },
-          quantity: 1,
+          price: priceId,
+          quantity,
         },
       ],
       success_url: `${siteUrl}/dashboard?payment=success`,

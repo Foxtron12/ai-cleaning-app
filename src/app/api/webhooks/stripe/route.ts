@@ -8,6 +8,29 @@ function getStripe() {
   })
 }
 
+async function markUserPaid(
+  userId: string,
+  stripeCustomerId: string | null,
+  stripeSubscriptionId: string | null
+) {
+  const supabase = createServiceClient()
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      is_paid: true,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: stripeSubscriptionId,
+    })
+    .eq("id", userId)
+
+  if (error) {
+    console.error("Stripe webhook: failed to update profile:", error)
+    return false
+  }
+  console.log(`Stripe webhook: user ${userId} marked as paid`)
+  return true
+}
+
 export async function POST(request: NextRequest) {
   const stripe = getStripe()
   const body = await request.text()
@@ -36,15 +59,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Handle both immediate payments (card) and async payments (SEPA debit)
+  // ── Checkout completed (initial subscription or one-time payment) ──
   if (
     event.type === "checkout.session.completed" ||
     event.type === "checkout.session.async_payment_succeeded"
   ) {
     const session = event.data.object as Stripe.Checkout.Session
 
-    // BUG-1 fix: Only grant access when payment_status is 'paid'
-    // SEPA debit may have payment_status 'unpaid' at checkout.session.completed
     if (session.payment_status !== "paid") {
       console.log(
         `Stripe webhook: session ${session.id} payment_status is '${session.payment_status}', waiting for async payment`
@@ -61,35 +82,77 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Use service client to bypass RLS
-    const supabase = createServiceClient()
-
-    const { error } = await supabase
-      .from("profiles")
-      .update({
-        is_paid: true,
-        stripe_customer_id: session.customer as string | null,
-      })
-      .eq("id", userId)
-
-    if (error) {
-      console.error("Stripe webhook: failed to update profile:", error)
+    const ok = await markUserPaid(
+      userId,
+      session.customer as string | null,
+      session.subscription as string | null
+    )
+    if (!ok) {
       return NextResponse.json(
         { error: "Profil-Update fehlgeschlagen" },
         { status: 500 }
       )
     }
-
-    console.log(`Stripe webhook: user ${userId} marked as paid`)
   }
 
-  // Handle failed async payments (e.g. SEPA debit failure)
+  // ── Recurring invoice paid (subscription renewal) ──
+  if (event.type === "invoice.payment_succeeded") {
+    const invoice = event.data.object as Stripe.Invoice
+    if (invoice.billing_reason === "subscription_cycle") {
+      const customerId =
+        typeof invoice.customer === "string"
+          ? invoice.customer
+          : invoice.customer?.id
+      if (customerId) {
+        const supabase = createServiceClient()
+        const { error } = await supabase
+          .from("profiles")
+          .update({ is_paid: true })
+          .eq("stripe_customer_id", customerId)
+
+        if (error) {
+          console.error("Stripe webhook: renewal update failed:", error)
+        } else {
+          console.log(
+            `Stripe webhook: subscription renewed for customer ${customerId}`
+          )
+        }
+      }
+    }
+  }
+
+  // ── Subscription cancelled or expired ──
+  if (event.type === "customer.subscription.deleted") {
+    const subscription = event.data.object as Stripe.Subscription
+    const customerId =
+      typeof subscription.customer === "string"
+        ? subscription.customer
+        : subscription.customer?.id
+
+    if (customerId) {
+      const supabase = createServiceClient()
+      // Only revoke access for users linked via Stripe (not manually set)
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_paid: false, stripe_subscription_id: null })
+        .eq("stripe_customer_id", customerId)
+
+      if (error) {
+        console.error("Stripe webhook: subscription revoke failed:", error)
+      } else {
+        console.log(
+          `Stripe webhook: access revoked for customer ${customerId}`
+        )
+      }
+    }
+  }
+
+  // ── Failed async payment (SEPA debit) ──
   if (event.type === "checkout.session.async_payment_failed") {
     const session = event.data.object as Stripe.Checkout.Session
     console.error(
       `Stripe webhook: async payment failed for session ${session.id}, user ${session.client_reference_id}`
     )
-    // No action needed: is_paid was never set to true for pending payments
   }
 
   return NextResponse.json({ received: true })

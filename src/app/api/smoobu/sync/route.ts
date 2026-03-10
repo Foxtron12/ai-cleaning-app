@@ -103,6 +103,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 1b. Sync subscription quantity if user has an active Stripe subscription
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_subscription_id')
+      .eq('id', userId)
+      .single()
+
+    if (profile?.stripe_subscription_id && process.env.STRIPE_SECRET_KEY) {
+      try {
+        const { default: Stripe } = await import('stripe')
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+          apiVersion: '2026-02-25.clover',
+        })
+
+        const { count: propertyCount } = await supabase
+          .from('properties')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userId)
+
+        const newQuantity = Math.max(1, propertyCount ?? 0)
+        const subscription = await stripe.subscriptions.retrieve(
+          profile.stripe_subscription_id
+        )
+        const item = subscription.items.data[0]
+
+        if (item && item.quantity !== newQuantity) {
+          await stripe.subscriptions.update(profile.stripe_subscription_id, {
+            items: [{ id: item.id, quantity: newQuantity }],
+            proration_behavior: 'create_prorations',
+          })
+          console.log(
+            `Smoobu sync: subscription updated ${item.quantity} → ${newQuantity} properties`
+          )
+        }
+      } catch (err) {
+        console.error('Smoobu sync: subscription quantity update failed:', err)
+        // Non-blocking: sync continues even if Stripe update fails
+      }
+    }
+
     // 2. Sync reservations (last 12 months + next 12 months)
     const now = new Date()
     const from = new Date(now)

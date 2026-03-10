@@ -51,7 +51,8 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // BUG-2 fix: Payment guard for protected API routes
+  // Payment guard for protected API routes:
+  // Only enforce if user has properties (0 properties = free browse mode)
   if (user && pathname.startsWith('/api/')) {
     const isPaymentExempt = paymentExemptApiRoutes.some((route) =>
       pathname.startsWith(route)
@@ -64,10 +65,17 @@ export async function middleware(request: NextRequest) {
         .single()
 
       if (!profile?.is_paid) {
-        return NextResponse.json(
-          { error: 'Zahlung erforderlich' },
-          { status: 403 }
-        )
+        const { count } = await supabase
+          .from('properties')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+
+        if (count && count > 0) {
+          return NextResponse.json(
+            { error: 'Zahlung erforderlich' },
+            { status: 403 }
+          )
+        }
       }
     }
   }
@@ -86,7 +94,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Payment Guard: check is_paid for /dashboard routes
+  // Payment Guard for /dashboard: only redirect if user has properties but hasn't paid
   if (user && pathname.startsWith('/dashboard')) {
     const { data: profile } = await supabase
       .from('profiles')
@@ -95,9 +103,17 @@ export async function middleware(request: NextRequest) {
       .single()
 
     if (!profile?.is_paid) {
-      const paymentUrl = request.nextUrl.clone()
-      paymentUrl.pathname = '/onboarding/payment'
-      return NextResponse.redirect(paymentUrl)
+      const { count } = await supabase
+        .from('properties')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+
+      if (count && count > 0) {
+        const paymentUrl = request.nextUrl.clone()
+        paymentUrl.pathname = '/onboarding/payment'
+        return NextResponse.redirect(paymentUrl)
+      }
+      // 0 properties → allow dashboard access (free browse mode)
     }
   }
 

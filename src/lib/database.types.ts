@@ -341,6 +341,7 @@ export type Database = {
           logo_url: string | null
           street: string | null
           stripe_customer_id: string | null
+          stripe_subscription_id: string | null
           tax_id: string | null
           updated_at: string | null
           zip: string | null
@@ -356,6 +357,7 @@ export type Database = {
           logo_url?: string | null
           street?: string | null
           stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
           tax_id?: string | null
           updated_at?: string | null
           zip?: string | null
@@ -371,6 +373,7 @@ export type Database = {
           logo_url?: string | null
           street?: string | null
           stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
           tax_id?: string | null
           updated_at?: string | null
           zip?: string | null
