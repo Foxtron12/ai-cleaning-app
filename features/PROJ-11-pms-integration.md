@@ -1,6 +1,6 @@
 # PROJ-11: Self-Service PMS Integration
 
-## Status: In Progress
+## Status: Deployed
 **Created:** 2026-03-05
 **Last Updated:** 2026-03-05
 
@@ -149,7 +149,14 @@ RLS: Nur der eigene Nutzer kann seine Zeilen lesen/schreiben.
 5. Alter `/api/webhooks/smoobu` (shared secret) entfernen
 
 ## QA Test Results
-_To be added by /qa_
+- **Tested:** 2026-03-10
+- **Acceptance Criteria:** 17/17 PASS
+- **Edge Cases:** 7/7 PASS
+- **Bugs Fixed:** BUG-1 (rates route migrated), BUG-2 (bookings/create migrated), BUG-4 (webhook error leak), webhook Zod validation added
+- **Remaining (low priority):** In-memory rate limiting (BUG-3), hardcoded has_api_key (BUG-5), old settings column (BUG-6), mobile button spacing (BUG-7)
 
 ## Deployment
-_To be added by /deploy_
+- **Deployed:** 2026-03-10
+- **New Env Var:** `ENCRYPTION_KEY` (AES-256-GCM, 64-char hex)
+- **Removed Env Vars:** `SMOOBU_API_KEY`, `SMOOBU_WEBHOOK_SECRET` (no longer used)
+- **DB Migration:** `20260310155740_create_integrations_table` (applied)
