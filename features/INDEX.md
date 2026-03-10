@@ -23,7 +23,7 @@
 | PROJ-9 | Lexoffice / Buchhaltungs-Integration | Planned | [PROJ-9-lexoffice-integration.md](PROJ-9-lexoffice-integration.md) | 2026-03-03 |
 
 | PROJ-10 | User Authentication & Multi-Tenancy | Deployed | [PROJ-10-auth-multi-tenancy.md](PROJ-10-auth-multi-tenancy.md) | 2026-03-05 |
-| PROJ-11 | Self-Service PMS Integration | Planned | [PROJ-11-pms-integration.md](PROJ-11-pms-integration.md) | 2026-03-05 |
+| PROJ-11 | Self-Service PMS Integration | In Progress | [PROJ-11-pms-integration.md](PROJ-11-pms-integration.md) | 2026-03-05 |
 | PROJ-12 | Access Payment Gate (Subscription pro Standort) | Deployed | [PROJ-12-payment-gate.md](PROJ-12-payment-gate.md) | 2026-03-05 |
 
 <!-- Add features above this line -->

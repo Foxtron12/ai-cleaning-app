@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      integrations: {
+        Row: {
+          id: string
+          user_id: string
+          provider: string
+          api_key_encrypted: string | null
+          webhook_token: string | null
+          status: string
+          last_synced_at: string | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          provider: string
+          api_key_encrypted?: string | null
+          webhook_token?: string | null
+          status?: string
+          last_synced_at?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          provider?: string
+          api_key_encrypted?: string | null
+          webhook_token?: string | null
+          status?: string
+          last_synced_at?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       admin_audit_log: {
         Row: {
           action: string

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Save, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
+import { Save } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import type { Settings } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { IntegrationenTab } from '@/components/integrationen-tab'
 import type { Tables } from '@/lib/database.types'
 
 type Profile = Tables<'profiles'>
@@ -21,8 +21,6 @@ export default function EinstellungenPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null)
 
   // Profile state
   const [profile, setProfile] = useState<Partial<Profile>>({})
@@ -108,43 +106,6 @@ export default function EinstellungenPage() {
     setProfileSaving(false)
   }
 
-  async function handleSync() {
-    setSyncing(true)
-    setSyncResult(null)
-    try {
-      const response = await fetch('/api/smoobu/sync', { method: 'POST' })
-      const data = await response.json()
-      if (data.success) {
-        setSyncResult({
-          success: true,
-          message: `Sync erfolgreich: ${data.properties} Objekte, ${data.reservations.total} Buchungen (${data.reservations.created} neu, ${data.reservations.updated} aktualisiert)`,
-        })
-      } else {
-        setSyncResult({ success: false, message: data.error ?? 'Sync fehlgeschlagen' })
-      }
-    } catch {
-      setSyncResult({ success: false, message: 'Verbindungsfehler' })
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  async function handleTestConnection() {
-    setSyncResult(null)
-    try {
-      const response = await fetch('/api/smoobu/test')
-      const data = await response.json()
-      setSyncResult({
-        success: data.success,
-        message: data.success
-          ? `Verbindung OK – ${data.apartmentCount} Objekt(e) gefunden`
-          : data.error ?? 'Verbindung fehlgeschlagen',
-      })
-    } catch {
-      setSyncResult({ success: false, message: 'Verbindungsfehler' })
-    }
-  }
-
   if (loading) {
     return (
       <div className="space-y-6">
@@ -165,6 +126,7 @@ export default function EinstellungenPage() {
       <Tabs defaultValue="einstellungen">
         <TabsList>
           <TabsTrigger value="einstellungen">Einstellungen</TabsTrigger>
+          <TabsTrigger value="integrationen">Integrationen</TabsTrigger>
           <TabsTrigger value="profil">Profil</TabsTrigger>
         </TabsList>
 
@@ -366,50 +328,13 @@ export default function EinstellungenPage() {
                 </CardContent>
               </Card>
 
-              {/* Smoobu API */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Smoobu API</CardTitle>
-                  <CardDescription>
-                    Verbindung zu Smoobu für automatische Buchungssynchronisation
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {settings.smoobu_last_sync && (
-                    <p className="text-sm text-muted-foreground">
-                      Letzter Sync:{' '}
-                      {new Date(settings.smoobu_last_sync).toLocaleString('de-DE')}
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={handleTestConnection}>
-                      Verbindung testen
-                    </Button>
-                    <Button onClick={handleSync} disabled={syncing}>
-                      <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-                      {syncing ? 'Synchronisiert...' : 'Jetzt synchronisieren'}
-                    </Button>
-                  </div>
-                  {syncResult && (
-                    <div
-                      className={`flex items-center gap-2 text-sm p-3 rounded-md ${
-                        syncResult.success
-                          ? 'bg-green-50 text-green-700'
-                          : 'bg-red-50 text-red-700'
-                      }`}
-                    >
-                      {syncResult.success ? (
-                        <CheckCircle className="h-4 w-4 shrink-0" />
-                      ) : (
-                        <XCircle className="h-4 w-4 shrink-0" />
-                      )}
-                      {syncResult.message}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
             </>
           )}
+        </TabsContent>
+
+        {/* ─── Integrationen Tab ─────────────────────────────────────── */}
+        <TabsContent value="integrationen" className="space-y-6 pt-4">
+          <IntegrationenTab />
         </TabsContent>
 
         {/* ─── Profil Tab ────────────────────────────────────────────── */}

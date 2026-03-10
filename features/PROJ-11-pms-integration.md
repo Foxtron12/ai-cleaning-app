@@ -1,6 +1,6 @@
 # PROJ-11: Self-Service PMS Integration
 
-## Status: Planned
+## Status: In Progress
 **Created:** 2026-03-05
 **Last Updated:** 2026-03-05
 
@@ -76,7 +76,77 @@ um Buchungen direkt in Supabase zu synchronisieren – ohne manuellen Sync-Butto
 ---
 
 ## Tech Design (Solution Architect)
-_To be added by /architecture_
+
+### Seitenstruktur
+
+```
+/dashboard/einstellungen
++-- Tabs
+    +-- "Einstellungen" Tab  (unverändert)
+    +-- "Integrationen" Tab  (NEU)
+    |   +-- Smoobu-Kachel
+    |       +-- Status-Badge (Verbunden / Fehler / Nicht konfiguriert)
+    |       +-- API-Key Eingabefeld (maskiert, Passwort-Feld)
+    |       +-- Webhook-URL Anzeige + Copy-Button
+    |       +-- Buttons: Speichern | Verbindung testen | Sync | Token erneuern | Löschen
+    |   +-- Apaleo-Kachel  (nur UI, "Demnächst" Badge)
+    |   +-- Mews-Kachel    (nur UI, "Demnächst" Badge)
+    +-- "Profil" Tab        (unverändert)
+```
+
+### Datenmodell
+
+**Neue Tabelle: `integrations`**
+- ID (UUID, PK)
+- user_id (FK → auth.users, RLS geschützt)
+- provider: 'smoobu' | 'apaleo' | 'mews' (Enum, erweiterbar)
+- api_key_encrypted (Text, AES-256-GCM verschlüsselt, nie im Klartext)
+- webhook_token (Text, unique, 32-char Hex, pro Nutzer einmalig)
+- status: 'connected' | 'error' | 'unconfigured'
+- last_synced_at (Timestamp, nullable)
+- created_at (Timestamp)
+
+RLS: Nur der eigene Nutzer kann seine Zeilen lesen/schreiben.
+
+### Neue API-Endpunkte
+
+| Route | Zweck |
+|-------|-------|
+| `GET /api/integrations` | Aktuelle Integrations-Daten des Nutzers laden |
+| `POST /api/integrations/smoobu` | API-Key speichern + sofort testen |
+| `DELETE /api/integrations/smoobu` | Integration löschen (Webhook-URL wird ungültig) |
+| `POST /api/integrations/smoobu/regenerate-token` | Webhook-Token neu generieren |
+| `POST /api/webhooks/smoobu/[token]` | Eingehende Smoobu Events (per-Nutzer Token) |
+
+**Aktualisiert:**
+- `/api/smoobu/test` → nutzt API-Key aus DB statt `.env`
+- `/api/smoobu/sync` → nutzt API-Key aus DB statt `.env`
+
+**Entfernt:**
+- Alter `/api/webhooks/smoobu` (shared secret) → ersetzt durch `/api/webhooks/smoobu/[token]`
+
+### Tech-Entscheidungen
+
+| Entscheidung | Begründung |
+|---|---|
+| AES-256-GCM (Node.js `crypto`) | API-Keys müssen bei DB-Leak sicher sein. Kein externes Package nötig. |
+| Per-Nutzer Webhook-Token (32-char Hex) | 2^128 Entropie, nicht ratbar. Kompromiss betrifft nur einen Nutzer. |
+| UPSERT im Webhook | Smoobu sendet manchmal doppelte Events – idempotente Verarbeitung. |
+| Keine npm-Abhängigkeiten | Alles mit Node.js `crypto` und bestehenden Libraries. |
+
+### Neue Umgebungsvariable
+
+- `ENCRYPTION_KEY` – 32-Byte Hex-String für AES-256 (`openssl rand -hex 32`)
+- In `.env.local` und Vercel-Settings eintragen
+- Alte `SMOOBU_API_KEY` und `SMOOBU_WEBHOOK_SECRET` werden nicht mehr benötigt
+
+### Build-Reihenfolge
+
+1. DB-Migration: `integrations` Tabelle + RLS-Policies
+2. Backend: Verschlüsselungs-Utility, API-Routen, neuer Webhook-Endpoint
+3. Frontend: Neuer "Integrationen" Tab in Einstellungen-Seite
+4. Bestehende `/api/smoobu/test` + `/api/smoobu/sync` auf DB-Key umstellen
+5. Alter `/api/webhooks/smoobu` (shared secret) entfernen
 
 ## QA Test Results
 _To be added by /qa_

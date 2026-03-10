@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SmoobuClient } from '@/lib/smoobu'
+import { getServerUser } from '@/lib/supabase-server'
+import { decrypt } from '@/lib/encryption'
 import { z } from 'zod'
 
 const querySchema = z.object({
@@ -12,6 +14,11 @@ const querySchema = z.object({
 })
 
 export async function GET(request: NextRequest) {
+  const { user, supabase } = await getServerUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
+  }
+
   try {
     const searchParams = Object.fromEntries(request.nextUrl.searchParams)
     const parsed = querySchema.safeParse(searchParams)
@@ -32,13 +39,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const apiKey = process.env.SMOOBU_API_KEY
-    if (!apiKey) {
+    // Load API key from integrations table (encrypted)
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('api_key_encrypted')
+      .eq('user_id', user.id)
+      .eq('provider', 'smoobu')
+      .single()
+
+    if (!integration?.api_key_encrypted) {
       return NextResponse.json(
-        { error: 'SMOOBU_API_KEY nicht konfiguriert' },
-        { status: 500 }
+        { error: 'Smoobu API-Key nicht konfiguriert. Bitte unter Integrationen hinterlegen.' },
+        { status: 400 }
       )
     }
+
+    const { plaintext: apiKey } = decrypt(integration.api_key_encrypted)
 
     const client = new SmoobuClient({ apiKey })
 

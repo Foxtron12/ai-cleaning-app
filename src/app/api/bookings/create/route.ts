@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
 import { getServerUser } from '@/lib/supabase-server'
+import { decrypt } from '@/lib/encryption'
 import { z } from 'zod'
 
 
@@ -57,19 +58,22 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('smoobu_api_key')
+    // Load API key from integrations table (encrypted)
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('api_key_encrypted')
       .eq('user_id', user.id)
+      .eq('provider', 'smoobu')
       .single()
 
-    const apiKey = settings?.smoobu_api_key ?? process.env.SMOOBU_API_KEY
-    if (!apiKey) {
+    if (!integration?.api_key_encrypted) {
       return NextResponse.json(
-        { error: 'Smoobu API-Key nicht konfiguriert' },
+        { error: 'Smoobu API-Key nicht konfiguriert. Bitte unter Integrationen hinterlegen.' },
         { status: 400 }
       )
     }
+
+    const { plaintext: apiKey } = decrypt(integration.api_key_encrypted)
 
     const client = new SmoobuClient({ apiKey })
 

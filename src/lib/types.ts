@@ -13,6 +13,14 @@ export type Settings = Database['public']['Tables']['settings']['Row']
 export type SettingsUpdate = Database['public']['Tables']['settings']['Update']
 export type CityTaxRule = Database['public']['Tables']['city_tax_rules']['Row']
 export type CityTaxRuleInsert = Database['public']['Tables']['city_tax_rules']['Insert']
+export type Integration = Database['public']['Tables']['integrations']['Row']
+export type IntegrationInsert = Database['public']['Tables']['integrations']['Insert']
+
+// Integration provider type
+export type IntegrationProvider = 'smoobu' | 'apaleo' | 'mews'
+
+// Integration status type
+export type IntegrationStatus = 'connected' | 'error' | 'unconfigured'
 
 // Booking with joined property
 export type BookingWithProperty = Booking & {

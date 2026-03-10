@@ -6,6 +6,7 @@ import {
   mapSmoobuReservation,
   calculateBookingStatus,
 } from '@/lib/smoobu'
+import { decrypt, encrypt } from '@/lib/encryption'
 import { autoGenerateMeldescheine } from '@/lib/auto-generate-meldeschein'
 
 export async function POST(request: NextRequest) {
@@ -17,20 +18,33 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = user.id
+  let integrationId: string | null = null
 
   try {
-    const { data: settings } = await supabase
-      .from('settings')
-      .select('smoobu_api_key')
+    // Load API key from integrations table (encrypted)
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('id, api_key_encrypted')
       .eq('user_id', userId)
+      .eq('provider', 'smoobu')
       .single()
 
-    const apiKey = settings?.smoobu_api_key ?? process.env.SMOOBU_API_KEY
-    if (!apiKey) {
+    if (!integration?.api_key_encrypted) {
       return NextResponse.json(
-        { error: 'Smoobu API-Key nicht konfiguriert. Bitte in den Einstellungen hinterlegen.' },
+        { error: 'Smoobu API-Key nicht konfiguriert. Bitte unter Integrationen hinterlegen.' },
         { status: 400 }
       )
+    }
+
+    integrationId = integration.id
+    const { plaintext: apiKey, needsReEncrypt } = decrypt(integration.api_key_encrypted)
+
+    // Re-encrypt with current key if decrypted with previous key (key rotation)
+    if (needsReEncrypt) {
+      await supabase
+        .from('integrations')
+        .update({ api_key_encrypted: encrypt(apiKey), updated_at: new Date().toISOString() })
+        .eq('id', integration.id)
     }
 
     const smoobu = new SmoobuClient({ apiKey })
@@ -194,11 +208,11 @@ export async function POST(request: NextRequest) {
       synced++
     }
 
-    // 3. Update last sync timestamp in settings
+    // 3. Update last sync timestamp in integrations table
     await supabase
-      .from('settings')
-      .update({ smoobu_last_sync: new Date().toISOString() })
-      .eq('user_id', userId)
+      .from('integrations')
+      .update({ last_synced_at: new Date().toISOString(), status: 'connected', error_message: null })
+      .eq('id', integration.id)
 
     // 4. Auto-generate missing Meldescheine for newly synced bookings
     const { created: meldescheineCreated } = await autoGenerateMeldescheine(userId, supabase)
@@ -212,6 +226,19 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Smoobu sync error:', error)
+
+    // Update integration status to error
+    if (integrationId) {
+      await supabase
+        .from('integrations')
+        .update({
+          status: 'error',
+          error_message: error instanceof Error ? error.message : 'Sync failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', integrationId)
+    }
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Sync failed' },
       { status: 500 }
