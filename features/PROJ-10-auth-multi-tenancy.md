@@ -1,6 +1,6 @@
 # PROJ-10: User Authentication & Multi-Tenancy
 
-## Status: In Review
+## Status: Deployed
 **Created:** 2026-03-05
 **Last Updated:** 2026-03-05
 
@@ -411,4 +411,12 @@ Schritt 3: Nach Support → normaler Logout → zurück zum eigenen Account
 - **Recommendation:** Fix BUG-1 (password reset flow), BUG-3 (audit log blocking magic link), and BUG-5 (site URL fallback) before deployment. BUG-2, BUG-4, and BUG-6 can be addressed in next sprint.
 
 ## Deployment
-_To be added by /deploy_
+
+**Deployed:** 2026-03-10
+**Git Tag:** v1.10.0-PROJ-10
+**Commit:** fa54719
+**DB Migrations:** All 14 migrations applied (proj10_auth_multi_tenancy included)
+
+### Post-Deployment Open Items
+- **BUG-4** (next sprint): App-level rate limiting on auth endpoints (mitigated by Supabase GoTrue)
+- **BUG-7** (next sprint): Country field placeholder "Deutschland" vs ISO-2 validation — change placeholder to "DE"
