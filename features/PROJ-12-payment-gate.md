@@ -1,6 +1,6 @@
 # PROJ-12: Access Payment Gate (Einmalzahlung)
 
-## Status: In Review
+## Status: Deployed
 **Created:** 2026-03-05
 **Last Updated:** 2026-03-10
 
@@ -320,4 +320,16 @@ NEXT_PUBLIC_STRIPE_ENABLED   # true/false
 - **Production Ready:** YES
 
 ## Deployment
-_To be added by /deploy_
+
+**Deployed:** 2026-03-10
+**Git Tag:** v1.12.0-PROJ-12
+**Commit:** 9c1aa84
+**DB Migrations:** Applied via Supabase MCP – `proj_12_add_is_paid_and_stripe_customer_id_to_profiles`
+
+### Post-Deployment Checklist
+- [ ] Add Stripe env vars in Vercel Dashboard (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AMOUNT`, `STRIPE_PRODUCT_NAME`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_STRIPE_ENABLED=true`)
+- [ ] Register Stripe Webhook endpoint in Stripe Dashboard: `https://<your-app>.vercel.app/api/webhooks/stripe`
+  - Events to subscribe: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`
+- [ ] Copy Signing Secret from Stripe Dashboard → set as `STRIPE_WEBHOOK_SECRET` in Vercel
+- [ ] Redeploy after adding env vars (required for them to take effect)
+- [ ] Test payment flow end-to-end with Stripe test card `4242 4242 4242 4242`
