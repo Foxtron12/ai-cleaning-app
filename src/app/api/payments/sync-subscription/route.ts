@@ -2,6 +2,24 @@ import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import { createServerSupabaseClient } from "@/lib/supabase-server"
 
+// Rate limiting per user
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 60_000
+
+function isRateLimited(userId: string): boolean {
+  const now = Date.now()
+  const entry = rateLimitMap.get(userId)
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+    return false
+  }
+
+  entry.count++
+  return entry.count > RATE_LIMIT_MAX
+}
+
 export async function POST() {
   try {
     const supabase = await createServerSupabaseClient()
@@ -13,6 +31,14 @@ export async function POST() {
       return NextResponse.json(
         { error: "Nicht authentifiziert" },
         { status: 401 }
+      )
+    }
+
+    // Rate limit check
+    if (isRateLimited(user.id)) {
+      return NextResponse.json(
+        { error: "Zu viele Anfragen. Bitte warten Sie einen Moment." },
+        { status: 429 }
       )
     }
 

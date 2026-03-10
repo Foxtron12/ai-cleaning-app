@@ -131,11 +131,13 @@ export async function POST(request: NextRequest) {
 
     if (customerId) {
       const supabase = createServiceClient()
-      // Only revoke access for users linked via Stripe (not manually set)
+      // Only revoke access for users who have a stripe_subscription_id
+      // This protects manually-set is_paid (admin override) from being revoked
       const { error } = await supabase
         .from("profiles")
         .update({ is_paid: false, stripe_subscription_id: null })
         .eq("stripe_customer_id", customerId)
+        .not("stripe_subscription_id", "is", null)
 
       if (error) {
         console.error("Stripe webhook: subscription revoke failed:", error)
@@ -144,6 +146,37 @@ export async function POST(request: NextRequest) {
           `Stripe webhook: access revoked for customer ${customerId}`
         )
       }
+    }
+  }
+
+  // ── Failed subscription renewal payment ──
+  if (event.type === "invoice.payment_failed") {
+    const invoice = event.data.object as Stripe.Invoice
+    const customerId =
+      typeof invoice.customer === "string"
+        ? invoice.customer
+        : invoice.customer?.id
+
+    // Only revoke on final attempt (no more retries)
+    if (customerId && invoice.next_payment_attempt === null) {
+      const supabase = createServiceClient()
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_paid: false })
+        .eq("stripe_customer_id", customerId)
+        .not("stripe_subscription_id", "is", null)
+
+      if (error) {
+        console.error("Stripe webhook: payment_failed revoke failed:", error)
+      } else {
+        console.log(
+          `Stripe webhook: access revoked after final payment failure for customer ${customerId}`
+        )
+      }
+    } else {
+      console.warn(
+        `Stripe webhook: invoice.payment_failed for customer ${customerId}, retries remaining`
+      )
     }
   }
 

@@ -54,7 +54,7 @@ export function CheckoutButton({ stripeEnabled }: CheckoutButtonProps) {
           Weiterleitung zu Stripe…
         </>
       ) : (
-        "Jetzt kaufen"
+        "Jetzt abonnieren"
       )}
     </Button>
   )

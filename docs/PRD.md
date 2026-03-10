@@ -49,6 +49,6 @@ Eine Multi-Tenant SaaS-Plattform für Ferienvermieter: jeder Nutzer hat sein eig
 - Kein automatischer E-Mail-Versand (außer Supabase Auth-Mails)
 - Keine mobile App (responsive Web reicht)
 - Keine automatische Steuerübermittlung an Finanzämter
-- Kein Stripe Abo / wiederkehrende Zahlung – nur Einmalzahlung (PROJ-12)
+- ~~Kein Stripe Abo~~ → Subscription-Modell pro Standort kommt mit PROJ-12
 - Keine Lexoffice-Integration (kommt in PROJ-9)
 - Kein Admin-Dashboard (Nutzerverwaltung erfolgt direkt über Supabase Studio)

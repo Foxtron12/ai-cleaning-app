@@ -1,4 +1,4 @@
-# PROJ-12: Access Payment Gate (Einmalzahlung)
+# PROJ-12: Access Payment Gate (Subscription pro Standort)
 
 ## Status: Deployed
 **Created:** 2026-03-05
@@ -8,59 +8,70 @@
 - PROJ-10 (User Authentication & Multi-Tenancy) – Zahlung wird pro User-Account verknüpft
 
 ## Beschreibung
-Nach der Registrierung hat ein Nutzer nur eingeschränkten Zugang (Demo-Modus oder gesperrte Features),
-bis eine einmalige Zahlung via Stripe erfolgt ist. Nach Zahlung erhält der Nutzer lebenslangen Vollzugriff.
+Nach der Registrierung hat ein Nutzer eingeschränkten Zugang (Free-Browse-Modus ohne Properties).
+Sobald mindestens ein Standort angelegt wird, muss ein Abo abgeschlossen werden.
 
-Dieses Feature ist auf den aktuellen Use Case optimiert: ein einzelner Zahlender Nutzer.
-Das Modell ist aber so gebaut, dass weitere Nutzer denselben Flow durchlaufen können.
+Das Abo ist ein **Stripe Subscription** mit **per-property Pricing**: der Preis wird pro Standort berechnet.
+Die Quantity wird beim Checkout automatisch aus der Anzahl der Properties des Nutzers ermittelt.
+Produkt und Preis werden live aus Stripe via `STRIPE_PRICE_ID` geladen.
 
-**Kein Abo, kein wiederkehrender Charge.** Stripe Checkout mit `payment_mode: 'payment'`.
+**Subscription-Modell** mit `mode: 'subscription'`. Jederzeit kündbar.
 
 ## User Stories
-- Als neuer Nutzer möchte ich nach der Registrierung zur Zahlungsseite weitergeleitet werden, damit ich Zugang zur vollen App erhalte.
+- Als neuer Nutzer möchte ich das Dashboard ohne Zahlung erkunden können, solange ich noch keine Standorte angelegt habe (Free-Browse-Modus).
+- Als Nutzer mit Standorten möchte ich zur Zahlungsseite weitergeleitet werden, damit ich Zugang zur vollen App erhalte.
+- Als Nutzer möchte ich sehen, wie viel mein Abo pro Standort kostet, bevor ich abonniere.
 - Als Nutzer möchte ich sicher per Kreditkarte oder SEPA bezahlen können (Stripe Checkout).
 - Als Nutzer möchte ich nach erfolgreicher Zahlung sofort zum Dashboard weitergeleitet werden.
 - Als App-Betreiber möchte ich, dass Zahlung serverseitig via Stripe Webhook verifiziert wird – nicht nur client-seitig.
-- Als App-Betreiber möchte ich die Möglichkeit haben, einen Nutzer manuell als "bezahlt" zu markieren (für Ausnahmen / Tests).
+- Als App-Betreiber möchte ich, dass bei Abo-Verlängerung der Zugang automatisch erhalten bleibt und bei Kündigung/Zahlungsausfall entzogen wird.
+- Als App-Betreiber möchte ich die Möglichkeit haben, einen Nutzer manuell als "bezahlt" zu markieren (für Ausnahmen / Tests), ohne dass ein Webhook das überschreibt.
 
 ## Acceptance Criteria
-- [ ] Nach Registrierung + E-Mail-Verifizierung: Weiterleitung zu `/onboarding/payment` wenn noch nicht bezahlt
-- [ ] `/onboarding/payment`-Seite erklärt was enthalten ist und hat "Jetzt kaufen"-Button
-- [ ] Klick auf "Jetzt kaufen" erstellt Stripe Checkout Session (server-seitig via API-Route)
-- [ ] Stripe Checkout: einmaliger Betrag (konfigurierbar per Env-Variable), `payment_mode: 'payment'`
-- [ ] Nach erfolgreicher Stripe-Zahlung: Stripe sendet `checkout.session.completed` Webhook
-- [ ] Webhook-Handler (`/api/webhooks/stripe`) setzt `is_paid = true` in `profiles`-Tabelle
-- [ ] Stripe Webhook-Signatur wird verifiziert (Stripe-Signing-Secret, kein Fake möglich)
+- [ ] Nutzer mit 0 Properties können das Dashboard frei nutzen (Free-Browse-Modus)
+- [ ] Nutzer mit ≥1 Property werden zu `/onboarding/payment` umgeleitet, wenn `is_paid = false`
+- [ ] `/onboarding/payment` zeigt Produkt-Info (live aus Stripe), Preis pro Standort, Gesamtpreis und "Jetzt abonnieren"-Button
+- [ ] Klick auf "Jetzt abonnieren" erstellt Stripe Checkout Session mit `mode: 'subscription'` und `quantity` = Anzahl Properties
+- [ ] Stripe Checkout Session nutzt `STRIPE_PRICE_ID` (konfigurierbar per Env-Variable)
+- [ ] Nach erfolgreicher Stripe-Zahlung: Webhook `checkout.session.completed` setzt `is_paid = true`, speichert `stripe_customer_id` und `stripe_subscription_id`
+- [ ] Stripe Webhook-Signatur wird verifiziert (Stripe-Signing-Secret)
 - [ ] Nach erfolgreicher Zahlung: Nutzer landet auf `/dashboard` (success_url)
 - [ ] Bei abgebrochener Zahlung: Nutzer landet zurück auf `/onboarding/payment` (cancel_url)
-- [ ] Alle geschützten Routen prüfen `is_paid` – nicht bezahlte Nutzer werden zu `/onboarding/payment` umgeleitet
-- [ ] Admin kann `is_paid` manuell in Supabase setzen (kein dediziertes Admin-UI nötig für MVP)
+- [ ] Alle geschützten Routen prüfen `is_paid` (nur enforced wenn Properties > 0)
+- [ ] Webhook `invoice.payment_succeeded` verlängert Zugang bei Abo-Renewal
+- [ ] Webhook `invoice.payment_failed` entzieht Zugang nach letztem Retry
+- [ ] Webhook `customer.subscription.deleted` entzieht Zugang (nur bei Stripe-verknüpften Nutzern, nicht bei manuell gesetztem `is_paid`)
+- [ ] Admin kann `is_paid` manuell in Supabase setzen – Webhook überschreibt dies nicht
 - [ ] Bereits bezahlte Nutzer werden von `/onboarding/payment` direkt zu `/dashboard` weitergeleitet
+- [ ] `POST /api/payments/sync-subscription` synchronisiert Property-Quantity mit Stripe (mit Rate-Limiting)
 
 ## Edge Cases
 - Was passiert, wenn der Stripe Webhook doppelt gefeuert wird? → Idempotente Handler: `is_paid = true` mehrfach setzen ist harmlos
 - Was passiert, wenn der Webhook vor dem Nutzer-Redirect ankommt? → Kein Problem: Webhook ist async, Erfolgs-Redirect kommt vom Stripe success_url
 - Was passiert, wenn ein Nutzer die success_url direkt aufruft ohne zu zahlen? → `is_paid` wurde nicht gesetzt, Middleware leitet zurück zu `/onboarding/payment`
 - Was passiert, wenn der Stripe Checkout abläuft (Session Expiry)? → Nutzer kommt zurück zur Payment-Seite, kann neuen Checkout starten
-- Was passiert bei einer Stripe-Rückerstattung? → MVP: kein automatischer Entzug des Zugangs; manuell über Supabase zu regeln
+- Was passiert bei einer Stripe-Rückerstattung? → Kein automatischer Entzug; manuell über Supabase zu regeln
 - Was passiert, wenn kein Stripe-Account konfiguriert ist (lokale Entwicklung)? → Env-Variable `NEXT_PUBLIC_STRIPE_ENABLED=false` zeigt "Zugang manuell aktiviert"-Hinweis
+- Was passiert bei fehlgeschlagener Abo-Verlängerung? → `invoice.payment_failed` Handler entzieht Zugang erst nach letztem Retry (`next_payment_attempt === null`)
+- Was passiert bei Abo-Kündigung? → `customer.subscription.deleted` Handler setzt `is_paid = false`, aber nur für Nutzer mit `stripe_subscription_id` (schützt Admin-Overrides)
+- Was passiert, wenn sich die Anzahl der Properties zwischen Page-Load und Checkout ändert? → Quantity wird beim Checkout-API-Call ermittelt, nicht vom Client. Sync-Endpoint gleicht nachträglich ab.
 
 ## Technische Anforderungen
-- Stripe `@stripe/stripe-js` (Client) + `stripe` (Server) Pakete
-- Neue API-Route: `POST /api/payments/create-checkout-session`
-- Neue API-Route: `POST /api/webhooks/stripe` (öffentlich, Signatur-Verifizierung)
-- `profiles`-Tabelle bekommt Spalte: `is_paid` (boolean, default: false), `stripe_customer_id` (text)
-- Betrag und Produkt-Name als Env-Variablen: `STRIPE_PRICE_AMOUNT`, `STRIPE_PRODUCT_NAME`
+- `stripe` (Server SDK) – kein Client-SDK nötig (hosted Checkout)
+- API-Route: `POST /api/payments/create-checkout-session` – erstellt Subscription-Checkout mit Quantity
+- API-Route: `POST /api/payments/sync-subscription` – synchronisiert Property-Quantity mit Stripe
+- API-Route: `POST /api/webhooks/stripe` (öffentlich, Signatur-Verifizierung)
+- `profiles`-Tabelle: `is_paid` (boolean), `stripe_customer_id` (text), `stripe_subscription_id` (text)
+- Preis wird als Stripe Price-Objekt verwaltet (`STRIPE_PRICE_ID`), Produkt-Info live aus Stripe geladen
 - Stripe Keys: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (niemals im Client)
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (für Stripe.js Client)
-- Middleware prüft `is_paid` nach `is_authenticated` – zweistufige Guard-Chain
+- Middleware prüft `is_paid` nach `is_authenticated` – zweistufige Guard-Chain (nur enforced bei Properties > 0)
 
 ## Konfigurations-Variablen (.env.local)
 ```
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_AMOUNT=19900          # Cent, also 199,00 EUR
-STRIPE_PRODUCT_NAME="Vermieter Dashboard – Lebenslanger Zugang"
+STRIPE_PRICE_ID=price_...          # Stripe Price ID (recurring, per unit)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 NEXT_PUBLIC_STRIPE_ENABLED=true
 ```
@@ -71,21 +82,25 @@ NEXT_PUBLIC_STRIPE_ENABLED=true
 
 ### Flow
 ```
-Nutzer registriert sich
+Nutzer registriert sich → Dashboard frei nutzbar (0 Properties)
+        ↓ Nutzer legt Property an
+Middleware: eingeloggt? ✓ → Properties > 0? ✓ → bezahlt? ✗
         ↓
-Middleware: eingeloggt? ✓ → bezahlt? ✗
-        ↓
-/onboarding/payment
-        ↓ Klick "Jetzt kaufen"
-Server → Stripe Checkout Session erstellen
+/onboarding/payment (Preis live aus Stripe, Quantity = Anzahl Properties)
+        ↓ Klick "Jetzt abonnieren"
+Server → Stripe Checkout Session (mode: subscription, quantity: N)
         ↓
 Browser → Stripe (hosted Zahlungsseite)
         ↓ Zahlung erfolgreich
-Stripe Webhook → /api/webhooks/stripe → is_paid = true
+Stripe Webhook → /api/webhooks/stripe → is_paid = true, stripe_subscription_id gespeichert
         ↓ parallel
 Stripe redirect → /dashboard (success_url)
         ↓
 Middleware: eingeloggt? ✓ → bezahlt? ✓ → Zugang
+        ↓ monatlich
+invoice.payment_succeeded → Zugang bleibt
+invoice.payment_failed (final) → Zugang entzogen
+customer.subscription.deleted → Zugang entzogen
 ```
 
 ### Seitenstruktur
@@ -103,25 +118,30 @@ Middleware (erweitert)
 ```
 
 ### Neue API-Routen
-- `POST /api/payments/create-checkout-session` – erstellt Stripe Checkout Session, gibt session.url zurück
-- `POST /api/webhooks/stripe` – öffentlich, Signatur-verifiziert, setzt is_paid=true
+- `POST /api/payments/create-checkout-session` – erstellt Stripe Subscription Checkout Session mit Quantity, gibt session.url zurück
+- `POST /api/payments/sync-subscription` – synchronisiert Property-Quantity mit Stripe Subscription (Rate-Limited)
+- `POST /api/webhooks/stripe` – öffentlich, Signatur-verifiziert, verarbeitet 6 Event-Typen
 
 ### Datenbankänderungen
-Tabelle `profiles` bekommt zwei neue Spalten:
+Tabelle `profiles` bekommt drei neue Spalten:
 - `is_paid` (boolean, default false) – Quelle der Wahrheit für Zugang
-- `stripe_customer_id` (text, nullable) – Verknüpfung zu Stripe
+- `stripe_customer_id` (text, nullable) – Verknüpfung zu Stripe Customer
+- `stripe_subscription_id` (text, nullable) – Verknüpfung zu Stripe Subscription
 
 ### Middleware-Erweiterung
 - Für `/dashboard`-Routen: nach Auth-Check `is_paid` aus `profiles` lesen
-- `is_paid = false` → Redirect zu `/onboarding/payment`
+- `is_paid = false` UND Properties > 0 → Redirect zu `/onboarding/payment`
+- `is_paid = false` UND Properties = 0 → Free-Browse-Modus (kein Redirect)
 - `/onboarding/payment` selbst nicht durch Payment Guard geschützt
 - `/api/webhooks/stripe` bleibt öffentlich
 
 ### Tech-Entscheidungen
+- **Stripe Subscription:** Recurring Revenue, per-property Pricing, Quantity-basiert
 - **Stripe Checkout (hosted):** PCI-Compliance durch Stripe, SEPA + Kreditkarte out-of-the-box
 - **Webhook statt Client-Verifizierung:** Signing Secret macht Fälschung unmöglich
 - **Keine @stripe/stripe-js:** Checkout-Redirect braucht kein Client SDK, spart Bundle
 - **Idempotenter Webhook:** is_paid=true mehrfach setzen ist harmlos
+- **Admin-Override-Schutz:** Cancellation/Failed-Payment Webhooks prüfen `stripe_subscription_id IS NOT NULL`
 - **Dev-Modus Flag:** NEXT_PUBLIC_STRIPE_ENABLED=false für lokales Testen
 
 ### Neue Pakete
@@ -131,8 +151,7 @@ Tabelle `profiles` bekommt zwei neue Spalten:
 ```
 STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
-STRIPE_PRICE_AMOUNT          # Cent (z.B. 19900 = 199,00 EUR)
-STRIPE_PRODUCT_NAME
+STRIPE_PRICE_ID              # Stripe Price ID (recurring, per unit)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 NEXT_PUBLIC_STRIPE_ENABLED   # true/false
 ```
@@ -327,9 +346,9 @@ NEXT_PUBLIC_STRIPE_ENABLED   # true/false
 **DB Migrations:** Applied via Supabase MCP – `proj_12_add_is_paid_and_stripe_customer_id_to_profiles`
 
 ### Post-Deployment Checklist
-- [ ] Add Stripe env vars in Vercel Dashboard (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_AMOUNT`, `STRIPE_PRODUCT_NAME`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_STRIPE_ENABLED=true`)
+- [ ] Add Stripe env vars in Vercel Dashboard (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_STRIPE_ENABLED=true`)
 - [ ] Register Stripe Webhook endpoint in Stripe Dashboard: `https://<your-app>.vercel.app/api/webhooks/stripe`
-  - Events to subscribe: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`
+  - Events to subscribe: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.deleted`
 - [ ] Copy Signing Secret from Stripe Dashboard → set as `STRIPE_WEBHOOK_SECRET` in Vercel
 - [ ] Redeploy after adding env vars (required for them to take effect)
 - [ ] Test payment flow end-to-end with Stripe test card `4242 4242 4242 4242`
