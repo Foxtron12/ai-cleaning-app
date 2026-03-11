@@ -16,7 +16,7 @@ export async function POST(
   // Fetch booking (enforce ownership via user_id)
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, external_id, status, source')
+    .select('id, external_id, status')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -30,7 +30,7 @@ export async function POST(
   }
 
   // If the booking came from Smoobu, cancel it there first
-  if (booking.external_id && booking.source !== 'direct') {
+  if (booking.external_id) {
     const { data: integration } = await supabase
       .from('integrations')
       .select('api_key_encrypted')
