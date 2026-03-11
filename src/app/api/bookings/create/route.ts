@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
 import { getServerUser } from '@/lib/supabase-server'
 import { decrypt } from '@/lib/encryption'
+import { autoGenerateInvoices } from '@/lib/auto-generate-invoices'
 import { z } from 'zod'
 
 
@@ -156,11 +157,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 3. Auto-generate invoice for this booking
+    let invoiceId: string | null = null
+    try {
+      const invoiceResult = await autoGenerateInvoices(user.id, supabase)
+      if (invoiceResult.created > 0) {
+        // Fetch the invoice created for this booking
+        const { data: invoice } = await supabase
+          .from('invoices')
+          .select('id')
+          .eq('booking_id', booking.id)
+          .single()
+        invoiceId = invoice?.id ?? null
+      }
+    } catch (e) {
+      console.error('Auto-generate invoice after booking creation failed:', e)
+    }
+
     return NextResponse.json({
       success: true,
       booking,
       smoobuId: smoobuResult.id,
-      invoiceId: null,
+      invoiceId,
       stripePaymentLink: null,
     })
   } catch (error) {
