@@ -55,8 +55,10 @@ export async function autoGenerateInvoices(
     .select(`
       id, landlord_name, landlord_street, landlord_zip, landlord_city,
       landlord_phone, landlord_email, landlord_website, landlord_country,
+      landlord_logo_url,
       tax_number, vat_id, is_kleinunternehmer,
       bank_iban, bank_bic, bank_name,
+      company_register, managing_director, invoice_thank_you_text,
       invoice_prefix, invoice_next_number, invoice_payment_days
     `)
     .eq('user_id', userId)
@@ -88,11 +90,16 @@ export async function autoGenerateInvoices(
     country: settings.landlord_country ?? 'DE',
     phone: settings.landlord_phone ?? '',
     email: settings.landlord_email ?? '',
+    website: settings.landlord_website ?? '',
     tax_number: settings.tax_number ?? '',
     vat_id: settings.vat_id ?? '',
     bank_iban: settings.bank_iban ?? '',
     bank_bic: settings.bank_bic ?? '',
     bank_name: settings.bank_name ?? '',
+    company_register: settings.company_register ?? '',
+    managing_director: settings.managing_director ?? '',
+    invoice_thank_you_text: settings.invoice_thank_you_text ?? '',
+    logo_url: settings.landlord_logo_url ?? '',
   }
 
   const inserts = toCreate.map((booking) => {
@@ -206,6 +213,7 @@ export async function autoGenerateInvoices(
     const issuedDate = format(new Date(), 'yyyy-MM-dd')
     const dueDate = format(addDays(new Date(), paymentDays), 'yyyy-MM-dd')
 
+    const guestCount = (booking.adults ?? 0) + (booking.children ?? 0)
     const guestSnapshot = {
       firstname: booking.guest_firstname ?? '',
       lastname: booking.guest_lastname ?? '',
@@ -213,6 +221,9 @@ export async function autoGenerateInvoices(
       city: booking.guest_city ?? '',
       zip: booking.guest_zip ?? '',
       country: booking.guest_country ?? '',
+      booking_reference: booking.external_id?.toString() ?? '',
+      guest_count: guestCount > 0 ? String(guestCount) : '',
+      payment_channel: booking.channel ?? '',
     }
 
     return {

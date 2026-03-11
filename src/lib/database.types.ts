@@ -586,12 +586,14 @@ export type Database = {
           bank_bic: string | null
           bank_iban: string | null
           bank_name: string | null
+          company_register: string | null
           created_at: string | null
           finanzamt: string | null
           id: string
           invoice_next_number: number | null
           invoice_payment_days: number | null
           invoice_prefix: string | null
+          invoice_thank_you_text: string | null
           is_kleinunternehmer: boolean | null
           landlord_city: string | null
           landlord_country: string | null
@@ -602,6 +604,7 @@ export type Database = {
           landlord_street: string | null
           landlord_website: string | null
           landlord_zip: string | null
+          managing_director: string | null
           smoobu_api_key: string | null
           smoobu_last_sync: string | null
           tax_number: string | null
@@ -613,12 +616,14 @@ export type Database = {
           bank_bic?: string | null
           bank_iban?: string | null
           bank_name?: string | null
+          company_register?: string | null
           created_at?: string | null
           finanzamt?: string | null
           id?: string
           invoice_next_number?: number | null
           invoice_payment_days?: number | null
           invoice_prefix?: string | null
+          invoice_thank_you_text?: string | null
           is_kleinunternehmer?: boolean | null
           landlord_city?: string | null
           landlord_country?: string | null
@@ -629,6 +634,7 @@ export type Database = {
           landlord_street?: string | null
           landlord_website?: string | null
           landlord_zip?: string | null
+          managing_director?: string | null
           smoobu_api_key?: string | null
           smoobu_last_sync?: string | null
           tax_number?: string | null
@@ -640,12 +646,14 @@ export type Database = {
           bank_bic?: string | null
           bank_iban?: string | null
           bank_name?: string | null
+          company_register?: string | null
           created_at?: string | null
           finanzamt?: string | null
           id?: string
           invoice_next_number?: number | null
           invoice_payment_days?: number | null
           invoice_prefix?: string | null
+          invoice_thank_you_text?: string | null
           is_kleinunternehmer?: boolean | null
           landlord_city?: string | null
           landlord_country?: string | null
@@ -656,6 +664,7 @@ export type Database = {
           landlord_street?: string | null
           landlord_website?: string | null
           landlord_zip?: string | null
+          managing_director?: string | null
           smoobu_api_key?: string | null
           smoobu_last_sync?: string | null
           tax_number?: string | null

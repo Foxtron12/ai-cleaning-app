@@ -154,6 +154,112 @@ Rechnungen-Seite
 - PDF via `@react-pdf/renderer` mit Vorlage in `src/lib/pdf/invoice.tsx`
 - Rechnungen sind unveränderlich nach Finalisierung (GoBD) → nur Status-Updates erlaubt
 
+---
+
+## Tech Design: PDF-Layout Redesign (2026-03-11)
+
+> Rechnungspositionen bleiben zusammengefasst. Nur das PDF-Layout und zusätzliche Felder ändern sich.
+> Referenz: Beispielrechnung "Invoice-DE_LF_DGW-LF-DGW-2507001.pdf"
+
+### Neues PDF-Layout
+
+```
+┌─────────────────────────────────────────────────┐
+│                                     [LOGO]      │
+│                                                  │
+│ [Empfänger-Adresse]    Rechnungsnr.: LF-DGW-... │
+│ (Gast oder Firma)      Datum: 22.07.2025        │
+│                        Anreise: 18.07.2025      │
+│                        Abreise: 21.07.2025      │
+│                        Gast: Melanie Klott      │
+│                        Reservierung: UAZWYLBY-1 │
+│                        Anzahl der Gäste: 1      │
+│                                                  │
+│ Rechnung                                         │
+│ "für Ihren Aufenthalt erlauben wir uns..."      │
+│                                                  │
+│ Leistung                             Betrag     │
+│ ─────────────────────────────────────────────    │
+│ 3x Übernachtung Tiny House           274.00 EUR │
+│ Endreinigung                           65.00 EUR │
+│                                                  │
+│ Zwischensumme (inkl. MwSt.)          339.00 EUR │
+│ Zahlung (Airbnb)                     339.00 EUR │
+│ Offener Saldo                          0.00 EUR │
+│                                                  │
+│ Steuersatz    MwSt.     Netto       Gesamt      │
+│ 7%           22.18    316.82       339.00       │
+│                                                  │
+│ [Dankestext + Website]                          │
+│                                                  │
+│ ─────────────────────────────────────────────    │
+│ [Firma+Adresse] [HRB+GF+USt-ID] [Bank+IBAN]   │
+└─────────────────────────────────────────────────┘
+```
+
+### Layout-Änderungen (Alt → Neu)
+
+| Bereich | Aktuell | Neu |
+|---------|---------|-----|
+| Header | Vermieter-Einzeiler oben | Empfänger links, Meta rechts |
+| Logo | Nicht vorhanden | Oben rechts (aus Settings, Upload) |
+| Meta rechts | Rechnungsnr., Datum, Leistungszeitraum | + Anreise, Abreise, Gast, Reservierung, Gästeanzahl |
+| Titel | "Rechnung RE-2024-001" | Nur "Rechnung" |
+| Positionen-Tabelle | 6 Spalten (Beschr., Menge, EP, USt, USt-Betrag, Gesamt) | 2 Spalten (Leistung, Betrag) |
+| Zahlungseingang | Nicht vorhanden | "Zahlung (Airbnb) 339.00 EUR" |
+| Offener Saldo | Nicht vorhanden | "Offener Saldo 0.00 EUR" |
+| Steuer-Zusammenfassung | Inline bei Totals | Eigene 4-spaltige Tabelle (Steuersatz, MwSt., Netto, Gesamt) |
+| Zahlungsinfo | Grauer Kasten mit Freitext | Entfällt (nur noch in Footer) |
+| Footer | 1-zeilig | 3 Spalten: Firma+Adresse \| HRB+GF+USt-ID \| Bank+IBAN+BIC |
+
+### Neue Datenfelder im PDF-Interface
+
+| Feld | Quelle | Beschreibung |
+|------|--------|-------------|
+| `checkIn` / `checkOut` | `bookings.check_in` / `check_out` | Anreise/Abreise-Datum |
+| `bookingReference` | `bookings.smoobu_reservation_id` | Reservierungscode |
+| `guestCount` | `bookings.guests` | Anzahl der Gäste |
+| `paymentChannel` | `bookings.channel` | Airbnb / Booking.com / Direkt / leer |
+| `amountPaid` | Auto-berechnet | Bei OTA-Buchungen = Gesamtbetrag |
+| `logoUrl` | `settings.logo_url` | Vermieter-Logo (Upload) |
+| `companyRegister` | `settings.company_register` | Handelsregistereintrag (z.B. HRB43938) |
+| `managingDirector` | `settings.managing_director` | Geschäftsführer |
+| `thankYouText` | `settings.invoice_thank_you_text` | Dankestext am PDF-Ende |
+| `websiteUrl` | `settings.website` | Bereits vorhanden |
+
+### Auto-Zahlung bei OTA-Buchungen
+
+Buchungen über OTA-Kanäle (Airbnb, Booking.com, etc.) werden automatisch als bezahlt markiert:
+- Zahlungskanal wird aus `bookings.channel` erkannt
+- `amount_paid` = `total_gross` (Vollzahlung)
+- Offener Saldo = 0.00 EUR
+- Nur bei Direktbuchungen bleibt der Saldo offen (manuelle Zahlung nötig)
+
+### Neue Settings-Felder (DB-Migration)
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `company_register` | text, nullable | Handelsregistereintrag (z.B. "HRB43938") |
+| `managing_director` | text, nullable | Geschäftsführer |
+| `invoice_thank_you_text` | text, nullable | Dankestext am Rechnungsende |
+| `logo_url` | text, nullable | Pfad zum hochgeladenen Logo (Supabase Storage) |
+
+### Betroffene Dateien
+
+| Datei | Änderung |
+|-------|----------|
+| `src/lib/pdf/invoice.tsx` | **Komplett-Redesign**: 2-Spalten-Tabelle, neuer Footer, Logo, Zahlungseingang, Steuer-Tabelle |
+| `src/app/dashboard/rechnungen/page.tsx` | PDF-Daten um neue Felder ergänzen |
+| `src/app/api/rechnungen/auto-generate/route.ts` | Zahlungskanal + amountPaid aus Buchung befüllen |
+| Settings-Seite | Neue Eingabefelder: HRB, Geschäftsführer, Dankestext, Logo-Upload |
+| Supabase Migration | 4 neue Spalten in `settings`-Tabelle |
+
+### Keine Änderung nötig bei
+- Rechnungspositionen / Line Items Datenmodell (bleibt zusammengefasst)
+- USt-Berechnung (7% / 19% Logik bleibt)
+- Auto-Generierung Trigger (nur Snapshot um neue Felder erweitern)
+- Rechnungsarchiv-Tabelle im UI
+
 ## QA Test Results
 _To be added by /qa_
 

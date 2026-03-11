@@ -140,8 +140,10 @@ function RechnungenContent() {
             id, created_at, updated_at,
             landlord_name, landlord_street, landlord_zip, landlord_city,
             landlord_phone, landlord_email, landlord_website, landlord_country,
+            landlord_logo_url,
             tax_number, vat_id, finanzamt, is_kleinunternehmer,
             bank_iban, bank_bic, bank_name,
+            company_register, managing_director, invoice_thank_you_text,
             invoice_prefix, invoice_next_number, invoice_payment_days
           `).limit(1).single(),
           supabase.from('city_tax_rules').select('*').order('city'),
@@ -356,17 +358,25 @@ function RechnungenContent() {
         country: settings.landlord_country ?? 'DE',
         phone: settings.landlord_phone ?? '',
         email: settings.landlord_email ?? '',
+        website: settings.landlord_website ?? '',
         tax_number: settings.tax_number ?? '',
         vat_id: settings.vat_id ?? '',
         bank_iban: settings.bank_iban ?? '',
         bank_bic: settings.bank_bic ?? '',
         bank_name: settings.bank_name ?? '',
+        company_register: settings.company_register ?? '',
+        managing_director: settings.managing_director ?? '',
+        invoice_thank_you_text: settings.invoice_thank_you_text ?? '',
+        logo_url: settings.landlord_logo_url ?? '',
       }
 
       const guestSnapshotData = {
         firstname: guestName.split(' ')[0] ?? '',
         lastname: guestName.split(' ').slice(1).join(' ') ?? '',
         address: guestAddress,
+        booking_reference: selectedBooking?.external_id?.toString() ?? '',
+        guest_count: selectedBooking ? String((selectedBooking.adults ?? 0) + (selectedBooking.children ?? 0)) : '',
+        payment_channel: selectedBooking?.channel ?? '',
       }
 
       const { data: saved } = await supabase
@@ -422,10 +432,9 @@ function RechnungenContent() {
       const isKlein = inv.is_kleinunternehmer ?? false
       const paymentDays = settings?.invoice_payment_days ?? 14
 
-      const landlordAddress = [
-        ls.street,
-        [ls.zip, ls.city].filter(Boolean).join(' '),
-      ].filter(Boolean).join(', ')
+      const landlordStreet = ls.street ?? ''
+      const landlordZipCity = [ls.zip, ls.city].filter(Boolean).join(' ')
+      const landlordAddress = [landlordStreet, landlordZipCity].filter(Boolean).join(', ')
 
       const guestAddress = gs.address
         ?? [gs.street, [gs.zip, gs.city].filter(Boolean).join(' '), gs.country]
@@ -437,6 +446,13 @@ function RechnungenContent() {
           ? `${format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')}`
           : ''
 
+      const checkIn = inv.service_period_start
+        ? format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')
+        : ''
+      const checkOut = inv.service_period_end
+        ? format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')
+        : ''
+
       const pdfLineItems: InvoiceLineItem[] = items.map((i) => ({
         description: i.description,
         quantity: i.quantity,
@@ -445,6 +461,14 @@ function RechnungenContent() {
         vatAmount: i.vat_amount,
         total: i.total,
       }))
+
+      // Determine payment from booking channel
+      const booking = inv.booking_id
+        ? bookings.find((b) => b.id === inv.booking_id)
+        : null
+      const channel = (gs as Record<string, string>).payment_channel ?? booking?.channel ?? ''
+      const isOta = channel && channel.toLowerCase() !== 'direct' && channel !== ''
+      const amountPaid = isOta ? inv.total_gross : 0
 
       const pdfData: InvoicePDFData = {
         invoiceNumber: inv.invoice_number,
@@ -455,8 +479,13 @@ function RechnungenContent() {
           ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy')
           : '',
         servicePeriod,
+        checkIn,
+        checkOut,
         landlordName: ls.name ?? '',
         landlordAddress,
+        landlordStreet,
+        landlordZipCity,
+        landlordCountry: ls.country ?? 'Deutschland',
         taxNumber: ls.tax_number || undefined,
         vatId: ls.vat_id || undefined,
         phone: ls.phone || undefined,
@@ -464,6 +493,12 @@ function RechnungenContent() {
         website: ls.website || undefined,
         guestName: [gs.firstname, gs.lastname].filter(Boolean).join(' '),
         guestAddress,
+        bookingReference: (gs as Record<string, string>).booking_reference || booking?.external_id?.toString() || undefined,
+        guestCount: (gs as Record<string, string>).guest_count
+          ? Number((gs as Record<string, string>).guest_count)
+          : (booking ? ((booking.adults ?? 0) + (booking.children ?? 0)) || undefined : undefined),
+        paymentChannel: channel || undefined,
+        amountPaid,
         lineItems: pdfLineItems,
         subtotalNet: inv.subtotal_net,
         vat7Net: inv.vat_7_net ?? 0,
@@ -477,6 +512,10 @@ function RechnungenContent() {
         bankName: ls.bank_name || undefined,
         paymentDays,
         isKleinunternehmer: isKlein,
+        logoUrl: ls.logo_url || undefined,
+        companyRegister: ls.company_register || undefined,
+        managingDirector: ls.managing_director || undefined,
+        thankYouText: ls.invoice_thank_you_text || undefined,
       }
 
       const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()

@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Save } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
+import { Save, Upload, Trash2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import type { Settings } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,6 +23,8 @@ export default function EinstellungenPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Profile state
   const [profile, setProfile] = useState<Partial<Profile>>({})
@@ -41,9 +44,11 @@ export default function EinstellungenPage() {
         .select(`
           id, created_at, updated_at,
           landlord_name, landlord_street, landlord_zip, landlord_city,
-          landlord_phone, landlord_email, landlord_website,
+          landlord_phone, landlord_email, landlord_website, landlord_country,
+          landlord_logo_url,
           tax_number, vat_id, finanzamt, is_kleinunternehmer,
           bank_iban, bank_bic, bank_name,
+          company_register, managing_director, invoice_thank_you_text,
           invoice_prefix, invoice_next_number, invoice_payment_days,
           smoobu_last_sync
         `)
@@ -94,11 +99,16 @@ export default function EinstellungenPage() {
       country: settings.landlord_country ?? 'DE',
       phone: settings.landlord_phone ?? '',
       email: settings.landlord_email ?? '',
+      website: settings.landlord_website ?? '',
       tax_number: settings.tax_number ?? '',
       vat_id: settings.vat_id ?? '',
       bank_iban: settings.bank_iban ?? '',
       bank_bic: settings.bank_bic ?? '',
       bank_name: settings.bank_name ?? '',
+      company_register: settings.company_register ?? '',
+      managing_director: settings.managing_director ?? '',
+      invoice_thank_you_text: settings.invoice_thank_you_text ?? '',
+      logo_url: settings.landlord_logo_url ?? '',
     }
     const { data: updatedInvoices } = await supabase
       .from('invoices')
@@ -135,6 +145,80 @@ export default function EinstellungenPage() {
       setTimeout(() => setProfileSaved(false), 3000)
     }
     setProfileSaving(false)
+  }
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !settings) return
+
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Nur Bilddateien erlaubt', variant: 'destructive' })
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: 'Datei zu groß (max. 2 MB)', variant: 'destructive' })
+      return
+    }
+
+    setLogoUploading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setLogoUploading(false); return }
+
+    const ext = file.name.split('.').pop()
+    const filePath = `${user.id}/logo.${ext}`
+
+    // Delete old logo if exists
+    if (settings.landlord_logo_url) {
+      const oldPath = settings.landlord_logo_url.split('/logos/')[1]
+      if (oldPath) await supabase.storage.from('logos').remove([oldPath])
+    }
+
+    const { error } = await supabase.storage
+      .from('logos')
+      .upload(filePath, file, { upsert: true })
+
+    if (error) {
+      toast({ title: 'Upload fehlgeschlagen', description: error.message, variant: 'destructive' })
+      setLogoUploading(false)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('logos').getPublicUrl(filePath)
+    const logoUrl = urlData.publicUrl
+
+    await supabase
+      .from('settings')
+      .update({ landlord_logo_url: logoUrl, updated_at: new Date().toISOString() })
+      .eq('id', settings.id)
+      .eq('user_id', user.id)
+
+    setSettings({ ...settings, landlord_logo_url: logoUrl })
+    setLogoUploading(false)
+    toast({ title: 'Logo hochgeladen' })
+
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function handleLogoDelete() {
+    if (!settings?.landlord_logo_url) return
+    setLogoUploading(true)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setLogoUploading(false); return }
+
+    const oldPath = settings.landlord_logo_url.split('/logos/')[1]
+    if (oldPath) await supabase.storage.from('logos').remove([oldPath])
+
+    await supabase
+      .from('settings')
+      .update({ landlord_logo_url: null, updated_at: new Date().toISOString() })
+      .eq('id', settings.id)
+      .eq('user_id', user.id)
+
+    setSettings({ ...settings, landlord_logo_url: null })
+    setLogoUploading(false)
+    toast({ title: 'Logo entfernt' })
   }
 
   if (loading) {
@@ -282,6 +366,91 @@ export default function EinstellungenPage() {
                       Rechnungen werden ohne USt-Ausweis erstellt. Pflichthinweis wird automatisch ergänzt.
                     </p>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Logo-Upload */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Logo</CardTitle>
+                  <CardDescription>Erscheint oben rechts auf Rechnungen (max. 2 MB, PNG/JPG)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {settings.landlord_logo_url ? (
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={settings.landlord_logo_url}
+                        alt="Logo"
+                        className="h-16 max-w-[200px] object-contain border rounded p-1"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLogoDelete}
+                        disabled={logoUploading}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Entfernen
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Kein Logo hochgeladen</p>
+                  )}
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleLogoUpload}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={logoUploading}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      {logoUploading ? 'Wird hochgeladen...' : 'Logo hochladen'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Firmendaten (für Rechnungs-Footer) */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Firmendaten</CardTitle>
+                  <CardDescription>Handelsregister und Geschäftsführer (erscheint im Rechnungs-Footer)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Handelsregistereintrag</Label>
+                      <Input
+                        value={settings.company_register ?? ''}
+                        onChange={(e) => updateField('company_register', e.target.value)}
+                        placeholder="z.B. HRB43938"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Geschäftsführer</Label>
+                      <Input
+                        value={settings.managing_director ?? ''}
+                        onChange={(e) => updateField('managing_director', e.target.value)}
+                        placeholder="z.B. Max Mustermann"
+                      />
+                    </div>
+                    <div className="space-y-2 col-span-2">
+                      <Label>Dankestext (Rechnungsende)</Label>
+                      <Textarea
+                        value={settings.invoice_thank_you_text ?? ''}
+                        onChange={(e) => updateField('invoice_thank_you_text', e.target.value)}
+                        placeholder="z.B. Vielen Dank für Ihren Aufenthalt! Wir freuen uns auf Ihren nächsten Besuch."
+                        rows={3}
+                      />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 

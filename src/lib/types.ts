@@ -70,6 +70,10 @@ export interface LandlordSnapshot {
   bank_iban?: string
   bank_bic?: string
   bank_name?: string
+  company_register?: string
+  managing_director?: string
+  invoice_thank_you_text?: string
+  logo_url?: string
 }
 
 // Guest snapshot (stored as JSONB in invoices)
