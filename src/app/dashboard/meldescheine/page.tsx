@@ -6,7 +6,7 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Trash2, Download, FileText, AlertTriangle, Archive } from 'lucide-react'
+import { Plus, Trash2, Download, FileText, AlertTriangle, Archive, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { MeldescheinPDF, type MeldescheinData } from '@/lib/pdf/meldeschein'
 import type { BookingWithProperty } from '@/lib/types'
@@ -50,6 +50,7 @@ interface SettingsData {
 
 interface RegistrationForm {
   id: string
+  booking_id: string | null
   guest_firstname: string
   guest_lastname: string
   check_in: string
@@ -95,6 +96,7 @@ function MeldescheineContent() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [syncingGuestId, setSyncingGuestId] = useState<string | null>(null)
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState<string>('')
@@ -119,7 +121,7 @@ function MeldescheineContent() {
         await Promise.all([
           supabase
             .from('registration_forms')
-            .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
+            .select('id, booking_id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
             .neq('status', 'deleted')
             .order('created_at', { ascending: false }),
           supabase
@@ -166,7 +168,7 @@ function MeldescheineContent() {
             setAutoGenInfo(`${created} Meldeschein${created > 1 ? 'e' : ''} automatisch erstellt`)
             const { data: refreshed } = await supabase
               .from('registration_forms')
-              .select('id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
+              .select('id, booking_id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
               .neq('status', 'deleted')
               .order('created_at', { ascending: false })
             setForms(refreshed ?? [])
@@ -329,47 +331,77 @@ function MeldescheineContent() {
     }
   }
 
-  async function handleDownloadExisting(form: RegistrationForm) {
-    const { data } = await supabase
-      .from('registration_forms')
-      .select('id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, trip_purpose, co_travellers, property_snapshot')
-      .eq('id', form.id)
-      .single()
-    if (!data) return
-
-    // BUG-1: landlordAddress is now included (was missing before)
-    const pdfData: MeldescheinData = {
-      propertyName: (data.property_snapshot as Record<string, string>)?.name ?? 'Ferienwohnung',
-      propertyAddress: [
-        (data.property_snapshot as Record<string, string>)?.street,
-        [(data.property_snapshot as Record<string, string>)?.zip, (data.property_snapshot as Record<string, string>)?.city].filter(Boolean).join(' '),
-      ].filter(Boolean).join(', '),
-      firstname: data.guest_firstname,
-      lastname: data.guest_lastname,
-      birthdate: data.guest_birthdate ?? undefined,
-      nationality: data.guest_nationality ?? undefined,
-      street: data.guest_street ?? undefined,
-      city: data.guest_city ?? undefined,
-      zip: data.guest_zip ?? undefined,
-      country: data.guest_country ?? undefined,
-      checkIn: format(new Date(data.check_in + 'T00:00:00'), 'dd.MM.yyyy'),
-      checkOut: format(new Date(data.check_out + 'T00:00:00'), 'dd.MM.yyyy'),
-      adults: data.adults ?? 1,
-      children: data.children ?? 0,
-      tripPurpose: data.trip_purpose ?? 'unknown',
-      coTravellers: (data.co_travellers as unknown as CoTraveller[]) ?? undefined,
-      landlordName: settings?.landlord_name ?? undefined,
-      landlordAddress: buildLandlordAddress(), // BUG-1 fixed
-      logoUrl: settings?.landlord_logo_url ?? undefined, // BUG-9
+  /** Sync guest data from Smoobu before download (always, to catch address updates) */
+  async function syncGuestForBooking(bookingId: string): Promise<boolean> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/smoobu/sync-guest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ bookingId }),
+      })
+      return res.ok
+    } catch {
+      return false
     }
+  }
 
-    const blob = await pdf(<MeldescheinPDF data={pdfData} />).toBlob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `meldeschein-${data.guest_lastname}-${data.check_in}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
+  async function handleDownloadExisting(form: RegistrationForm) {
+    setSyncingGuestId(form.id)
+    try {
+      // Always sync guest data from Smoobu before PDF generation
+      // (webhook doesn't send address updates, so we always re-fetch)
+      if (form.booking_id) {
+        await syncGuestForBooking(form.booking_id)
+      }
+
+      // Re-fetch form data (may have been updated by sync-guest backfill)
+      const { data } = await supabase
+        .from('registration_forms')
+        .select('id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, trip_purpose, co_travellers, property_snapshot')
+        .eq('id', form.id)
+        .single()
+      if (!data) return
+
+      // BUG-1: landlordAddress is now included (was missing before)
+      const pdfData: MeldescheinData = {
+        propertyName: (data.property_snapshot as Record<string, string>)?.name ?? 'Ferienwohnung',
+        propertyAddress: [
+          (data.property_snapshot as Record<string, string>)?.street,
+          [(data.property_snapshot as Record<string, string>)?.zip, (data.property_snapshot as Record<string, string>)?.city].filter(Boolean).join(' '),
+        ].filter(Boolean).join(', '),
+        firstname: data.guest_firstname,
+        lastname: data.guest_lastname,
+        birthdate: data.guest_birthdate ?? undefined,
+        nationality: data.guest_nationality ?? undefined,
+        street: data.guest_street ?? undefined,
+        city: data.guest_city ?? undefined,
+        zip: data.guest_zip ?? undefined,
+        country: data.guest_country ?? undefined,
+        checkIn: format(new Date(data.check_in + 'T00:00:00'), 'dd.MM.yyyy'),
+        checkOut: format(new Date(data.check_out + 'T00:00:00'), 'dd.MM.yyyy'),
+        adults: data.adults ?? 1,
+        children: data.children ?? 0,
+        tripPurpose: data.trip_purpose ?? 'unknown',
+        coTravellers: (data.co_travellers as unknown as CoTraveller[]) ?? undefined,
+        landlordName: settings?.landlord_name ?? undefined,
+        landlordAddress: buildLandlordAddress(), // BUG-1 fixed
+        logoUrl: settings?.landlord_logo_url ?? undefined, // BUG-9
+      }
+
+      const blob = await pdf(<MeldescheinPDF data={pdfData} />).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `meldeschein-${data.guest_lastname}-${data.check_in}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setSyncingGuestId(null)
+    }
   }
 
   // BUG-11: Status update via server API route (service client, no auth required)
@@ -760,9 +792,12 @@ function MeldescheineContent() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            disabled={syncingGuestId === form.id}
                             onClick={() => handleDownloadExisting(form)}
                           >
-                            <Download className="h-4 w-4" />
+                            {syncingGuestId === form.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Download className="h-4 w-4" />}
                           </Button>
                           <Button
                             variant="ghost"
