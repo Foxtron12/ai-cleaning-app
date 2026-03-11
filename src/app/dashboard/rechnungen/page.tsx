@@ -310,6 +310,7 @@ function RechnungenContent() {
 
   async function createSplitInvoices(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
     if (!s) return
+    const { data: { user } } = await supabase.auth.getUser()
     const effectiveRules = rules ?? cityRules
     const isKlein = s.is_kleinunternehmer ?? false
     const paymentDays = s.invoice_payment_days ?? 14
@@ -346,6 +347,22 @@ function RechnungenContent() {
       fillFromBooking(booking, s, rules)
       setDialogOpen(true)
       return
+    }
+
+    // BUG-3: Prevent duplicates – abort if finalized invoices exist; delete drafts (auto-generated) first
+    const { data: existing } = await supabase
+      .from('invoices')
+      .select('id, status')
+      .eq('booking_id', booking.id)
+    if (existing && existing.length > 0) {
+      const finalized = existing.filter((inv) => inv.status !== 'draft')
+      if (finalized.length > 0) {
+        toast({ title: 'Rechnungen bereits vorhanden', description: 'Für diese Buchung existieren bereits finalisierte Rechnungen.', variant: 'destructive' })
+        return
+      }
+      // Delete existing draft invoices (auto-generated) before creating split invoices
+      const draftIds = existing.map((inv) => inv.id)
+      await supabase.from('invoices').delete().in('id', draftIds)
     }
 
     const taxConfig = booking.properties ? getTaxConfigForProperty(booking.properties, effectiveRules) : null
@@ -429,6 +446,7 @@ function RechnungenContent() {
         invoice_number: invoiceNumber,
         booking_id: booking.id,
         property_id: booking.property_id,
+        user_id: user?.id,
         landlord_snapshot: landlordSnapshot as unknown as import('@/lib/database.types').Json,
         guest_snapshot: guestSnapshot as unknown as import('@/lib/database.types').Json,
         line_items: lineItems as unknown as import('@/lib/database.types').Json,
@@ -497,6 +515,7 @@ function RechnungenContent() {
   async function handleSave() {
     if (!settings) return
     setGenerating(true)
+    const { data: { user } } = await supabase.auth.getUser()
     try {
       const isKlein = settings.is_kleinunternehmer ?? false
 
@@ -565,6 +584,7 @@ function RechnungenContent() {
           invoice_number: invoiceNumber,
           booking_id: selectedBookingId || null,
           property_id: selectedBooking?.property_id ?? null,
+          user_id: user?.id,
           landlord_snapshot: landlordSnapshotData,
           guest_snapshot: guestSnapshotData,
           line_items: lineItemsJson,
