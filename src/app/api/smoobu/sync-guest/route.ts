@@ -188,7 +188,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 7. Backfill related Meldescheine that are missing address data
+    // 7. Always update related Meldescheine with latest guest data
+    //    (not just when missing – Smoobu address may have changed)
     let meldescheineUpdated = 0
 
     if (updateData.guest_street) {
@@ -197,7 +198,6 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('booking_id', bookingId)
         .eq('user_id', userId)
-        .is('guest_street', null)
 
       if (formsToUpdate && formsToUpdate.length > 0) {
         for (const form of formsToUpdate) {
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 8. Backfill related invoices where guest_snapshot is missing address
+    // 8. Always update related invoices guest_snapshot with latest data
     let invoicesUpdated = 0
 
     if (updateData.guest_street) {
@@ -229,7 +229,6 @@ export async function POST(request: NextRequest) {
       if (invoicesToUpdate && invoicesToUpdate.length > 0) {
         for (const inv of invoicesToUpdate) {
           const gs = inv.guest_snapshot as Record<string, string> | null
-          if (gs?.street) continue // already has address
 
           const updatedSnapshot = {
             ...gs,
