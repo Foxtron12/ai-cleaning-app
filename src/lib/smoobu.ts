@@ -2,6 +2,7 @@ import type {
   SmoobuApartment,
   SmoobuReservation,
   SmoobuReservationsResponse,
+  SmoobuGuest,
   BookingChannel,
   BookingInsert,
   PropertyInsert,
@@ -216,6 +217,11 @@ export class SmoobuClient {
     return this.fetch<SmoobuReservation>(`/reservations/${id}`)
   }
 
+  /** Fetch a single guest's details (address, emails, phone numbers) */
+  async getGuest(guestId: number): Promise<SmoobuGuest> {
+    return this.fetch<SmoobuGuest>(`/guests/${guestId}`)
+  }
+
   /** Fetch ALL reservations (paginated) for a date range, then enrich with guest details */
   async getAllReservations(from: string, to: string): Promise<SmoobuReservation[]> {
     const allBookings: SmoobuReservation[] = []
@@ -235,27 +241,47 @@ export class SmoobuClient {
       page++
     }
 
-    // The list endpoint doesn't return guest address/email/phone/nationality.
-    // Fetch each reservation individually in batches to respect rate limits.
-    const BATCH_SIZE = 10
-    const enriched: SmoobuReservation[] = []
+    // The list/detail reservation endpoints don't return guest address data.
+    // Fetch guest details via /guests/{guestId} to get address, emails, phone.
+    // Collect unique guestIds first, then batch-fetch to avoid duplicate calls.
+    const guestCache = new Map<number, SmoobuGuest>()
+    const uniqueGuestIds = [...new Set(
+      allBookings.map((b) => b.guestId).filter((id): id is number => id != null && id > 0)
+    )]
 
-    for (let i = 0; i < allBookings.length; i += BATCH_SIZE) {
-      const batch = allBookings.slice(i, i + BATCH_SIZE)
+    const BATCH_SIZE = 10
+    for (let i = 0; i < uniqueGuestIds.length; i += BATCH_SIZE) {
+      const batch = uniqueGuestIds.slice(i, i + BATCH_SIZE)
       const results = await Promise.all(
-        batch.map(async (booking) => {
+        batch.map(async (guestId) => {
           try {
-            const detail = await this.getReservation(booking.id)
-            return { ...booking, ...detail }
+            const guest = await this.getGuest(guestId)
+            return { guestId, guest }
           } catch {
-            return booking
+            return { guestId, guest: null }
           }
         })
       )
-      enriched.push(...results)
+      for (const { guestId, guest } of results) {
+        if (guest) guestCache.set(guestId, guest)
+      }
     }
 
-    return enriched
+    // Enrich bookings with guest address data
+    return allBookings.map((booking) => {
+      const guest = booking.guestId ? guestCache.get(booking.guestId) : null
+      if (!guest) return booking
+
+      return {
+        ...booking,
+        // Map guest API fields onto reservation fields used by mapSmoobuReservation
+        address: guest.address ?? booking.address,
+        email: guest.emails?.[0] ?? booking.email,
+        phone: guest.telephoneNumbers?.[0] ?? booking.phone,
+        firstname: guest.firstName ?? booking.firstname,
+        lastname: guest.lastName ?? booking.lastname,
+      }
+    })
   }
 }
 

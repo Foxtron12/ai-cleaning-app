@@ -176,3 +176,19 @@ export interface SmoobuReservationsResponse {
 export interface SmoobuApartmentsResponse {
   apartments: Record<string, SmoobuApartment>
 }
+
+export interface SmoobuGuest {
+  id: number
+  firstName?: string
+  lastName?: string
+  companyName?: string
+  emails?: string[]
+  telephoneNumbers?: string[]
+  address?: {
+    street?: string
+    postalCode?: string
+    city?: string
+    country?: string
+  }
+  notes?: string
+}
