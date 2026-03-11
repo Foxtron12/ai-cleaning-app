@@ -3,9 +3,9 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { format, addDays } from 'date-fns'
-import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
-import { Plus, Download, FileText, Ban } from 'lucide-react'
+import JSZip from 'jszip'
+import { Plus, Download, FileText, Ban, Search, Archive } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -61,6 +61,7 @@ interface InvoiceRow {
   vat_19_amount: number | null
   status: string
   booking_id: string | null
+  property_id: string | null
   is_kleinunternehmer: boolean | null
   service_period_start: string | null
   service_period_end: string | null
@@ -76,6 +77,13 @@ interface InvoiceRow {
   }>
 }
 
+interface PropertyInfo {
+  id: string
+  name: string
+}
+
+const INVOICE_SELECT = 'id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, property_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items'
+
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value)
 }
@@ -87,12 +95,6 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Storniert',
 }
 
-const STATUS_VARIANTS: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  draft: 'outline',
-  created: 'default',
-  paid: 'secondary',
-  cancelled: 'destructive',
-}
 
 export default function RechnungenPage() {
   return (
@@ -108,13 +110,20 @@ function RechnungenContent() {
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [bookings, setBookings] = useState<BookingWithProperty[]>([])
+  const [properties, setProperties] = useState<PropertyInfo[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [cityRules, setCityRules] = useState<CityTaxRule[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [downloading, setDownloading] = useState<string | null>(null)
+  const [bulkDownloading, setBulkDownloading] = useState(false)
   const { toast } = useToast()
+
+  // Filter state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [propertyFilter, setPropertyFilter] = useState('all')
+  const [periodFilter, setPeriodFilter] = useState('all')
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState('')
@@ -125,11 +134,11 @@ function RechnungenContent() {
 
   useEffect(() => {
     async function fetchData() {
-      const [{ data: invoicesData }, { data: bookingsData }, { data: settingsData }, { data: rulesData }] =
+      const [{ data: invoicesData }, { data: bookingsData }, { data: settingsData }, { data: rulesData }, { data: propsData }] =
         await Promise.all([
           supabase
             .from('invoices')
-            .select('id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items')
+            .select(INVOICE_SELECT)
             .order('created_at', { ascending: false }),
           supabase
             .from('bookings')
@@ -147,11 +156,13 @@ function RechnungenContent() {
             invoice_prefix, invoice_next_number, invoice_payment_days
           `).limit(1).single(),
           supabase.from('city_tax_rules').select('*').order('city'),
+          supabase.from('properties').select('id, name').order('name'),
         ])
 
       const rules = (rulesData ?? []) as CityTaxRule[]
       setInvoices((invoicesData ?? []) as InvoiceRow[])
       setBookings((bookingsData ?? []) as BookingWithProperty[])
+      setProperties((propsData ?? []) as PropertyInfo[])
       setSettings(settingsData as Settings | null)
       setCityRules(rules)
       setLoading(false)
@@ -165,10 +176,9 @@ function RechnungenContent() {
             title: `${result.created} neue Rechnungsentwürfe erstellt`,
             description: 'Automatisch aus Buchungsdaten generiert.',
           })
-          // Refetch invoices to show newly created drafts
           const { data: refreshed } = await supabase
             .from('invoices')
-            .select('id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items')
+            .select(INVOICE_SELECT)
             .order('created_at', { ascending: false })
           if (refreshed) setInvoices(refreshed as InvoiceRow[])
         }
@@ -202,7 +212,7 @@ function RechnungenContent() {
 
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-    const cleaningFee = getCleaningFee(booking)
+    const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
     const isKlein = s?.is_kleinunternehmer ?? false
 
     // Calculate accommodation tax using city_tax_rules
@@ -426,98 +436,7 @@ function RechnungenContent() {
   async function handleDownloadPDF(inv: InvoiceRow) {
     setDownloading(inv.id)
     try {
-      const ls = inv.landlord_snapshot ?? {}
-      const gs = inv.guest_snapshot ?? {}
-      const items = (inv.line_items ?? []) as InvoiceRow['line_items']
-      const isKlein = inv.is_kleinunternehmer ?? false
-      const paymentDays = settings?.invoice_payment_days ?? 14
-
-      const landlordStreet = ls.street ?? ''
-      const landlordZipCity = [ls.zip, ls.city].filter(Boolean).join(' ')
-      const landlordAddress = [landlordStreet, landlordZipCity].filter(Boolean).join(', ')
-
-      const guestAddress = gs.address
-        ?? [gs.street, [gs.zip, gs.city].filter(Boolean).join(' '), gs.country]
-            .filter(Boolean)
-            .join(', ')
-
-      const servicePeriod =
-        inv.service_period_start && inv.service_period_end
-          ? `${format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')}`
-          : ''
-
-      const checkIn = inv.service_period_start
-        ? format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')
-        : ''
-      const checkOut = inv.service_period_end
-        ? format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')
-        : ''
-
-      const pdfLineItems: InvoiceLineItem[] = items.map((i) => ({
-        description: i.description,
-        quantity: i.quantity,
-        unitPrice: i.unit_price,
-        vatRate: i.vat_rate,
-        vatAmount: i.vat_amount,
-        total: i.total,
-      }))
-
-      // Determine payment from booking channel
-      const booking = inv.booking_id
-        ? bookings.find((b) => b.id === inv.booking_id)
-        : null
-      const channel = (gs as Record<string, string>).payment_channel ?? booking?.channel ?? ''
-      const isOta = channel && channel.toLowerCase() !== 'direct' && channel !== ''
-      const amountPaid = isOta ? inv.total_gross : 0
-
-      const pdfData: InvoicePDFData = {
-        invoiceNumber: inv.invoice_number,
-        issuedDate: inv.issued_date
-          ? format(new Date(inv.issued_date + 'T00:00:00'), 'dd.MM.yyyy')
-          : '',
-        dueDate: inv.due_date
-          ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy')
-          : '',
-        servicePeriod,
-        checkIn,
-        checkOut,
-        landlordName: ls.name ?? '',
-        landlordAddress,
-        landlordStreet,
-        landlordZipCity,
-        landlordCountry: ls.country ?? 'Deutschland',
-        taxNumber: ls.tax_number || undefined,
-        vatId: ls.vat_id || undefined,
-        phone: ls.phone || undefined,
-        email: ls.email || undefined,
-        website: ls.website || undefined,
-        guestName: [gs.firstname, gs.lastname].filter(Boolean).join(' '),
-        guestAddress,
-        bookingReference: (gs as Record<string, string>).booking_reference || booking?.external_id?.toString() || undefined,
-        guestCount: (gs as Record<string, string>).guest_count
-          ? Number((gs as Record<string, string>).guest_count)
-          : (booking ? ((booking.adults ?? 0) + (booking.children ?? 0)) || undefined : undefined),
-        paymentChannel: channel || undefined,
-        amountPaid,
-        lineItems: pdfLineItems,
-        subtotalNet: inv.subtotal_net,
-        vat7Net: inv.vat_7_net ?? 0,
-        vat7Amount: inv.vat_7_amount ?? 0,
-        vat19Net: inv.vat_19_net ?? 0,
-        vat19Amount: inv.vat_19_amount ?? 0,
-        totalVat: inv.total_vat,
-        totalGross: inv.total_gross,
-        bankIban: ls.bank_iban || undefined,
-        bankBic: ls.bank_bic || undefined,
-        bankName: ls.bank_name || undefined,
-        paymentDays,
-        isKleinunternehmer: isKlein,
-        logoUrl: ls.logo_url || undefined,
-        companyRegister: ls.company_register || undefined,
-        managingDirector: ls.managing_director || undefined,
-        thankYouText: ls.invoice_thank_you_text || undefined,
-      }
-
+      const pdfData = buildPdfData(inv)
       const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -541,25 +460,185 @@ function RechnungenContent() {
     )
   }
 
+  // Build period filter options
+  function getPeriodRange(period: string): { from: string; to: string } | null {
+    if (period === 'all') return null
+    const now = new Date()
+    const year = now.getFullYear()
+    if (period === 'this_year') return { from: `${year}-01-01`, to: `${year}-12-31` }
+    if (period === 'last_year') return { from: `${year - 1}-01-01`, to: `${year - 1}-12-31` }
+    if (period.startsWith('q')) {
+      const q = parseInt(period[1])
+      const qYear = period.includes('_last') ? year - 1 : year
+      const fromMonth = (q - 1) * 3
+      const toMonth = fromMonth + 2
+      return {
+        from: `${qYear}-${String(fromMonth + 1).padStart(2, '0')}-01`,
+        to: `${qYear}-${String(toMonth + 1).padStart(2, '0')}-${toMonth === 1 ? 28 : toMonth === 11 || toMonth === 3 || toMonth === 5 || toMonth === 8 || toMonth === 10 ? 30 : 31}`,
+      }
+    }
+    return null
+  }
+
+  // Filtered invoices
+  const filteredInvoices = invoices.filter((inv) => {
+    // Search by guest name
+    if (searchQuery) {
+      const name = `${inv.guest_snapshot?.firstname ?? ''} ${inv.guest_snapshot?.lastname ?? ''}`.toLowerCase()
+      if (!name.includes(searchQuery.toLowerCase())) return false
+    }
+    // Property filter
+    if (propertyFilter !== 'all' && inv.property_id !== propertyFilter) return false
+    // Period filter
+    const range = getPeriodRange(periodFilter)
+    if (range && inv.issued_date) {
+      if (inv.issued_date < range.from || inv.issued_date > range.to) return false
+    }
+    return true
+  })
+
+  /** Bulk download filtered invoices as ZIP */
+  async function handleBulkDownload() {
+    if (filteredInvoices.length === 0) return
+    setBulkDownloading(true)
+    try {
+      const zip = new JSZip()
+      for (const inv of filteredInvoices) {
+        const pdfData = buildPdfData(inv)
+        const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
+        zip.file(`${inv.invoice_number}.pdf`, blob)
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `rechnungen-${format(new Date(), 'yyyy-MM-dd')}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast({ title: `${filteredInvoices.length} Rechnungen heruntergeladen` })
+    } finally {
+      setBulkDownloading(false)
+    }
+  }
+
+  /** Build PDF data from an InvoiceRow (shared between single + bulk download) */
+  function buildPdfData(inv: InvoiceRow): InvoicePDFData {
+    const ls = inv.landlord_snapshot ?? {}
+    const gs = inv.guest_snapshot ?? {}
+    const items = (inv.line_items ?? []) as InvoiceRow['line_items']
+    const isKlein = inv.is_kleinunternehmer ?? false
+    const paymentDays = settings?.invoice_payment_days ?? 14
+
+    const landlordStreet = ls.street ?? ''
+    const landlordZipCity = [ls.zip, ls.city].filter(Boolean).join(' ')
+
+    const guestAddr = gs.address
+      ?? [gs.street, [gs.zip, gs.city].filter(Boolean).join(' '), gs.country]
+          .filter(Boolean)
+          .join(', ')
+
+    const checkIn = inv.service_period_start
+      ? format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')
+      : ''
+    const checkOut = inv.service_period_end
+      ? format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')
+      : ''
+
+    const pdfLineItems: InvoiceLineItem[] = items.map((i) => ({
+      description: i.description,
+      quantity: i.quantity,
+      unitPrice: i.unit_price,
+      vatRate: i.vat_rate,
+      vatAmount: i.vat_amount,
+      total: i.total,
+    }))
+
+    const booking = inv.booking_id
+      ? bookings.find((b) => b.id === inv.booking_id)
+      : null
+    const channel = (gs as Record<string, string>).payment_channel ?? booking?.channel ?? ''
+    const isOta = channel && channel.toLowerCase() !== 'direct' && channel !== ''
+    const amountPaid = isOta ? inv.total_gross : 0
+
+    return {
+      invoiceNumber: inv.invoice_number,
+      issuedDate: inv.issued_date
+        ? format(new Date(inv.issued_date + 'T00:00:00'), 'dd.MM.yyyy')
+        : '',
+      dueDate: inv.due_date
+        ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy')
+        : '',
+      servicePeriod: inv.service_period_start && inv.service_period_end
+        ? `${format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')}`
+        : '',
+      checkIn,
+      checkOut,
+      landlordName: ls.name ?? '',
+      landlordAddress: [landlordStreet, landlordZipCity].filter(Boolean).join(', '),
+      landlordStreet,
+      landlordZipCity,
+      landlordCountry: ls.country ?? 'Deutschland',
+      taxNumber: ls.tax_number || undefined,
+      vatId: ls.vat_id || undefined,
+      phone: ls.phone || undefined,
+      email: ls.email || undefined,
+      website: ls.website || undefined,
+      guestName: [gs.firstname, gs.lastname].filter(Boolean).join(' '),
+      guestAddress: guestAddr,
+      bookingReference: (gs as Record<string, string>).booking_reference || booking?.external_id?.toString() || undefined,
+      guestCount: (gs as Record<string, string>).guest_count
+        ? Number((gs as Record<string, string>).guest_count)
+        : (booking ? ((booking.adults ?? 0) + (booking.children ?? 0)) || undefined : undefined),
+      paymentChannel: channel || undefined,
+      amountPaid,
+      lineItems: pdfLineItems,
+      subtotalNet: inv.subtotal_net,
+      vat7Net: inv.vat_7_net ?? 0,
+      vat7Amount: inv.vat_7_amount ?? 0,
+      vat19Net: inv.vat_19_net ?? 0,
+      vat19Amount: inv.vat_19_amount ?? 0,
+      totalVat: inv.total_vat,
+      totalGross: inv.total_gross,
+      bankIban: ls.bank_iban || undefined,
+      bankBic: ls.bank_bic || undefined,
+      bankName: ls.bank_name || undefined,
+      paymentDays,
+      isKleinunternehmer: isKlein,
+      logoUrl: ls.logo_url || undefined,
+      companyRegister: ls.company_register || undefined,
+      managingDirector: ls.managing_director || undefined,
+      thankYouText: ls.invoice_thank_you_text || undefined,
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Rechnungen</h2>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button
-              onClick={() => {
-                setSelectedBookingId('')
-                setGuestName('')
-                setGuestAddress('')
-                setLineItems([])
-                setIssuedDate(format(new Date(), 'yyyy-MM-dd'))
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Neue Rechnung
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={bulkDownloading || filteredInvoices.length === 0}
+            onClick={handleBulkDownload}
+          >
+            <Archive className="mr-2 h-4 w-4" />
+            {bulkDownloading ? 'Wird erstellt...' : `Alle herunterladen (${filteredInvoices.length})`}
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                onClick={() => {
+                  setSelectedBookingId('')
+                  setGuestName('')
+                  setGuestAddress('')
+                  setLineItems([])
+                  setIssuedDate(format(new Date(), 'yyyy-MM-dd'))
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Neue Rechnung
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Rechnung erstellen</DialogTitle>
@@ -717,13 +796,59 @@ function RechnungenContent() {
               </Button>
             </div>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Gast suchen..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={propertyFilter} onValueChange={setPropertyFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Alle Objekte" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Alle Objekte</SelectItem>
+            {properties.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={periodFilter} onValueChange={setPeriodFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Alle Zeiträume" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Alle Zeiträume</SelectItem>
+            <SelectItem value="this_year">Dieses Jahr</SelectItem>
+            <SelectItem value="q1">Q1 (Jan–Mär)</SelectItem>
+            <SelectItem value="q2">Q2 (Apr–Jun)</SelectItem>
+            <SelectItem value="q3">Q3 (Jul–Sep)</SelectItem>
+            <SelectItem value="q4">Q4 (Okt–Dez)</SelectItem>
+            <SelectItem value="last_year">Letztes Jahr</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Invoice archive */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Rechnungsarchiv</CardTitle>
+          <CardTitle className="text-base">
+            Rechnungsarchiv
+            {filteredInvoices.length !== invoices.length && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({filteredInvoices.length} von {invoices.length})
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -732,9 +857,9 @@ function RechnungenContent() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : invoices.length === 0 ? (
+          ) : filteredInvoices.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">
-              Noch keine Rechnungen erstellt
+              {invoices.length === 0 ? 'Noch keine Rechnungen erstellt' : 'Keine Rechnungen für diesen Filter'}
             </p>
           ) : (
             <div className="rounded-md border">
@@ -750,7 +875,7 @@ function RechnungenContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoices.map((inv) => (
+                  {filteredInvoices.map((inv) => (
                     <TableRow key={inv.id}>
                       <TableCell className="font-medium font-mono text-sm">
                         {inv.invoice_number}

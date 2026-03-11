@@ -108,7 +108,7 @@ export async function autoGenerateInvoices(
 
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-    const cleaningFee = getCleaningFee(booking)
+    const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
     const accommodationGross = grossWithoutTax - cleaningFee
     const accommodationPerNight = nights > 0 ? accommodationGross / nights : 0
 

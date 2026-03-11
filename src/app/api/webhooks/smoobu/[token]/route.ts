@@ -110,9 +110,15 @@ export async function POST(
 
   try {
     const body = await request.json()
-    const parsed = webhookPayloadSchema.safeParse(body)
+
+    // Smoobu may wrap the payload: { action: "...", data: { ... } }
+    // Or send the reservation directly at the top level.
+    const payload = body?.data && body?.action ? body.data : body
+
+    const parsed = webhookPayloadSchema.safeParse(payload)
 
     if (!parsed.success) {
+      console.warn('Smoobu webhook: invalid payload for token', token.slice(0, 8) + '...', JSON.stringify(parsed.error.issues))
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
     }
 

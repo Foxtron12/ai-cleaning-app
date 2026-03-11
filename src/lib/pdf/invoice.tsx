@@ -367,6 +367,18 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
           <Text style={[styles.summaryValue, styles.summaryBold]}>{formatEur(openBalance)}</Text>
         </View>
 
+        {/* Payment instruction when balance is open */}
+        {openBalance > 0 && data.dueDate && (
+          <View style={{ marginTop: 10, padding: 8, backgroundColor: '#f8f8f8', borderRadius: 3 }}>
+            <Text style={{ fontSize: 9, color: '#333', lineHeight: 1.5 }}>
+              Bitte überweisen Sie den offenen Betrag von {formatEur(openBalance)} bis zum{' '}
+              {data.dueDate} auf das untenstehende Konto
+              {data.bankIban ? ` (IBAN: ${data.bankIban})` : ''}
+              {'. '}Alternativ können Sie den Zahlungslink in der zugehörigen E-Mail nutzen.
+            </Text>
+          </View>
+        )}
+
         {/* Tax summary table */}
         {!data.isKleinunternehmer && taxEntries.length > 0 && (
           <View style={styles.taxTable}>

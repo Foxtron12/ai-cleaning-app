@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
-import { Plus, Trash2, Download, FileText, AlertTriangle } from 'lucide-react'
+import JSZip from 'jszip'
+import { Plus, Trash2, Download, FileText, AlertTriangle, Archive } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { MeldescheinPDF, type MeldescheinData } from '@/lib/pdf/meldeschein'
 import type { BookingWithProperty } from '@/lib/types'
@@ -93,6 +94,7 @@ function MeldescheineContent() {
   const [autoGenInfo, setAutoGenInfo] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [bulkDownloading, setBulkDownloading] = useState(false)
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState<string>('')
@@ -409,6 +411,60 @@ function MeldescheineContent() {
     setCoTravellers((prev) => prev.filter((_, i) => i !== index))
   }
 
+  /** Bulk download all Meldescheine as ZIP */
+  async function handleBulkDownload() {
+    if (forms.length === 0) return
+    setBulkDownloading(true)
+    try {
+      const zip = new JSZip()
+      for (const form of forms) {
+        const { data } = await supabase
+          .from('registration_forms')
+          .select('id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, trip_purpose, co_travellers, property_snapshot')
+          .eq('id', form.id)
+          .single()
+        if (!data) continue
+
+        const pdfData: MeldescheinData = {
+          propertyName: (data.property_snapshot as Record<string, string>)?.name ?? 'Ferienwohnung',
+          propertyAddress: [
+            (data.property_snapshot as Record<string, string>)?.street,
+            [(data.property_snapshot as Record<string, string>)?.zip, (data.property_snapshot as Record<string, string>)?.city].filter(Boolean).join(' '),
+          ].filter(Boolean).join(', '),
+          firstname: data.guest_firstname,
+          lastname: data.guest_lastname,
+          birthdate: data.guest_birthdate ?? undefined,
+          nationality: data.guest_nationality ?? undefined,
+          street: data.guest_street ?? undefined,
+          city: data.guest_city ?? undefined,
+          zip: data.guest_zip ?? undefined,
+          country: data.guest_country ?? undefined,
+          checkIn: format(new Date(data.check_in + 'T00:00:00'), 'dd.MM.yyyy'),
+          checkOut: format(new Date(data.check_out + 'T00:00:00'), 'dd.MM.yyyy'),
+          adults: data.adults ?? 1,
+          children: data.children ?? 0,
+          tripPurpose: data.trip_purpose ?? 'unknown',
+          coTravellers: (data.co_travellers as unknown as CoTraveller[]) ?? undefined,
+          landlordName: settings?.landlord_name ?? undefined,
+          landlordAddress: buildLandlordAddress(),
+          logoUrl: settings?.landlord_logo_url ?? undefined,
+        }
+
+        const blob = await pdf(<MeldescheinPDF data={pdfData} />).toBlob()
+        zip.file(`meldeschein-${data.guest_lastname}-${data.check_in}.pdf`, blob)
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `meldescheine-${format(new Date(), 'yyyy-MM-dd')}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setBulkDownloading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {autoGenInfo && (
@@ -419,13 +475,22 @@ function MeldescheineContent() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Meldescheine</h2>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm() }}>
-          <DialogTrigger asChild>
-            <Button onClick={resetForm}>
-              <Plus className="mr-2 h-4 w-4" />
-              Neu erstellen
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={bulkDownloading || forms.length === 0}
+            onClick={handleBulkDownload}
+          >
+            <Archive className="mr-2 h-4 w-4" />
+            {bulkDownloading ? 'Wird erstellt...' : `Alle herunterladen (${forms.length})`}
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm() }}>
+            <DialogTrigger asChild>
+              <Button onClick={resetForm}>
+                <Plus className="mr-2 h-4 w-4" />
+                Neu erstellen
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Meldeschein erstellen</DialogTitle>
@@ -625,7 +690,8 @@ function MeldescheineContent() {
               </Button>
             </div>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       {/* Archive table – BUG-7: overflow-x-auto wrapper for mobile */}

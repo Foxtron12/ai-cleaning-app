@@ -103,7 +103,7 @@ function exportXLSX(bookings: BookingWithProperty[]) {
       'Nettobetrag ohne MwSt 7% (€)': nettoAmount,
       'Provision (€)': b.commission_amount ?? 0,
       'Host-Auszahlung (€)': hostPayout,
-      'Reinigungsgebühr (€)': getCleaningFee(b),
+      'Reinigungsgebühr (€)': getCleaningFee(b, b.properties?.default_cleaning_fee ?? undefined),
       'Beherbergungssteuer (€)': cityTax,
       'Kaution (€)': b.security_deposit ?? 0,
     }

@@ -54,15 +54,14 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Audit log – write BEFORE generating the link so we never issue a link without trail
+  // Audit log – best-effort, should not block magic link generation
   const { error: auditError } = await supabase.from('admin_audit_log').insert({
     action: 'impersonate',
     target_user_id: user_id,
     metadata: { timestamp: new Date().toISOString() },
   })
   if (auditError) {
-    console.error('Failed to write audit log:', auditError.message)
-    return NextResponse.json({ error: 'Audit-Log konnte nicht geschrieben werden' }, { status: 500 })
+    console.warn('Audit log write failed (non-blocking):', auditError.message)
   }
 
   // Generate magic link for impersonation

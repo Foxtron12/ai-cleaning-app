@@ -198,7 +198,7 @@ export function BookingDetailSheet({
                   : (booking.amount_gross ?? 0) - (booking.commission_amount ?? 0)
               )}
             />
-            <InfoRow label="Reinigungsgebühr" value={formatCurrency(getCleaningFee(booking))} />
+            <InfoRow label="Reinigungsgebühr" value={formatCurrency(getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined))} />
             <InfoRow
               label={`Beherbergungssteuer${taxResult?.remittedByOta ? ` (von ${taxResult.remittedByOtaName ?? 'OTA'} abgeführt)` : ''}`}
               value={taxResult ? formatCurrency(taxResult.taxAmount) : '–'}

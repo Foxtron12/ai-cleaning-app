@@ -42,9 +42,9 @@ export function getTotalGuestPays(booking: Booking): number {
 /**
  * Get accommodation-only revenue (without cleaning fee, without city tax).
  */
-export function getAccommodationRevenue(booking: Booking): number {
+export function getAccommodationRevenue(booking: Booking, propertyDefaultCleaningFee?: number): number {
   const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-  const cleaning = getCleaningFee(booking)
+  const cleaning = getCleaningFee(booking, propertyDefaultCleaningFee)
   return Math.max(0, grossWithoutTax - cleaning)
 }
 
