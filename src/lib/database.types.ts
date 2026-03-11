@@ -14,45 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      integrations: {
-        Row: {
-          id: string
-          user_id: string
-          provider: string
-          api_key_encrypted: string | null
-          webhook_token: string | null
-          status: string
-          last_synced_at: string | null
-          error_message: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          provider: string
-          api_key_encrypted?: string | null
-          webhook_token?: string | null
-          status?: string
-          last_synced_at?: string | null
-          error_message?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          provider?: string
-          api_key_encrypted?: string | null
-          webhook_token?: string | null
-          status?: string
-          last_synced_at?: string | null
-          error_message?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       admin_audit_log: {
         Row: {
           action: string
@@ -253,6 +214,45 @@ export type Database = {
         }
         Relationships: []
       }
+      integrations: {
+        Row: {
+          api_key_encrypted: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          last_synced_at: string | null
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+          webhook_token: string | null
+        }
+        Insert: {
+          api_key_encrypted?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          last_synced_at?: string | null
+          provider: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          webhook_token?: string | null
+        }
+        Update: {
+          api_key_encrypted?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          last_synced_at?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          webhook_token?: string | null
+        }
+        Relationships: []
+      }
       invoices: {
         Row: {
           booking_id: string | null
@@ -425,11 +425,11 @@ export type Database = {
           accommodation_tax_model: string | null
           accommodation_tax_rate: number | null
           booking_com_commission_rate: number | null
-          default_cleaning_fee: number | null
           city: string | null
           country: string | null
           created_at: string | null
           currency: string | null
+          default_cleaning_fee: number | null
           external_id: number
           id: string
           name: string
@@ -447,11 +447,11 @@ export type Database = {
           accommodation_tax_model?: string | null
           accommodation_tax_rate?: number | null
           booking_com_commission_rate?: number | null
-          default_cleaning_fee?: number | null
           city?: string | null
           country?: string | null
           created_at?: string | null
           currency?: string | null
+          default_cleaning_fee?: number | null
           external_id: number
           id?: string
           name: string
@@ -469,11 +469,11 @@ export type Database = {
           accommodation_tax_model?: string | null
           accommodation_tax_rate?: number | null
           booking_com_commission_rate?: number | null
-          default_cleaning_fee?: number | null
           city?: string | null
           country?: string | null
           created_at?: string | null
           currency?: string | null
+          default_cleaning_fee?: number | null
           external_id?: number
           id?: string
           name?: string
@@ -671,6 +671,42 @@ export type Database = {
           updated_at?: string | null
           user_id?: string | null
           vat_id?: string | null
+        }
+        Relationships: []
+      }
+      webhook_logs: {
+        Row: {
+          action: string | null
+          created_at: string | null
+          error: string | null
+          id: string
+          payload: Json
+          processed: boolean | null
+          provider: string
+          reservation_id: number | null
+          user_id: string | null
+        }
+        Insert: {
+          action?: string | null
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          payload: Json
+          processed?: boolean | null
+          provider?: string
+          reservation_id?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string | null
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          payload?: Json
+          processed?: boolean | null
+          provider?: string
+          reservation_id?: number | null
+          user_id?: string | null
         }
         Relationships: []
       }

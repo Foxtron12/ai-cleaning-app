@@ -221,12 +221,104 @@ export async function POST(request: NextRequest) {
     // 5. Auto-generate missing invoice drafts for newly synced bookings
     const { created: invoicesCreated } = await autoGenerateInvoices(userId, supabase)
 
+    // 6. Backfill guest address on existing Meldescheine & invoices
+    //    (for records created before address data was available from Smoobu)
+    let meldescheineUpdated = 0
+    let invoicesUpdated = 0
+
+    // 6a. Update Meldescheine where address is missing but booking now has it
+    const { data: formsToUpdate } = await supabase
+      .from('registration_forms')
+      .select('id, booking_id')
+      .eq('user_id', userId)
+      .is('guest_street', null)
+      .not('booking_id', 'is', null)
+
+    if (formsToUpdate && formsToUpdate.length > 0) {
+      const bookingIds = formsToUpdate.map((f) => f.booking_id!).filter(Boolean)
+      const { data: bookingsWithAddr } = await supabase
+        .from('bookings')
+        .select('id, guest_street, guest_city, guest_zip, guest_country, guest_nationality')
+        .in('id', bookingIds)
+        .not('guest_street', 'is', null)
+
+      if (bookingsWithAddr) {
+        const addrMap = new Map(bookingsWithAddr.map((b) => [b.id, b]))
+        for (const form of formsToUpdate) {
+          const addr = addrMap.get(form.booking_id!)
+          if (addr) {
+            await supabase
+              .from('registration_forms')
+              .update({
+                guest_street: addr.guest_street,
+                guest_city: addr.guest_city,
+                guest_zip: addr.guest_zip,
+                guest_country: addr.guest_country,
+                guest_nationality: addr.guest_nationality,
+              })
+              .eq('id', form.id)
+            meldescheineUpdated++
+          }
+        }
+      }
+    }
+
+    // 6b. Update invoice guest_snapshots where address is missing
+    const { data: invoicesToUpdate } = await supabase
+      .from('invoices')
+      .select('id, booking_id, guest_snapshot')
+      .eq('user_id', userId)
+      .not('booking_id', 'is', null)
+
+    if (invoicesToUpdate && invoicesToUpdate.length > 0) {
+      const invBookingIds = invoicesToUpdate
+        .filter((inv) => {
+          const gs = inv.guest_snapshot as Record<string, string> | null
+          return !gs?.street
+        })
+        .map((inv) => inv.booking_id!)
+        .filter(Boolean)
+
+      if (invBookingIds.length > 0) {
+        const { data: bookingsWithAddr } = await supabase
+          .from('bookings')
+          .select('id, guest_street, guest_city, guest_zip, guest_country')
+          .in('id', invBookingIds)
+          .not('guest_street', 'is', null)
+
+        if (bookingsWithAddr) {
+          const addrMap = new Map(bookingsWithAddr.map((b) => [b.id, b]))
+          for (const inv of invoicesToUpdate) {
+            const gs = inv.guest_snapshot as Record<string, string> | null
+            if (gs?.street) continue
+            const addr = addrMap.get(inv.booking_id!)
+            if (addr) {
+              const updatedSnapshot = {
+                ...gs,
+                street: addr.guest_street ?? '',
+                city: addr.guest_city ?? '',
+                zip: addr.guest_zip ?? '',
+                country: addr.guest_country ?? '',
+              }
+              await supabase
+                .from('invoices')
+                .update({ guest_snapshot: updatedSnapshot })
+                .eq('id', inv.id)
+              invoicesUpdated++
+            }
+          }
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       properties: apartments.length,
       reservations: { total: synced, created, updated },
       meldescheineCreated,
       invoicesCreated,
+      meldescheineUpdated,
+      invoicesUpdated,
       syncedAt: new Date().toISOString(),
     })
   } catch (error) {

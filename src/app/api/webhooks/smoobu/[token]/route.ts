@@ -5,6 +5,7 @@ import {
   calculateBookingStatus,
 } from '@/lib/smoobu'
 import type { SmoobuReservation } from '@/lib/types'
+import type { Json } from '@/lib/database.types'
 import { z } from 'zod'
 
 // Zod schema for Smoobu webhook payload (validates minimum required fields)
@@ -108,8 +109,16 @@ export async function POST(
 
   const userId = integration.user_id
 
+  // Declare outside try so catch block can access them
+  let action: string | null = null
+  let rawPayload: Json = null
+
   try {
     const body = await request.json()
+
+    // Log raw webhook payload for debugging
+    action = body?.action ?? null
+    rawPayload = body
 
     // Smoobu may wrap the payload: { action: "...", data: { ... } }
     // Or send the reservation directly at the top level.
@@ -118,6 +127,15 @@ export async function POST(
     const parsed = webhookPayloadSchema.safeParse(payload)
 
     if (!parsed.success) {
+      // Log failed webhook
+      await supabase.from('webhook_logs').insert({
+        user_id: userId,
+        provider: 'smoobu',
+        action,
+        payload: rawPayload,
+        processed: false,
+        error: JSON.stringify(parsed.error.issues),
+      })
       console.warn('Smoobu webhook: invalid payload for token', token.slice(0, 8) + '...', JSON.stringify(parsed.error.issues))
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
     }
@@ -176,9 +194,32 @@ export async function POST(
       .update({ last_synced_at: new Date().toISOString() })
       .eq('id', integration.id)
 
+    // Log successful webhook
+    await supabase.from('webhook_logs').insert({
+      user_id: userId,
+      provider: 'smoobu',
+      action,
+      reservation_id: reservation.id,
+      payload: rawPayload,
+      processed: true,
+    })
+
     return NextResponse.json({ success: true, bookingId: reservation.id })
   } catch (error) {
     console.error('Webhook error:', error)
+
+    // Log error webhook (best-effort, don't fail if logging fails)
+    try {
+      await supabase.from('webhook_logs').insert({
+        user_id: userId,
+        provider: 'smoobu',
+        action,
+        payload: rawPayload ?? {},
+        processed: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    } catch { /* ignore logging errors */ }
+
     return NextResponse.json(
       { error: 'Webhook processing failed' },
       { status: 500 }

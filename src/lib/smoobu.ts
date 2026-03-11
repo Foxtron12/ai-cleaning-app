@@ -211,7 +211,12 @@ export class SmoobuClient {
     return result
   }
 
-  /** Fetch ALL reservations (paginated) for a date range */
+  /** Fetch a single reservation with full guest details (address, email, phone, nationality) */
+  async getReservation(id: number): Promise<SmoobuReservation> {
+    return this.fetch<SmoobuReservation>(`/reservations/${id}`)
+  }
+
+  /** Fetch ALL reservations (paginated) for a date range, then enrich with guest details */
   async getAllReservations(from: string, to: string): Promise<SmoobuReservation[]> {
     const allBookings: SmoobuReservation[] = []
     let page = 1
@@ -230,7 +235,27 @@ export class SmoobuClient {
       page++
     }
 
-    return allBookings
+    // The list endpoint doesn't return guest address/email/phone/nationality.
+    // Fetch each reservation individually in batches to respect rate limits.
+    const BATCH_SIZE = 10
+    const enriched: SmoobuReservation[] = []
+
+    for (let i = 0; i < allBookings.length; i += BATCH_SIZE) {
+      const batch = allBookings.slice(i, i + BATCH_SIZE)
+      const results = await Promise.all(
+        batch.map(async (booking) => {
+          try {
+            const detail = await this.getReservation(booking.id)
+            return { ...booking, ...detail }
+          } catch {
+            return booking
+          }
+        })
+      )
+      enriched.push(...results)
+    }
+
+    return enriched
   }
 }
 
