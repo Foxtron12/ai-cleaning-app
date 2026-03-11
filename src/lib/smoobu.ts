@@ -206,6 +206,7 @@ export class SmoobuClient {
       children: params.children ?? 0,
       price: params.price,
       notice: params.note ?? '',
+      country: params.country ?? '',
       address: {
         street: params.street ?? '',
         city: params.city ?? '',
