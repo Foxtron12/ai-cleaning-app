@@ -2,7 +2,7 @@
 
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, FileText, ClipboardList } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { BookingStatusBadge } from './booking-status-badge'
 import type { BookingWithProperty } from '@/lib/types'
 
@@ -44,6 +45,8 @@ export function BookingTable({
   sortColumn,
   sortDirection,
   onSort,
+  invoiceBookingIds = new Set(),
+  meldescheinBookingIds = new Set(),
 }: {
   bookings: BookingWithProperty[]
   loading: boolean
@@ -51,6 +54,8 @@ export function BookingTable({
   sortColumn: SortColumn
   sortDirection: SortDirection
   onSort: (col: SortColumn) => void
+  invoiceBookingIds?: Set<string>
+  meldescheinBookingIds?: Set<string>
 }) {
   if (loading) {
     return (
@@ -93,6 +98,7 @@ export function BookingTable({
             {th('amount_gross', 'Betrag', 'text-right')}
             <TableHead className="hidden md:table-cell">Kanal</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead className="text-center w-16">Docs</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -125,6 +131,28 @@ export function BookingTable({
                 </TableCell>
                 <TableCell>
                   <BookingStatusBadge status={booking.status} />
+                </TableCell>
+                <TableCell className="text-center">
+                  <TooltipProvider>
+                    <div className="flex items-center justify-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <FileText className={`h-4 w-4 ${invoiceBookingIds.has(booking.id) ? 'text-emerald-600' : 'text-muted-foreground/30'}`} />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {invoiceBookingIds.has(booking.id) ? 'Rechnung vorhanden' : 'Keine Rechnung'}
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ClipboardList className={`h-4 w-4 ${meldescheinBookingIds.has(booking.id) ? 'text-emerald-600' : 'text-muted-foreground/30'}`} />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {meldescheinBookingIds.has(booking.id) ? 'Meldeschein vorhanden' : 'Kein Meldeschein'}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </TooltipProvider>
                 </TableCell>
               </TableRow>
             )

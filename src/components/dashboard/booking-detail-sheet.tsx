@@ -237,12 +237,37 @@ export function BookingDetailSheet({
                 Meldeschein erstellen
               </Link>
             </Button>
-            <Button variant="outline" asChild>
-              <Link href={`/dashboard/rechnungen?booking=${booking.id}`}>
-                <Receipt className="mr-2 h-4 w-4" />
-                Rechnung erstellen
-              </Link>
-            </Button>
+            {(() => {
+              const checkIn = new Date(booking.check_in + 'T00:00:00')
+              const checkOut = new Date(booking.check_out + 'T00:00:00')
+              const isMultiMonth =
+                checkIn.getMonth() !== checkOut.getMonth() ||
+                checkIn.getFullYear() !== checkOut.getFullYear()
+              return isMultiMonth ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Diese Buchung geht über mehrere Monate:</p>
+                  <Button variant="outline" className="w-full justify-start" asChild>
+                    <Link href={`/dashboard/rechnungen?booking=${booking.id}`}>
+                      <Receipt className="mr-2 h-4 w-4" />
+                      Gesamtrechnung erstellen
+                    </Link>
+                  </Button>
+                  <Button variant="outline" className="w-full justify-start" asChild>
+                    <Link href={`/dashboard/rechnungen?booking=${booking.id}&split=true`}>
+                      <Receipt className="mr-2 h-4 w-4" />
+                      Monatsweise aufteilen
+                    </Link>
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" asChild>
+                  <Link href={`/dashboard/rechnungen?booking=${booking.id}`}>
+                    <Receipt className="mr-2 h-4 w-4" />
+                    Rechnung erstellen
+                  </Link>
+                </Button>
+              )
+            })()}
           </div>
         </div>
       </SheetContent>

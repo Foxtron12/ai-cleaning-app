@@ -164,18 +164,8 @@ export async function autoGenerateInvoices(
       })
     }
 
-    // City tax – skip billable line if OTA remits, add note instead
-    if (taxResult?.remittedByOta && cityTax > 0) {
-      const otaName = taxResult.remittedByOtaName ?? 'OTA'
-      lineItems.push({
-        description: `Beherbergungssteuer wird durch ${otaName} erhoben`,
-        quantity: 1,
-        unit_price: 0,
-        vat_rate: 0,
-        vat_amount: 0,
-        total: 0,
-      })
-    } else if (cityTax > 0) {
+    // City tax – always include with actual amount
+    if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
       const taxVatAmount = isKlein
         ? 0

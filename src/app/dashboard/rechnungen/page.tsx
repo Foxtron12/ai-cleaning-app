@@ -2,7 +2,8 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { format, addDays } from 'date-fns'
+import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalendarDays } from 'date-fns'
+import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
 import { Plus, Download, FileText, Ban, Search, Archive, Loader2 } from 'lucide-react'
@@ -107,6 +108,7 @@ export default function RechnungenPage() {
 function RechnungenContent() {
   const searchParams = useSearchParams()
   const bookingIdParam = searchParams.get('booking')
+  const splitParam = searchParams.get('split') === 'true'
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [bookings, setBookings] = useState<BookingWithProperty[]>([])
@@ -191,14 +193,18 @@ function RechnungenContent() {
           (b: BookingWithProperty) => b.id === bookingIdParam
         ) as BookingWithProperty | undefined
         if (booking) {
-          fillFromBooking(booking, settingsData as Settings | null, rules)
-          setDialogOpen(true)
+          if (splitParam) {
+            await createSplitInvoices(booking, settingsData as Settings | null, rules)
+          } else {
+            fillFromBooking(booking, settingsData as Settings | null, rules)
+            setDialogOpen(true)
+          }
         }
       }
     }
     fetchData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingIdParam])
+  }, [bookingIdParam, splitParam])
 
   function fillFromBooking(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
     setSelectedBookingId(booking.id)
@@ -258,19 +264,8 @@ function RechnungenContent() {
       })
     }
 
-    // Beherbergungssteuer (calculated from city_tax_rules)
-    // If OTA remits tax, add a note instead of a billable line item
-    if (taxResult?.remittedByOta && cityTax > 0) {
-      const otaName = taxResult.remittedByOtaName ?? 'OTA'
-      items.push({
-        description: `Beherbergungssteuer wird durch ${otaName} erhoben`,
-        quantity: 1,
-        unitPrice: 0,
-        vatRate: 0,
-        vatAmount: 0,
-        total: 0,
-      })
-    } else if (cityTax > 0) {
+    // Beherbergungssteuer (calculated from city_tax_rules) – always include actual amount
+    if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
       const taxVatAmount = isKlein ? 0 : Math.round(cityTax * (taxVatRate / 100) * 100) / 100
       items.push({
@@ -284,6 +279,155 @@ function RechnungenContent() {
     }
 
     setLineItems(items)
+  }
+
+  async function createSplitInvoices(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
+    if (!s) return
+    const effectiveRules = rules ?? cityRules
+    const isKlein = s.is_kleinunternehmer ?? false
+    const paymentDays = s.invoice_payment_days ?? 14
+    const prefix = s.invoice_prefix ?? 'RE'
+    let nextNumber = s.invoice_next_number ?? 1
+
+    const checkIn = new Date(booking.check_in + 'T00:00:00')
+    const checkOut = new Date(booking.check_out + 'T00:00:00')
+    const totalNights = booking.nights ?? differenceInCalendarDays(checkOut, checkIn)
+    if (totalNights <= 0) return
+
+    // Build monthly segments
+    const segments: Array<{ checkIn: string; checkOut: string; nights: number; ratio: number; monthLabel: string }> = []
+    let current = startOfMonth(checkIn)
+    while (current < checkOut) {
+      const nextMonth = addMonths(current, 1)
+      const segStart = checkIn > current ? checkIn : current
+      const segEnd = checkOut < nextMonth ? checkOut : nextMonth
+      const segNights = differenceInCalendarDays(segEnd, segStart)
+      if (segNights > 0) {
+        segments.push({
+          checkIn: format(segStart, 'yyyy-MM-dd'),
+          checkOut: format(segEnd, 'yyyy-MM-dd'),
+          nights: segNights,
+          ratio: segNights / totalNights,
+          monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
+        })
+      }
+      current = nextMonth
+    }
+
+    if (segments.length <= 1) {
+      // Not truly multi-month, fall back to single invoice
+      fillFromBooking(booking, s, rules)
+      setDialogOpen(true)
+      return
+    }
+
+    const taxConfig = booking.properties ? getTaxConfigForProperty(booking.properties, effectiveRules) : null
+    const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
+    const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
+    const accommodationGross = grossWithoutTax - cleaningFee
+
+    const landlordSnapshot = {
+      name: s.landlord_name ?? '', street: s.landlord_street ?? '', city: s.landlord_city ?? '',
+      zip: s.landlord_zip ?? '', country: s.landlord_country ?? 'DE', phone: s.landlord_phone ?? '',
+      email: s.landlord_email ?? '', website: s.landlord_website ?? '', tax_number: s.tax_number ?? '',
+      vat_id: s.vat_id ?? '', bank_iban: s.bank_iban ?? '', bank_bic: s.bank_bic ?? '',
+      bank_name: s.bank_name ?? '', company_register: s.company_register ?? '',
+      managing_director: s.managing_director ?? '', invoice_thank_you_text: s.invoice_thank_you_text ?? '',
+      logo_url: s.landlord_logo_url ?? '',
+    }
+
+    const guestSnapshot = {
+      firstname: booking.guest_firstname ?? '', lastname: booking.guest_lastname ?? '',
+      street: booking.guest_street ?? '', city: booking.guest_city ?? '',
+      zip: booking.guest_zip ?? '', country: booking.guest_country ?? '',
+      booking_reference: booking.external_id?.toString() ?? '',
+      guest_count: String((booking.adults ?? 0) + (booking.children ?? 0)),
+      payment_channel: booking.channel ?? '',
+    }
+
+    const inserts = segments.map((seg) => {
+      const invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
+      nextNumber++
+
+      const segAccomGross = Math.round(accommodationGross * seg.ratio * 100) / 100
+      const segClean = Math.round(cleaningFee * seg.ratio * 100) / 100
+
+      const lineItems: Array<{ description: string; quantity: number; unit_price: number; vat_rate: number; vat_amount: number; total: number }> = []
+
+      const accomNet = isKlein ? segAccomGross : segAccomGross / 1.07
+      const accomVat = isKlein ? 0 : segAccomGross - accomNet
+      lineItems.push({
+        description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${seg.monthLabel} (${seg.nights} Nächte)`,
+        quantity: seg.nights,
+        unit_price: Math.round((segAccomGross / (isKlein ? 1 : 1.07) / seg.nights) * 100) / 100,
+        vat_rate: 7, vat_amount: Math.round(accomVat * 100) / 100, total: Math.round(segAccomGross * 100) / 100,
+      })
+
+      if (segClean > 0) {
+        const cleanNet = isKlein ? segClean : segClean / 1.07
+        const cleanVat = isKlein ? 0 : segClean - cleanNet
+        lineItems.push({
+          description: 'Endreinigung', quantity: 1, unit_price: Math.round(cleanNet * 100) / 100,
+          vat_rate: 7, vat_amount: Math.round(cleanVat * 100) / 100, total: Math.round(segClean * 100) / 100,
+        })
+      }
+
+      // BHSt proportional
+      if (taxConfig) {
+        const segBooking = { ...booking, nights: seg.nights, amount_gross: Math.round((booking.amount_gross ?? 0) * seg.ratio * 100) / 100, cleaning_fee: Math.round((booking.cleaning_fee ?? 0) * seg.ratio * 100) / 100 }
+        const taxResult = calculateAccommodationTax(segBooking, taxConfig, booking.properties?.ota_remits_tax ?? [])
+        if (taxResult.taxAmount > 0) {
+          const taxVatRate = taxConfig.vatType === '7' ? 7 : taxConfig.vatType === '19' ? 19 : 0
+          const taxVatAmount = isKlein ? 0 : Math.round(taxResult.taxAmount * (taxVatRate / 100) * 100) / 100
+          lineItems.push({
+            description: `Beherbergungssteuer${taxConfig.city ? ` (${taxConfig.city})` : ''}`,
+            quantity: 1, unit_price: Math.round(taxResult.taxAmount * 100) / 100,
+            vat_rate: taxVatRate, vat_amount: taxVatAmount,
+            total: Math.round((taxResult.taxAmount + taxVatAmount) * 100) / 100,
+          })
+        }
+      }
+
+      const subtotalNet = lineItems.reduce((s, i) => s + i.quantity * i.unit_price, 0)
+      const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
+      const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
+      const vat7Net = vat7Items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
+      const vat7Amount = isKlein ? 0 : vat7Items.reduce((s, i) => s + i.vat_amount, 0)
+      const vat19Net = vat19Items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
+      const vat19Amount = isKlein ? 0 : vat19Items.reduce((s, i) => s + i.vat_amount, 0)
+      const totalVat = vat7Amount + vat19Amount
+      const totalGross = isKlein ? subtotalNet : subtotalNet + totalVat
+
+      return {
+        invoice_number: invoiceNumber,
+        booking_id: booking.id,
+        property_id: booking.property_id,
+        user_id: (s as Settings & { user_id?: string }).user_id ?? '',
+        landlord_snapshot: landlordSnapshot as unknown as import('@/lib/database.types').Json,
+        guest_snapshot: guestSnapshot as unknown as import('@/lib/database.types').Json,
+        line_items: lineItems as unknown as import('@/lib/database.types').Json,
+        subtotal_net: Math.round(subtotalNet * 100) / 100,
+        vat_7_net: Math.round(vat7Net * 100) / 100, vat_7_amount: Math.round(vat7Amount * 100) / 100,
+        vat_19_net: Math.round(vat19Net * 100) / 100, vat_19_amount: Math.round(vat19Amount * 100) / 100,
+        total_vat: Math.round(totalVat * 100) / 100, total_gross: Math.round(totalGross * 100) / 100,
+        is_kleinunternehmer: isKlein,
+        issued_date: format(new Date(), 'yyyy-MM-dd'),
+        due_date: format(addDays(new Date(), paymentDays), 'yyyy-MM-dd'),
+        service_period_start: seg.checkIn,
+        service_period_end: seg.checkOut,
+        status: 'draft',
+      }
+    })
+
+    const { error } = await supabase.from('invoices').insert(inserts)
+    if (!error) {
+      await supabase.from('settings').update({ invoice_next_number: nextNumber }).eq('id', s.id)
+      toast({ title: `${inserts.length} Rechnungen erstellt`, description: `Monatsweise aufgeteilt: ${segments.map((s) => s.monthLabel).join(', ')}` })
+      const { data: refreshed } = await supabase.from('invoices').select(INVOICE_SELECT).order('created_at', { ascending: false })
+      if (refreshed) setInvoices(refreshed as InvoiceRow[])
+    } else {
+      toast({ title: 'Fehler', description: 'Rechnungen konnten nicht erstellt werden.', variant: 'destructive' })
+    }
   }
 
   function addLineItem() {

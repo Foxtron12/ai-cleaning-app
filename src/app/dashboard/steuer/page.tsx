@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInCalendarDays } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Download, Plus, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -105,12 +105,14 @@ function computeSummary(items: TaxDataItem[]) {
   const taxable = selfRemit.filter((d) => !d.tax.isExempt)
 
   const otaRemittedTax = otaRemitted.reduce((s, d) => s + d.tax.taxAmount, 0)
+  const otaRemittedRevenue = otaRemitted.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
   const selfRemitTax = taxable.reduce((s, d) => s + d.tax.taxAmount, 0)
 
   return {
     totalNights: items.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
     otaRemittedNights: otaRemitted.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
     otaRemittedTax,
+    otaRemittedRevenue,
     selfRemitRevenue: selfRemit.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
     businessNights: business.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
     businessRevenue: business.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
@@ -121,6 +123,60 @@ function computeSummary(items: TaxDataItem[]) {
     totalTax: selfRemitTax + otaRemittedTax,
     bookingCount: items.length,
   }
+}
+
+// Splits a multi-month booking into per-calendar-month virtual segments.
+// Each segment has proportionally scaled amounts. Only segments overlapping [rangeFrom, rangeTo] are returned.
+function splitBookingByMonth(booking: BookingWithProp, rangeFrom: string, rangeTo: string): BookingWithProp[] {
+  const checkIn = new Date(booking.check_in + 'T00:00:00')
+  const checkOut = new Date(booking.check_out + 'T00:00:00')
+  const totalNights = booking.nights ?? differenceInCalendarDays(checkOut, checkIn)
+  if (totalNights <= 0) return [booking]
+
+  // Single month: no split needed
+  if (checkIn.getMonth() === checkOut.getMonth() && checkIn.getFullYear() === checkOut.getFullYear()) {
+    return [booking]
+  }
+
+  const segments: BookingWithProp[] = []
+  let current = startOfMonth(checkIn)
+
+  while (current <= checkOut) {
+    const monthEnd = endOfMonth(current)
+    const segStart = checkIn > current ? checkIn : current
+    const segEnd = checkOut < monthEnd ? checkOut : monthEnd
+
+    const segNights = differenceInCalendarDays(segEnd, segStart) + (checkOut > monthEnd ? 0 : 0)
+    // Nights in this segment = nights from segStart to min(checkout, end of month)
+    // checkout is exclusive (day guest leaves), so nights = differenceInCalendarDays(min(checkout, nextMonthStart), segStart)
+    const nextMonthStart = addMonths(current, 1)
+    const segNightsActual = differenceInCalendarDays(checkOut < nextMonthStart ? checkOut : nextMonthStart, segStart)
+
+    if (segNightsActual > 0) {
+      const segCheckIn = format(segStart, 'yyyy-MM-dd')
+      const segCheckOut = format(checkOut < nextMonthStart ? checkOut : nextMonthStart, 'yyyy-MM-dd')
+
+      // Only include if overlaps with filter range
+      if (segCheckOut > rangeFrom && segCheckIn <= rangeTo) {
+        const ratio = segNightsActual / totalNights
+        segments.push({
+          ...booking,
+          check_in: segCheckIn,
+          check_out: segCheckOut,
+          nights: segNightsActual,
+          amount_gross: booking.amount_gross !== null ? Math.round(booking.amount_gross * ratio * 100) / 100 : null,
+          cleaning_fee: booking.cleaning_fee !== null ? Math.round(booking.cleaning_fee * ratio * 100) / 100 : null,
+          amount_host_payout: booking.amount_host_payout !== null ? Math.round(booking.amount_host_payout * ratio * 100) / 100 : null,
+          commission_amount: booking.commission_amount !== null ? Math.round(booking.commission_amount * ratio * 100) / 100 : null,
+        })
+      }
+    }
+
+    current = nextMonthStart
+    if (segEnd >= checkOut) break
+  }
+
+  return segments.length > 0 ? segments : [booking]
 }
 
 export default function SteuerPage() {
@@ -145,8 +201,8 @@ export default function SteuerPage() {
         .from('bookings')
         .select('*, properties(*)')
         .neq('status', 'cancelled')
-        .gte('check_in', range.from)
         .lte('check_in', range.to)
+        .gte('check_out', range.from)
         .order('check_in', { ascending: true }),
       supabase.from('properties').select('*').order('name'),
       supabase.from('city_tax_rules').select('*').order('city'),
@@ -182,18 +238,22 @@ export default function SteuerPage() {
     return result
   }, [bookings, selectedPropertyId, selectedTags, properties])
 
-  // Calculate tax per booking using per-property config
+  // Calculate tax per booking using per-property config, splitting multi-month bookings
   const taxData = useMemo<TaxDataItem[]>(() => {
-    return filteredBookings.map((booking) => {
+    const range = getDateRange(timeRange)
+    return filteredBookings.flatMap((booking) => {
       const config = booking.properties
         ? getTaxConfigForProperty(booking.properties, cityRules)
         : null
-      const tax = config
-        ? calculateAccommodationTax(booking, config, booking.properties?.ota_remits_tax ?? [])
-        : { taxableAmount: 0, taxAmount: 0, isExempt: true, exemptReason: 'Keine Beherbergungssteuer', remittedByOta: false } as TaxResult
-      return { booking, tax, config }
+      const segments = splitBookingByMonth(booking, range.from, range.to)
+      return segments.map((seg) => {
+        const tax = config
+          ? calculateAccommodationTax(seg, config, booking.properties?.ota_remits_tax ?? [])
+          : { taxableAmount: 0, taxAmount: 0, isExempt: true, exemptReason: 'Keine Beherbergungssteuer', remittedByOta: false } as TaxResult
+        return { booking: seg, tax, config }
+      })
     })
-  }, [filteredBookings, cityRules])
+  }, [filteredBookings, cityRules, timeRange])
 
   // Group by property for "Alle" view – include properties without bookings
   const groupedByProperty = useMemo(() => {
@@ -304,7 +364,7 @@ export default function SteuerPage() {
         ['Stadt', config?.city ?? '–'],
         ['Steuersatz', formatRate(config)],
         ['1. Entgeltliche Übernachtungen', s.totalNights],
-        ['2. abzgl. Von OTA abgeführt', `${s.otaRemittedNights} Nächte / ${s.otaRemittedTax.toFixed(2)} EUR`],
+        ['2. abzgl. Von OTA abgeführt', `${s.otaRemittedNights} Nächte / ${s.otaRemittedRevenue.toFixed(2)} EUR`],
         ['3. Umsätze verbleibend', s.selfRemitRevenue.toFixed(2)],
         ['4. abzgl. Geschäftsreisen', `${s.businessNights} Nächte / ${s.businessRevenue.toFixed(2)} EUR`],
         ['5. Verbleibende Übernachtungen', s.remainingNights],
@@ -463,14 +523,17 @@ export default function SteuerPage() {
                   </span>
                 </div>
 
-                {/* City summary (if multiple properties in this city) */}
-                {cityGroup.properties.length > 1 && (
-                  <Card className="border-dashed">
-                    <CardContent className="pt-4 pb-3">
-                      <CompactSummary summary={citySummary} config={cityGroup.config} />
-                    </CardContent>
-                  </Card>
-                )}
+                {/* City detail summary (always shown in Alle-view) */}
+                <Card className="border-dashed">
+                  <CardHeader className="pb-2 pt-4">
+                    <p className="text-xs text-muted-foreground">
+                      {cityGroup.properties.length} Objekt{cityGroup.properties.length !== 1 ? 'e' : ''} · {citySummary.bookingCount} Buchungen
+                    </p>
+                  </CardHeader>
+                  <CardContent className="pb-4">
+                    <DetailSummary summary={citySummary} config={cityGroup.config} />
+                  </CardContent>
+                </Card>
 
                 {/* Per-property cards within this city */}
                 {cityGroup.properties.map((group, idx) => {
@@ -633,6 +696,23 @@ export default function SteuerPage() {
 
 // --- Sub-components ---
 
+function DetailSummary({ summary, config }: { summary: ReturnType<typeof computeSummary>; config: TaxConfig | null | undefined }) {
+  return (
+    <div className="space-y-1">
+      <SummaryLine label="1. Anzahl entgeltlicher Übernachtungen insgesamt" value={`${summary.totalNights} Nächte`} />
+      <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedRevenue)}`} className="text-rose-600" />
+      <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.selfRemitRevenue)} />
+      <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen (Geschäftsreisen)" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
+      <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />
+      <SummaryLine label="6. verbleibende steuerpflichtige Umsätze" value={formatEur(summary.taxableRevenue)} />
+      <div className="flex justify-between py-3 bg-emerald-50 rounded px-2 mt-2">
+        <span className="text-sm font-bold">7. Selbst abzuführen ({formatRate(config)})</span>
+        <span className="text-lg font-bold tabular-nums text-emerald-700">{formatEur(summary.selfRemitTax)}</span>
+      </div>
+    </div>
+  )
+}
+
 function SinglePropertySummary({
   taxData,
   range,
@@ -663,7 +743,7 @@ function SinglePropertySummary({
       <CardContent>
         <div className="space-y-1">
           <SummaryLine label="1. Anzahl entgeltlicher Übernachtungen insgesamt" value={`${summary.totalNights} Nächte`} />
-          <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedTax)}`} className="text-rose-600" />
+          <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedRevenue)}`} className="text-rose-600" />
           <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.selfRemitRevenue)} />
           <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen (Geschäftsreisen)" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
           <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />

@@ -119,6 +119,8 @@ const PAGE_SIZE = 20
 
 export default function BuchungenPage() {
   const [allBookings, setAllBookings] = useState<BookingWithProperty[]>([])
+  const [invoiceBookingIds, setInvoiceBookingIds] = useState<Set<string>>(new Set())
+  const [meldescheinBookingIds, setMeldescheinBookingIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState('Alle')
@@ -148,8 +150,14 @@ export default function BuchungenPage() {
         query = query.lte('check_in', dateRange.to).gte('check_out', dateRange.from)
       }
 
-      const { data } = await query
+      const [{ data }, { data: invData }, { data: meldData }] = await Promise.all([
+        query,
+        supabase.from('invoices').select('booking_id').not('booking_id', 'is', null),
+        supabase.from('registration_forms').select('booking_id').not('booking_id', 'is', null),
+      ])
       setAllBookings((data ?? []) as BookingWithProperty[])
+      setInvoiceBookingIds(new Set((invData ?? []).map((r) => r.booking_id as string)))
+      setMeldescheinBookingIds(new Set((meldData ?? []).map((r) => r.booking_id as string)))
       setLoading(false)
     }
 
@@ -309,6 +317,8 @@ export default function BuchungenPage() {
         sortColumn={sortColumn}
         sortDirection={sortDirection}
         onSort={handleSort}
+        invoiceBookingIds={invoiceBookingIds}
+        meldescheinBookingIds={meldescheinBookingIds}
       />
 
       {/* Pagination */}
