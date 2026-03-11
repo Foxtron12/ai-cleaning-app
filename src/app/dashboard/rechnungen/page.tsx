@@ -6,7 +6,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2 } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -132,6 +132,10 @@ function RechnungenContent() {
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [bulkGenDialogOpen, setBulkGenDialogOpen] = useState(false)
+  const [bulkGenFrom, setBulkGenFrom] = useState('')
+  const [bulkGenTo, setBulkGenTo] = useState('')
+  const [bulkGenerating, setBulkGenerating] = useState(false)
   const { toast } = useToast()
 
   // Filter state
@@ -757,6 +761,36 @@ function RechnungenContent() {
     }
   }
 
+  async function handleBulkGenerate() {
+    if (!bulkGenFrom || !bulkGenTo) return
+    setBulkGenerating(true)
+    try {
+      const res = await fetch('/api/rechnungen/bulk-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromDate: bulkGenFrom, toDate: bulkGenTo }),
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: result.error ?? 'Generierung fehlgeschlagen', variant: 'destructive' })
+        return
+      }
+      setBulkGenDialogOpen(false)
+      if (result.created > 0) {
+        toast({ title: `${result.created} neue Rechnungsentwürfe erstellt`, description: `Zeitraum: ${bulkGenFrom} – ${bulkGenTo}` })
+        const { data: refreshed } = await supabase
+          .from('invoices')
+          .select(INVOICE_SELECT)
+          .order('created_at', { ascending: false })
+        if (refreshed) setInvoices(refreshed as InvoiceRow[])
+      } else {
+        toast({ title: 'Keine neuen Rechnungen', description: 'Alle Buchungen im Zeitraum haben bereits eine Rechnung.' })
+      }
+    } finally {
+      setBulkGenerating(false)
+    }
+  }
+
   async function handleDeleteInvoice(invoiceId: string) {
     await supabase.from('invoices').delete().eq('id', invoiceId)
     setInvoices((prev) => prev.filter((inv) => inv.id !== invoiceId))
@@ -878,6 +912,50 @@ function RechnungenContent() {
             <Archive className="mr-2 h-4 w-4" />
             {bulkDownloading ? 'Wird erstellt...' : `Alle herunterladen (${filteredInvoices.length})`}
           </Button>
+          {/* Bulk-Erstellen Dialog */}
+          <Dialog open={bulkGenDialogOpen} onOpenChange={setBulkGenDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Wand2 className="mr-2 h-4 w-4" />
+                Rechnungen erstellen
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Rechnungen bulk erstellen</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Erstellt Rechnungsentwürfe für alle Buchungen im gewählten Zeitraum (Anreisedatum), die noch keine Rechnung haben.
+              </p>
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <Label htmlFor="bulk-from">Anreise von</Label>
+                  <Input
+                    id="bulk-from"
+                    type="date"
+                    value={bulkGenFrom}
+                    onChange={(e) => setBulkGenFrom(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="bulk-to">Anreise bis</Label>
+                  <Input
+                    id="bulk-to"
+                    type="date"
+                    value={bulkGenTo}
+                    onChange={(e) => setBulkGenTo(e.target.value)}
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  disabled={bulkGenerating || !bulkGenFrom || !bulkGenTo}
+                  onClick={handleBulkGenerate}
+                >
+                  {bulkGenerating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird erstellt...</> : 'Rechnungen erstellen'}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button

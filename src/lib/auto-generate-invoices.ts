@@ -11,17 +11,31 @@ import {
 } from './calculators/accommodation-tax'
 import { format, addDays } from 'date-fns'
 
+interface AutoGenerateOptions {
+  /** Only process direct bookings created via this app (channel_id = 0). Default: true */
+  directOnly?: boolean
+  /** Only process bookings with check_in >= fromDate (ISO date string) */
+  fromDate?: string
+  /** Only process bookings with check_in <= toDate (ISO date string) */
+  toDate?: string
+}
+
 /**
  * Auto-generates invoice draft records for bookings that have sufficient data
  * (firstname, lastname, amount_gross > 0) but no existing invoice.
- * Called on page load and after Smoobu sync.
+ *
+ * By default (directOnly: true) only processes app-created direct bookings (channel_id = 0).
+ * For bulk generation of OTA bookings, pass { directOnly: false, fromDate, toDate }.
  */
 export async function autoGenerateInvoices(
   userId: string,
-  supabase: SupabaseClient<Database>
+  supabase: SupabaseClient<Database>,
+  options: AutoGenerateOptions = {}
 ): Promise<{ created: number }> {
+  const { directOnly = true, fromDate, toDate } = options
+
   // Fetch bookings with minimum required fields, scoped to user
-  const { data: bookings, error: bookingsError } = await supabase
+  let query = supabase
     .from('bookings')
     .select('*, properties(*)')
     .eq('user_id', userId)
@@ -29,6 +43,17 @@ export async function autoGenerateInvoices(
     .not('guest_lastname', 'is', null)
     .neq('status', 'cancelled')
     .gt('amount_gross', 0)
+
+  // Only app-created direct bookings (channel_id = 0) unless bulk mode
+  if (directOnly) {
+    query = query.eq('channel_id', 0)
+  }
+
+  // Date range filter for bulk generation
+  if (fromDate) query = query.gte('check_in', fromDate)
+  if (toDate) query = query.lte('check_in', toDate)
+
+  const { data: bookings, error: bookingsError } = await query
 
   if (bookingsError || !bookings || bookings.length === 0) return { created: 0 }
 
