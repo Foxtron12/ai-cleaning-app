@@ -118,6 +118,7 @@ function RechnungenContent() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [splitting, setSplitting] = useState(false)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [bulkDownloading, setBulkDownloading] = useState(false)
   const { toast } = useToast()
@@ -194,7 +195,13 @@ function RechnungenContent() {
         ) as BookingWithProperty | undefined
         if (booking) {
           if (splitParam) {
-            await createSplitInvoices(booking, settingsData as Settings | null, rules)
+            if (!settingsData) {
+              toast({ title: 'Einstellungen fehlen', description: 'Bitte zuerst Vermieter-Daten in den Einstellungen hinterlegen.', variant: 'destructive' })
+            } else {
+              setSplitting(true)
+              await createSplitInvoices(booking, settingsData as Settings | null, rules)
+              setSplitting(false)
+            }
           } else {
             fillFromBooking(booking, settingsData as Settings | null, rules)
             setDialogOpen(true)
@@ -402,7 +409,6 @@ function RechnungenContent() {
         invoice_number: invoiceNumber,
         booking_id: booking.id,
         property_id: booking.property_id,
-        user_id: (s as Settings & { user_id?: string }).user_id ?? '',
         landlord_snapshot: landlordSnapshot as unknown as import('@/lib/database.types').Json,
         guest_snapshot: guestSnapshot as unknown as import('@/lib/database.types').Json,
         line_items: lineItems as unknown as import('@/lib/database.types').Json,
@@ -801,6 +807,12 @@ function RechnungenContent() {
 
   return (
     <div className="space-y-6">
+      {splitting && (
+        <div className="flex items-center gap-2 rounded-lg border p-3 bg-muted text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Rechnungen werden monatsweise aufgeteilt...
+        </div>
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Rechnungen</h2>
         <div className="flex gap-2">
