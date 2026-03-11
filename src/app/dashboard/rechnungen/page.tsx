@@ -182,22 +182,25 @@ function RechnungenContent() {
       setLoading(false)
 
       // Auto-generate invoice drafts for bookings without invoices
-      try {
-        const res = await fetch('/api/rechnungen/auto-generate', { method: 'POST' })
-        const result = await res.json()
-        if (result.created > 0) {
-          toast({
-            title: `${result.created} neue Rechnungsentwürfe erstellt`,
-            description: 'Automatisch aus Buchungsdaten generiert.',
-          })
-          const { data: refreshed } = await supabase
-            .from('invoices')
-            .select(INVOICE_SELECT)
-            .order('created_at', { ascending: false })
-          if (refreshed) setInvoices(refreshed as InvoiceRow[])
+      // Skip when in split mode to avoid creating drafts that interfere with split creation
+      if (!splitParam) {
+        try {
+          const res = await fetch('/api/rechnungen/auto-generate', { method: 'POST' })
+          const result = await res.json()
+          if (result.created > 0) {
+            toast({
+              title: `${result.created} neue Rechnungsentwürfe erstellt`,
+              description: 'Automatisch aus Buchungsdaten generiert.',
+            })
+            const { data: refreshed } = await supabase
+              .from('invoices')
+              .select(INVOICE_SELECT)
+              .order('created_at', { ascending: false })
+            if (refreshed) setInvoices(refreshed as InvoiceRow[])
+          }
+        } catch {
+          // Non-blocking: page still works without auto-generation
         }
-      } catch {
-        // Non-blocking: page still works without auto-generation
       }
 
       if (bookingIdParam) {
@@ -470,7 +473,7 @@ function RechnungenContent() {
       const { data: refreshed } = await supabase.from('invoices').select(INVOICE_SELECT).order('created_at', { ascending: false })
       if (refreshed) setInvoices(refreshed as InvoiceRow[])
     } else {
-      toast({ title: 'Fehler', description: 'Rechnungen konnten nicht erstellt werden.', variant: 'destructive' })
+      toast({ title: 'Fehler beim Erstellen', description: error.message, variant: 'destructive' })
     }
   }
 
