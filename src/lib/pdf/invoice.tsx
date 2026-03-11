@@ -209,6 +209,9 @@ export interface InvoicePDFData {
   // Guest
   guestName: string
   guestAddress: string
+  guestStreet?: string
+  guestZipCity?: string
+  guestCountry?: string
   // Booking meta
   bookingReference?: string
   guestCount?: number
@@ -284,7 +287,13 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
               {data.landlordName} · {data.landlordStreet} · {data.landlordZipCity}
             </Text>
             <Text style={styles.guestName}>{data.guestName}</Text>
-            {data.guestAddress ? (
+            {data.guestStreet ? (
+              <>
+                <Text style={{ fontSize: 10 }}>{data.guestStreet}</Text>
+                {data.guestZipCity ? <Text style={{ fontSize: 10 }}>{data.guestZipCity}</Text> : null}
+                {data.guestCountry ? <Text style={{ fontSize: 10 }}>{data.guestCountry}</Text> : null}
+              </>
+            ) : data.guestAddress ? (
               <Text style={{ fontSize: 10 }}>{data.guestAddress}</Text>
             ) : null}
           </View>

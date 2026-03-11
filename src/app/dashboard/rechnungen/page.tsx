@@ -626,6 +626,9 @@ function RechnungenContent() {
       website: ls.website || undefined,
       guestName: [gs.firstname, gs.lastname].filter(Boolean).join(' '),
       guestAddress: guestAddr,
+      guestStreet: gs.street || undefined,
+      guestZipCity: gs.street ? [gs.zip, gs.city].filter(Boolean).join(' ') || undefined : undefined,
+      guestCountry: gs.street ? (gs.country || undefined) : undefined,
       bookingReference: (gs as Record<string, string>).booking_reference || booking?.external_id?.toString() || undefined,
       guestCount: (gs as Record<string, string>).guest_count
         ? Number((gs as Record<string, string>).guest_count)
