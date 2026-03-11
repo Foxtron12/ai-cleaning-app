@@ -373,6 +373,14 @@ function RechnungenContent() {
     const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
     const accommodationGross = grossWithoutTax - cleaningFee
 
+    // Calculate BHSt once for the full booking, then split proportionally per segment.
+    // Avoids wrong cleaning-fee fallback when per-segment cleaning_fee would be 0.
+    const fullTaxResult = taxConfig
+      ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
+      : null
+    const fullTaxAmount = fullTaxResult?.taxAmount ?? 0
+    const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
+
     const landlordSnapshot = {
       name: s.landlord_name ?? '', street: s.landlord_street ?? '', city: s.landlord_city ?? '',
       zip: s.landlord_zip ?? '', country: s.landlord_country ?? 'DE', phone: s.landlord_phone ?? '',
@@ -419,20 +427,16 @@ function RechnungenContent() {
         })
       }
 
-      // BHSt proportional
-      if (taxConfig) {
-        const segBooking = { ...booking, nights: seg.nights, amount_gross: Math.round((booking.amount_gross ?? 0) * seg.ratio * 100) / 100, cleaning_fee: Math.round((booking.cleaning_fee ?? 0) * seg.ratio * 100) / 100 }
-        const taxResult = calculateAccommodationTax(segBooking, taxConfig, booking.properties?.ota_remits_tax ?? [])
-        if (taxResult.taxAmount > 0) {
-          const taxVatRate = taxConfig.vatType === '7' ? 7 : taxConfig.vatType === '19' ? 19 : 0
-          const taxVatAmount = isKlein ? 0 : Math.round(taxResult.taxAmount * (taxVatRate / 100) * 100) / 100
-          lineItems.push({
-            description: `Beherbergungssteuer${taxConfig.city ? ` (${taxConfig.city})` : ''}`,
-            quantity: 1, unit_price: Math.round(taxResult.taxAmount * 100) / 100,
-            vat_rate: taxVatRate, vat_amount: taxVatAmount,
-            total: Math.round((taxResult.taxAmount + taxVatAmount) * 100) / 100,
-          })
-        }
+      // BHSt proportional: use pre-calculated full-booking tax split by ratio
+      if (fullTaxAmount > 0) {
+        const segTax = Math.round(fullTaxAmount * seg.ratio * 100) / 100
+        const taxVatAmount = isKlein ? 0 : Math.round(segTax * (taxVatRate / 100) * 100) / 100
+        lineItems.push({
+          description: `Beherbergungssteuer${taxConfig?.city ? ` (${taxConfig.city})` : ''}`,
+          quantity: 1, unit_price: segTax,
+          vat_rate: taxVatRate, vat_amount: taxVatAmount,
+          total: Math.round((segTax + taxVatAmount) * 100) / 100,
+        })
       }
 
       const subtotalNet = lineItems.reduce((s, i) => s + i.quantity * i.unit_price, 0)
