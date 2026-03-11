@@ -95,7 +95,9 @@ export async function POST(request: NextRequest) {
         price: totalPrice,
         cleaningFee: data.cleaningFee,
         note: data.guestNote,
-        address: `${data.guestStreet}, ${data.guestZip} ${data.guestCity}`,
+        street: data.guestStreet,
+        city: data.guestCity,
+        postalCode: data.guestZip,
         country: data.guestCountry,
       })
     } catch (error) {
