@@ -95,6 +95,8 @@ export async function POST(request: NextRequest) {
         price: totalPrice,
         cleaningFee: data.cleaningFee,
         note: data.guestNote,
+        address: `${data.guestStreet}, ${data.guestZip} ${data.guestCity}`,
+        country: data.guestCountry,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Smoobu-Fehler'

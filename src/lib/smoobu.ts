@@ -189,6 +189,8 @@ export class SmoobuClient {
     price: number
     cleaningFee?: number
     note?: string
+    address?: string
+    country?: string
   }): Promise<{ id: number }> {
     const body = {
       apartmentId: params.apartmentId,
@@ -202,6 +204,8 @@ export class SmoobuClient {
       children: params.children ?? 0,
       price: params.price,
       notice: params.note ?? '',
+      address: params.address ?? '',
+      country: params.country ?? '',
     }
 
     const result = await this.fetch<{ id: number }>('/reservations', {
