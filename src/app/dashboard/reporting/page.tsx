@@ -72,7 +72,7 @@ function getBruttoWithoutCityTax(b: BookingWithProperty, cityRules: CityTaxRule[
     const config = b.properties
       ? getTaxConfigForProperty(b.properties, cityRules)
       : null
-    const taxResult = config ? calculateAccommodationTax(b, config) : null
+    const taxResult = config ? calculateAccommodationTax(b, config, b.properties?.ota_remits_tax ?? []) : null
     return (b.amount_gross ?? 0) - (taxResult?.taxAmount ?? 0)
   }
   return b.amount_gross ?? 0
@@ -310,7 +310,7 @@ export default function ReportingPage() {
       const commission = b.commission_amount ?? 0
       const vatAmount = vatRate > 0 ? gross * vatRate / (100 + vatRate) : 0
       const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, cityRules) : null
-      const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig) : null
+      const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig, b.properties?.ota_remits_tax ?? []) : null
       existing.bookings++
       existing.accommodation += accom
       existing.cleaning += clean

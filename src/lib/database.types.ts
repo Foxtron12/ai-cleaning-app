@@ -433,6 +433,7 @@ export type Database = {
           external_id: number
           id: string
           name: string
+          ota_remits_tax: string[] | null
           street: string | null
           synced_at: string | null
           tags: string[] | null
@@ -454,6 +455,7 @@ export type Database = {
           external_id: number
           id?: string
           name: string
+          ota_remits_tax?: string[] | null
           street?: string | null
           synced_at?: string | null
           tags?: string[] | null
@@ -475,6 +477,7 @@ export type Database = {
           external_id?: number
           id?: string
           name?: string
+          ota_remits_tax?: string[] | null
           street?: string | null
           synced_at?: string | null
           tags?: string[] | null

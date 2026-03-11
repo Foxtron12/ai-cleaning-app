@@ -25,6 +25,8 @@ export interface TaxResult {
   taxAmount: number
   isExempt: boolean
   exemptReason?: string
+  remittedByOta: boolean
+  remittedByOtaName?: string
   vatType?: string
   taxTreatment?: string
 }
@@ -76,20 +78,34 @@ export const NO_TAX_RESULT: TaxResult = {
   taxAmount: 0,
   isExempt: true,
   exemptReason: 'Keine Beherbergungssteuer',
+  remittedByOta: false,
+}
+
+/**
+ * Check if a booking's channel matches any OTA in the remits list (case-insensitive).
+ */
+function isRemittedByOta(channel: string, otaRemitsTax: string[]): string | undefined {
+  if (!otaRemitsTax.length) return undefined
+  const channelLower = channel.toLowerCase()
+  return otaRemitsTax.find((ota) => channelLower.includes(ota.toLowerCase()))
 }
 
 /**
  * Calculate accommodation tax for a booking.
  *
  * Exemptions:
- * - Airbnb bookings (Airbnb remits tax directly to the city)
  * - Business travelers (trip_purpose = 'business')
+ *
+ * OTA remittance:
+ * - If the property's `ota_remits_tax` list contains the booking channel,
+ *   the tax is still calculated but flagged as `remittedByOta: true`.
  */
 export function calculateAccommodationTax(
   booking: Booking,
-  config: TaxConfig
+  config: TaxConfig,
+  otaRemitsTax: string[] = []
 ): TaxResult {
-  const baseResult = { vatType: config.vatType, taxTreatment: config.taxTreatment }
+  const baseResult = { vatType: config.vatType, taxTreatment: config.taxTreatment, remittedByOta: false as boolean, remittedByOtaName: undefined as string | undefined }
 
   // Business travelers are exempt (no tax to calculate)
   if (booking.trip_purpose === 'business') {
@@ -161,10 +177,11 @@ export function calculateAccommodationTax(
     ...baseResult,
   }
 
-  // Airbnb: tax is calculated (for invoices) but collected by Airbnb
-  if (booking.channel === 'Airbnb') {
-    result.isExempt = true
-    result.exemptReason = 'Airbnb führt ab'
+  // Check if this booking's OTA remits the tax directly
+  const matchedOta = isRemittedByOta(booking.channel, otaRemitsTax)
+  if (matchedOta) {
+    result.remittedByOta = true
+    result.remittedByOtaName = matchedOta
   }
 
   return result

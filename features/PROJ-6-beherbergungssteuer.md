@@ -1,6 +1,6 @@
 # PROJ-6: Beherbergungssteuer-Tracking
 
-## Status: Planned
+## Status: In Review
 **Created:** 2026-03-03
 **Last Updated:** 2026-03-03
 
@@ -85,226 +85,293 @@ Automatisches Tracking und Berechnung der Beherbergungssteuer (Übernachtungsste
 
 > Basis-Architektur: siehe PROJ-1 (Gesamtarchitektur, Datenmodell, Datenfluss)
 
+### Erweiterung: OTA-Steuerübernahme (Airbnb/Booking.com/FeWo-direkt)
+
+#### Kernkonzept
+Manche OTAs (z.B. Airbnb in Dresden) führen die Beherbergungssteuer direkt an die Stadt ab.
+In diesen Fällen muss der Vermieter die Steuer für diese Buchungen NICHT in seiner Steuermeldung aufführen.
+In allen anderen Städten/Kanälen liegt die Abführungspflicht beim Vermieter.
+
+Jede Buchung wird klassifiziert als:
+- **Selbst abzuführen** → Vermieter ist verantwortlich → zählt zur Steuermeldung
+- **Von OTA abgeführt** → OTA hat es bereits gezahlt → nur informativ angezeigt
+
+#### Datenmodell-Änderung
+
+Neue Spalte in `properties`-Tabelle:
+```
+ota_remits_tax: text[] (Standard: leer / '{}')
+```
+- Array von OTA-Channel-Namen, die die Steuer direkt abführen
+- Beispiel Dresden: `['Airbnb']`
+- Beispiel andere Stadt: `[]` (leer = Vermieter führt alles selbst ab)
+- Matching: Case-insensitive Vergleich mit `bookings.channel`
+
+Unterstützte OTAs (Checkbox-Liste): Airbnb, Booking.com, FeWo-direkt/Vrbo
+
 #### Komponenten-Baum
 ```
-Steuer-Seite
+properties/page.tsx → Steuer-Konfiguration
+├── [bestehend] Steuer aktiviert (Toggle)
+├── [bestehend] Stadt / Modell / Satz
+└── [NEU] "OTA führt Steuer direkt ab:" (Checkbox-Liste)
+    ├── [ ] Airbnb
+    ├── [ ] Booking.com
+    └── [ ] FeWo-direkt / Vrbo
+    (nur sichtbar wenn Steuer aktiviert)
+
+Steuer-Seite (/dashboard/steuer)
 ├── Konfigurations-Banner (falls Stadt/Satz nicht eingerichtet)
 ├── Zeitraum-Auswahl (Monat / Quartal / Jahr)
-├── Steuer-KPIs (3x Card)
-│   ├── Steuerpflichtige Nächte
+├── Steuer-KPIs (4x Card)
+│   ├── Selbst abzuführen (EUR) ← Hauptwert für Steuermeldung
+│   ├── Von OTA abgeführt (EUR) ← informativ
 │   ├── Steuerbefreite Nächte (Geschäftsreisen)
-│   └── Steuerbetrag gesamt (EUR)
+│   └── Gesamt-Steueraufkommen (EUR)
 ├── Monats-Aufschlüsselung (shadcn Table)
-│   └── Pro Buchung: Gast, Nächte, Betrag, Steuer, Geschäftsreise-Checkbox
+│   └── Pro Buchung: Gast, Nächte, Betrag, Steuer, Badge "OTA zahlt" wenn remittedByOta
 └── "Steuermeldung exportieren"-Button (PDF)
 ```
 
-#### Berechnungslogik (Dresden-Default)
-- Modell: Prozentual auf Bruttopreis inkl. Reinigungsleistung
-- Satz: 6%
-- Basis: (Übernachtungspreis + Reinigungsgebühr) × 6%
-- Befreiung: Geschäftsreisende (trip_purpose = "business")
-- Kinder unter 18: befreit (Altersgrenze konfigurierbar)
+#### Berechnungslogik
+- Modell/Satz: wie bisher (stadtspezifisch konfiguriert)
 - Calculator: `src/lib/calculators/accommodation-tax.ts`
+- **Neu:** TaxResult bekommt Feld `remittedByOta: boolean`
+  - `true` wenn: `property.ota_remits_tax` den Channel der Buchung enthält (case-insensitive)
+  - `false` sonst (Standard)
+- Steuerbetrag wird IMMER berechnet (Informationswert), nur die Klassifizierung ändert sich
 
-#### Datenquelle
-- Liest Buchungen aus `bookings`-Tabelle (Supabase)
-- Berechnung on-the-fly via Calculator (kein separates Steuer-Table)
-- Steuer-Konfiguration aus `settings.accommodation_tax`
-- PDF-Export via `@react-pdf/renderer` mit Vorlage `src/lib/pdf/tax-report.tsx`
+#### Auswirkungen auf andere Seiten
+
+**Steuer-Report PDF:**
+- Nur "selbst abzuführen"-Buchungen im Report-Body
+- Fußnote: "X Buchungen über [OTA] (EUR Y) wurden direkt vom Portal an die Stadt abgeführt."
+
+**Rechnungen (/dashboard/rechnungen):**
+- Wenn `remittedByOta = true`: Kein Steuer-Posten auf der Rechnung
+- Stattdessen Hinweis: "Beherbergungssteuer wird durch [OTA-Name] erhoben"
+- Wenn `remittedByOta = false`: Steuer-Zeile wie bisher
+
+**Reporting (/dashboard/reporting):**
+- Steuer-Beträge aufgeschlüsselt nach "selbst abzuführen" vs. "von OTA abgeführt"
+
+#### Betroffene Dateien
+
+| Datei | Änderung |
+|---|---|
+| Supabase Migration | `ALTER TABLE properties ADD COLUMN ota_remits_tax text[] DEFAULT '{}'` |
+| `src/lib/database.types.ts` | Neues Feld `ota_remits_tax: string[] \| null` |
+| `src/lib/calculators/accommodation-tax.ts` | Neues Feld `remittedByOta` im TaxResult |
+| `src/app/dashboard/properties/page.tsx` | Checkbox-Liste unter Steuer-Konfiguration |
+| `src/app/dashboard/steuer/page.tsx` | 4 KPI-Cards, OTA-Badge, PDF-Fußnote |
+| `src/app/dashboard/rechnungen/page.tsx` | Steuer-Zeile conditional |
+| `src/app/dashboard/reporting/page.tsx` | Aufschlüsselung selbst/OTA |
+
+#### Tech-Entscheidungen
+
+| Entscheidung | Begründung |
+|---|---|
+| `text[]` statt `boolean` | Flexibel für mehrere OTAs, erweiterbar ohne Migration |
+| Per-Unterkunft (nicht automatisch pro Stadt) | Städte können OTA-Vereinbarungen ändern; manuelle Kontrolle vermeidet Überraschungen |
+| Betrag weiterhin berechnen | Informationswert bleibt erhalten, kein Datenverlust |
+| Default: leer (= Vermieter zahlt alles) | Sicherer Default – lieber zu viel melden als zu wenig |
+| Checkbox-Liste (nicht Toggles) | Kompakter, skaliert besser bei weiteren OTAs |
 
 ## QA Test Results
 
+### QA Round 1 (2026-03-10) -- City Tax Rules + Toggle + Nullable Config
+
 **QA Date:** 2026-03-10
-**Scope:** Code review of recent changes: city-tax-rules.ts, properties/page.tsx toggle+autocomplete, accommodation-tax.ts nullable config, steuer/page.tsx and reporting/page.tsx null handling.
+**Scope:** Code review of: city-tax-rules.ts, properties/page.tsx toggle+autocomplete, accommodation-tax.ts nullable config, steuer/page.tsx and reporting/page.tsx null handling.
+**Result:** 5 bugs found (0 Critical, 0 High, 2 Medium, 3 Low/Info). See archive below.
 
----
+<details>
+<summary>Round 1 Details (click to expand)</summary>
 
-### 1. Build & Lint
+#### 1. Build & Lint
 
 | Check | Result |
 |-------|--------|
-| `npm run build` | PASS - Compiled successfully, all pages generated, no TypeScript errors |
-| `npm run lint` | BLOCKED - `next lint` fails with "Invalid project directory" on Next.js 16.1.6. Known framework issue, not a project bug. |
+| `npm run build` | PASS |
+| `npm run lint` | BLOCKED - Next.js 16 framework issue |
 
----
-
-### 2. Code Quality: `src/lib/data/city-tax-rules.ts`
-
-#### 2a. City Spot-Check (15 required cities)
-
-| City | Present | Rate | Basis | Model | Correct |
-|------|---------|------|-------|-------|---------|
-| Aachen | Yes | 2.50 | P | per_person_per_night | PASS |
-| Berlin | Yes | 7.5 | N | net_percentage | PASS |
-| Dresden | Yes | 6 | B | gross_percentage | PASS |
-| Hamburg | Yes | 0 (tiered) | S | tiered | PASS |
-| Hannover | Yes | 0 (tiered) | S | tiered | PASS |
-| Duesseldorf | Yes | 3.00 | P | per_person_per_night | PASS |
-| Frankfurt am Main | Yes | 2.00 | P | per_person_per_night | PASS |
-| Freiburg im Breisgau | Yes | 5 | N | net_percentage | PASS |
-| Koeln | Yes | 5 | B | gross_percentage | PASS |
-| Leipzig | Yes | 5 | B | gross_percentage | PASS |
-| Potsdam | Yes | 7.5 | N | net_percentage | PASS |
-| Schwerin | Yes | 7 | N | net_percentage | PASS |
-| Huertgenwald | Yes | 0 (tiered) | S | tiered | PASS |
-| Wiesbaden | Yes | 5.00 | P | per_person_per_night | PASS |
-| Lutherstadt Wittenberg | Yes | 2.00 | P | per_person_per_night | PASS |
-
-**Total cities: 79** -- claimed ~80, actual 79. Acceptable.
-
-#### 2b. Tiered Cities Check
-
-| City | Has tiers array | Tiers look correct |
-|------|-----------------|-------------------|
-| Hamburg | Yes (6 tiers) | PASS |
-| Hannover | Yes (4 tiers) | PASS |
-| Damp | Yes (3 tiers, last upTo: Infinity) | PASS |
-| Gera | Yes (3 tiers) | PASS |
-| Huertgenwald | Yes (7 tiers) | PASS |
-| Kirchheim (Hessen) | Yes (3 tiers) | PASS |
-| Lautertal (Odenwald) | Yes (3 tiers) | PASS |
-| Raunheim | Yes (3 tiers) | PASS |
-| Eisenach | Yes (1 tier, simplified) | PASS |
-
-All 9 tiered cities have proper `tiers` arrays.
-
-#### 2c. Helper Functions
-
-| Function | Check | Result |
-|----------|-------|--------|
-| `findCityTaxRule` | Exact match first, then partial match fallback | PASS |
-| `formatTaxRuleDescription` | Handles tiered, per_person, percentage models | PASS |
-| `mapToDbTaxModel` | Maps tiered -> per_person_per_night for DB | PASS |
-| `getCityNames` | Returns all city names | PASS |
-
-#### 2d. Bug: `findCityTaxRule` partial match can return wrong city
-
-- **Severity:** Minor
-- **Priority:** Low
-- **Description:** The `findCityTaxRule` function uses `.includes(lower)` for the fallback match. Searching for "Bonn" would first try exact match (finds "Bonn"). But searching for "Leer" would exact-match "Leer (Ostfriesland)" -- no, actually it would not because exact match compares the full lowercase string. Searching for "leer" would NOT exact-match "leer (ostfriesland)", then the `.includes` fallback would correctly find it. However, searching for "heim" would match the first of Heimbach, Kirchheim, Raunheim, etc. This is acceptable for autocomplete context since the CityCombobox uses its own filter, but the helper function used in `handleTaxToggle` for auto-filling from property city name could theoretically match the wrong city if the property city value is a substring of multiple city names.
-- **Steps to reproduce:** Property has `city = "Heim"` (unlikely but possible) -> `findCityTaxRule("Heim")` returns Heimbach instead of no match.
-- **Impact:** Very low -- property city names from Smoobu are full city names, not substrings.
-
----
-
-### 3. Code Quality: `src/app/dashboard/properties/page.tsx`
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| Switch toggle controls visibility of tax fields | PASS | `form.tax_enabled` gates rendering of city/model/rate fields (line 430) |
-| CityCombobox properly filters cities | PASS | Uses `useMemo` with lowercase includes filter |
-| CityCombobox auto-fills model and rate on selection | PASS | `handleCitySelect` sets model (via `mapToDbTaxModel`) and rate from static rule |
-| Save function clears tax fields when toggle is off | PASS | Lines 265-267: sets city/model/rate to `null` when `!form.tax_enabled` |
-| Toggle on auto-fills from property city | PASS | `handleTaxToggle` calls `findCityTaxRule` on the property's city |
-| Manual city entry falls back to DB rules | PASS | Line 241: checks `rulesByCity` for DB-stored rules |
-| "Keine" hint text shown when toggle is off | PASS | Lines 482-486 |
-| No unused imports | PASS | All imports are used |
-| Click-outside to close dropdown | PASS | Event listener on `mousedown` |
-| Allows manual city entry not in list | PASS | Button at bottom of dropdown for manual entry |
-
-#### Bug: CityCombobox does not update the input display when a value is pre-selected
-
-- **Severity:** Info
-- **Priority:** Low
-- **Description:** When `open` is false, the input shows `value` (the selected city name). When `open` is true, it shows `search`. On focus, `search` is set to `value`. This works correctly. No bug here after closer inspection.
-
-#### Bug: `onBlur` on tag input closes it, but does not save the tag
-
-- **Severity:** Minor (pre-existing, not part of this change)
-- **Priority:** Low
-- **Description:** In the tag input form (line 393-396), `onBlur` sets `showTagInput` to false without calling `addTag`. If the user types a tag name and clicks away, the tag is lost. The user must press Enter.
-- **Impact:** Minor UX inconvenience, pre-existing behavior.
-
----
-
-### 4. Code Quality: `src/lib/calculators/accommodation-tax.ts`
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| `getTaxConfigForProperty` returns null when both model and rate are null | PASS | Lines 49-51: `if (!property.accommodation_tax_model && !property.accommodation_tax_rate) return null` |
-| `NO_TAX_RESULT` defined correctly | PASS | taxableAmount: 0, taxAmount: 0, isExempt: true, exemptReason set |
-| Existing calculation logic unchanged | PASS | `calculateAccommodationTax` still takes non-null `TaxConfig` |
-| All callers check for null before calling `calculateAccommodationTax` | PASS | Verified: booking-detail-sheet, buchungen, rechnungen, steuer, reporting all use `config ? calculateAccommodationTax(...) : null/fallback` pattern |
-
-#### Bug: `NO_TAX_RESULT` is exported but never imported anywhere
-
-- **Severity:** Info
-- **Priority:** Low
-- **Description:** The `NO_TAX_RESULT` constant is defined and exported (line 74) but no file imports it. The steuer/page.tsx (line 180) manually constructs an equivalent inline object instead of using the constant. This is dead code but harmless.
-- **Steps to reproduce:** Grep for `NO_TAX_RESULT` -- only found at its definition.
-
----
-
-### 5. Code Quality: `src/app/dashboard/steuer/page.tsx` (Null Handling)
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| `TaxDataItem.config` allows null | PASS | Line 40: `config: TaxConfig | null` |
-| `taxData` computation handles null config | PASS | Lines 175-180: falls back to zero-tax result object |
-| `groupedByCity` handles null config | PASS | Lines 215-217: uses optional chaining `config?.city` |
-| `SinglePropertySummary` handles null config | PASS | Line 628-638: checks `config &&` before rendering rate info |
-| `computeSummary` works with null config items | PASS | Does not access `config` directly |
-| CSV export handles null config | PASS | Line 276: `d.config ? ... : '--'` |
-| City header shows 0% for null config | PASS | Line 443: `cityGroup.config?.rate ?? 0` |
-
-#### Bug: Rate display "0%" for per_person_per_night and tiered cities in city header
-
-- **Severity:** Minor
-- **Priority:** Medium
-- **Description:** In the city header (line 443), the rate is shown as `cityGroup.config?.rate ?? 0` followed by `%`. For cities using `per_person_per_night` model (e.g., Duesseldorf 3.00 EUR), this would display "3%" instead of "3.00 EUR". For tiered cities (rate=0), it displays "0%". The `formatModelLabel` is called separately but the rate+% label is misleading.
-- **Steps to reproduce:** Have a property in Duesseldorf or Hamburg, view the Steuer page grouped view.
-- **Impact:** Misleading display of tax rate for non-percentage models.
-
-#### Bug: Same issue in `CompactSummary` and `SinglePropertySummary`
-
-- **Severity:** Minor
-- **Priority:** Medium
-- **Description:** `CompactSummary` (line 688) shows `Steuer ({rate}%)` and `SinglePropertySummary` (line 653) shows `eingezogene Beherbergungssteuer ({config?.rate ?? 0}%)`. Both assume the rate is always a percentage, which is incorrect for `per_person_per_night` (EUR) and `tiered` (0) models.
-- **Impact:** Same as above -- cosmetic but misleading for non-percentage tax models.
-
----
-
-### 6. Code Quality: `src/app/dashboard/reporting/page.tsx` (Null Handling)
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| `getBruttoWithoutCityTax` handles null config | PASS | Line 73-74: `config ? calculateAccommodationTax(...) : null`, then `taxResult?.taxAmount ?? 0` |
-| `monthlyData` handles null taxConfig | PASS | Line 312-313: `taxConfig ? ... : null`, then `taxResult?.isExempt ? 0 : taxResult?.taxAmount` |
-| No potential null pointer exceptions | PASS | All config accesses use optional chaining or ternary checks |
-
-#### Bug: Potential NaN in monthly tax calculation
-
-- **Severity:** Minor
-- **Priority:** Low
-- **Description:** Line 322: `existing.tax += (taxResult?.isExempt ? 0 : taxResult?.taxAmount) ?? 0`. When `taxResult` is null (property has no tax config), `taxResult?.isExempt` is `undefined` (falsy), so the ternary evaluates to `taxResult?.taxAmount` which is also `undefined`. The `?? 0` at the end catches this and returns 0. So the logic is technically correct but the intent is unclear -- a null taxResult should yield 0, not go through the isExempt check. No actual bug, just fragile code.
-
----
-
-### 7. Security Audit (Red-Team)
-
-| Check | Result | Notes |
-|-------|--------|-------|
-| No secrets in city-tax-rules.ts | PASS | Static public data only |
-| Properties page saves via Supabase client with RLS | PASS | Uses `supabase.from('properties').update(...)` -- RLS should gate per-user |
-| No SQL injection vectors | PASS | All queries use Supabase parameterized builder |
-| No XSS in city names | PASS | City names are static constants, not user input rendered as HTML |
-| No sensitive data exposure | PASS | Tax rules are public knowledge |
-| CityCombobox user input is not persisted unsanitized | PASS | Manual city entry is just a string stored in form state, saved via parameterized Supabase update |
-
----
-
-### 8. Summary of Findings
+#### 2. Bugs Found
 
 | # | Severity | Description | File | Priority |
 |---|----------|-------------|------|----------|
-| BUG-1 | Minor | `findCityTaxRule` partial match could return wrong city for ambiguous substrings | city-tax-rules.ts:693 | Low |
-| BUG-2 | Minor | Rate display shows "%" suffix for per_person_per_night (EUR) and tiered (0) models in steuer page headers | steuer/page.tsx:443,653,688 | Medium |
-| BUG-3 | Info | `NO_TAX_RESULT` exported but never used -- steuer/page.tsx constructs equivalent inline | accommodation-tax.ts:74 | Low |
-| BUG-4 | Info | `npm run lint` broken on Next.js 16 -- `next lint` interprets "lint" as directory | package.json | Low |
-| BUG-5 | Minor | Tag input onBlur discards unsaved tag text (pre-existing) | properties/page.tsx:393 | Low |
+| BUG-1 | Minor | `findCityTaxRule` partial match could return wrong city for ambiguous substrings | city-tax-rules.ts | Low |
+| BUG-2 | Minor | Rate display shows "%" suffix for per_person_per_night (EUR) and tiered (0) models | steuer/page.tsx | Medium |
+| BUG-3 | Info | `NO_TAX_RESULT` exported but never used | accommodation-tax.ts | Low |
+| BUG-4 | Info | `npm run lint` broken on Next.js 16 | package.json | Low |
+| BUG-5 | Minor | Tag input onBlur discards unsaved tag text (pre-existing) | properties/page.tsx | Low |
 
-**Overall Assessment:** The changes are solid. The nullable tax config pattern is consistently applied across all callers. The static city data is comprehensive and well-structured. The main actionable issue is BUG-2 (rate display assumes percentage model) which should be fixed before deploying PROJ-6 to avoid confusing users in cities with flat-rate or tiered models.
+</details>
+
+---
+
+### QA Round 2 (2026-03-11) -- OTA Remittance Update
+
+**QA Date:** 2026-03-11
+**Scope:** OTA-Steueruebernahme feature: `ota_remits_tax` field on properties, `remittedByOta` in TaxResult, OTA checkbox UI, steuer/rechnungen/reporting/buchungen/booking-detail-sheet integration, CSV export updates.
+
+**Changed Files:**
+- `src/lib/calculators/accommodation-tax.ts` -- new `remittedByOta` field + `isRemittedByOta` helper
+- `src/lib/database.types.ts` -- `ota_remits_tax: string[] | null` on properties
+- `src/app/dashboard/properties/page.tsx` -- OTA checkbox-list UI
+- `src/app/dashboard/steuer/page.tsx` -- 4 KPI cards, OTA badge, summary refactor
+- `src/app/dashboard/buchungen/page.tsx` -- pass `otaRemitsTax` to calculator
+- `src/app/dashboard/rechnungen/page.tsx` -- pass `otaRemitsTax` to calculator
+- `src/app/dashboard/reporting/page.tsx` -- pass `otaRemitsTax` to calculator
+- `src/components/dashboard/booking-detail-sheet.tsx` -- pass `otaRemitsTax` to calculator
+- `src/lib/auto-generate-invoices.ts` -- pass `otaRemitsTax` to calculator
+
+---
+
+#### 1. Build
+
+| Check | Result |
+|-------|--------|
+| `npm run build` | PASS - Compiled successfully, all 33 routes generated, no TypeScript errors |
+
+---
+
+#### 2. Acceptance Criteria from Tech Design
+
+| # | Criterion | Result | Notes |
+|---|-----------|--------|-------|
+| AC-1 | `ota_remits_tax: text[]` added to properties type | PASS | `database.types.ts` line 436: `ota_remits_tax: string[] \| null` in Row, Insert, Update |
+| AC-2 | Checkbox-list for Airbnb, Booking.com, FeWo-direkt on properties page | PASS | `OTA_OPTIONS` constant with 3 entries, rendered as Checkbox components, only visible when `tax_enabled` |
+| AC-3 | OTA checkboxes hidden when tax toggle is off | PASS | Gated by `form.tax_enabled` conditional block |
+| AC-4 | Toggle off clears `ota_remits_tax` to `[]` | PASS | `handleTaxToggle` sets `ota_remits_tax: []` when disabled |
+| AC-5 | Save persists `ota_remits_tax` to DB | PASS | `saveProperty` includes `ota_remits_tax` in update payload |
+| AC-6 | `TaxResult.remittedByOta: boolean` field added | PASS | Interface updated, all constructors include the field |
+| AC-7 | `TaxResult.remittedByOtaName?: string` field added | PASS | Set by `isRemittedByOta` helper when match found |
+| AC-8 | `isRemittedByOta` matches channel case-insensitively | PASS | Uses `.toLowerCase()` on both sides and `.includes()` |
+| AC-9 | Tax still calculated when OTA remits (informational) | PASS | `remittedByOta` is set AFTER tax calculation, amount preserved |
+| AC-10 | Old Airbnb hardcoded exemption removed | PASS | Diff shows removal of `if (booking.channel === 'Airbnb')` block |
+| AC-11 | Steuer page: 4 KPI cards (Selbst abzufuehren, Von OTA, Steuerbefreit, Gesamt) | PASS | 4 Card components with correct labels and values |
+| AC-12 | Steuer page: OTA badge on remitted bookings in table | PASS | `tax.remittedByOta` shows rose badge with OTA name |
+| AC-13 | Steuer page: Business checkbox hidden for OTA-remitted bookings | PASS | `!tax.remittedByOta &&` gates the Checkbox render |
+| AC-14 | Steuer page: Footer row shows `selfRemitTax` (not total) | PASS | Footer uses `totalSummary.selfRemitTax` |
+| AC-15 | CSV export includes OTA breakdown in summary | PASS | Summary section has "GESAMT selbst abzufuehren", "GESAMT von OTA abgefuehrt", "GESAMT Steueraufkommen" |
+| AC-16 | All 6 callers pass `otaRemitsTax` to `calculateAccommodationTax` | PASS | Verified: buchungen, rechnungen, reporting, steuer, booking-detail-sheet, auto-generate-invoices |
+| AC-17 | `computeSummary` uses `remittedByOta` instead of Airbnb string match | PASS | Filters by `d.tax.remittedByOta` instead of `d.tax.exemptReason === 'Airbnb fuehrt ab'` |
+| AC-18 | `SinglePropertySummary` shows OTA line (line 2) | PASS | Shows "abzgl. von OTA abgefuehrt" with nights and EUR |
+| AC-19 | `CompactSummary` shows 4 columns matching KPI cards | PASS | Selbst abzufuehren, Von OTA, Steuerbefreit, Gesamt |
+| AC-20 | `formatRate` helper handles per_person and per_room models | PASS | Returns `X.XX EUR` for flat models, `X%` for percentage |
+| AC-21 | City header uses `formatRate` instead of raw `%` | PASS | Line 462: `formatRate(cityGroup.config)` |
+
+**Acceptance Criteria: 21/21 PASS**
+
+---
+
+#### 3. Bug Analysis
+
+##### BUG-6 (HIGH): Rechnungen page does not suppress tax line for OTA-remitted bookings
+
+- **Severity:** High
+- **Priority:** High
+- **Description:** The spec states: "Wenn `remittedByOta = true`: Kein Steuer-Posten auf der Rechnung. Stattdessen Hinweis: 'Beherbergungssteuer wird durch [OTA-Name] erhoben'." However, `rechnungen/page.tsx` `fillFromBooking()` does NOT check `taxResult.remittedByOta`. It unconditionally adds the Beherbergungssteuer line item if `cityTax > 0`. The same issue exists in `auto-generate-invoices.ts` line 157: it adds the tax line if `cityTax > 0` without checking `remittedByOta`.
+- **Steps to reproduce:**
+  1. Configure a property with Airbnb checked in "OTA fuehrt Steuer direkt ab"
+  2. Have an Airbnb booking for that property
+  3. Create or auto-generate an invoice for that booking
+  4. The invoice will incorrectly include a Beherbergungssteuer line item
+- **Expected:** No tax line item; instead a note "Beherbergungssteuer wird durch Airbnb erhoben"
+- **Actual:** Tax line item is included, inflating the invoice total
+- **Files affected:** `src/app/dashboard/rechnungen/page.tsx` (line 250-263), `src/lib/auto-generate-invoices.ts` (line 157-173)
+
+##### BUG-7 (HIGH): Booking-detail-sheet does not reflect OTA remittance in label
+
+- **Severity:** Medium
+- **Priority:** Medium
+- **Description:** The booking-detail-sheet shows `Beherbergungssteuer (Airbnb)` only when `taxResult?.exemptReason === 'Airbnb fuehrt ab'` (line 203). But this exemption reason no longer exists -- the Airbnb hardcoded exemption was removed. Now the label check is dead code. For OTA-remitted bookings, the label should instead check `taxResult?.remittedByOta` and show the OTA name. Currently it will just show "Beherbergungssteuer" with the full tax amount, with no indication that the OTA is paying it.
+- **Steps to reproduce:** Open booking detail sheet for an Airbnb booking where Airbnb is configured to remit tax.
+- **Expected:** Label should indicate "Beherbergungssteuer (von Airbnb abgefuehrt)" or similar
+- **Actual:** Shows "Beherbergungssteuer" with no OTA indication
+- **File:** `src/components/dashboard/booking-detail-sheet.tsx` (line 203)
+
+##### BUG-8 (MEDIUM): Missing Supabase migration for `ota_remits_tax` column
+
+- **Severity:** Medium
+- **Priority:** High
+- **Description:** The `database.types.ts` file includes `ota_remits_tax: string[] | null` on the properties table, but there is no corresponding SQL migration file (`ALTER TABLE properties ADD COLUMN ota_remits_tax text[] DEFAULT '{}'`). The spec explicitly lists this migration as required. Without it, the column does not exist in the production database and all saves/reads of this field will fail silently (Supabase ignores unknown columns in updates, but the read value will be missing).
+- **Steps to reproduce:** Deploy the code without running the migration. Save OTA checkboxes on properties page. The value will not persist.
+- **Expected:** A migration file exists and has been applied
+- **Actual:** No migration file found (searched `*.sql` for `ota_remits_tax`)
+
+##### BUG-9 (LOW): `saveProperty` does not update `ota_remits_tax` in local state
+
+- **Severity:** Low
+- **Priority:** Low
+- **Description:** In `properties/page.tsx` `saveProperty()`, the local state update (lines 288-300) sets `accommodation_tax_city`, `accommodation_tax_model`, `accommodation_tax_rate`, and `tags`, but does NOT include `ota_remits_tax`. This means after saving, if the user navigates to steuer/page.tsx and the bookings query joins properties, the `ota_remits_tax` field on the property object in local state will still have the old value until a full page reload. However, since properties/page.tsx re-initializes forms from `properties` state on load, this mainly affects other pages that read the joined property data.
+- **Steps to reproduce:** Save OTA checkboxes. Navigate to steuer page without reloading. The OTA filtering may not reflect the change.
+- **Impact:** Low -- a page reload fixes it. The DB is correct.
+- **File:** `src/app/dashboard/properties/page.tsx` (line 288-300)
+
+##### Previous bugs from Round 1 still open:
+- **BUG-2** (Medium): Rate display "%" for flat/tiered models -- NOW FIXED by `formatRate` helper. Status: **RESOLVED**.
+- **BUG-1** (Low): `findCityTaxRule` partial match -- still present, unchanged.
+- **BUG-3** (Info): `NO_TAX_RESULT` dead code -- still present, unchanged.
+- **BUG-5** (Low): Tag input onBlur -- still present, unchanged.
+
+---
+
+#### 4. Security Audit (Red-Team)
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| `ota_remits_tax` saved via Supabase parameterized update | PASS | No injection vector; values are from a fixed constant list |
+| OTA values are from `OTA_OPTIONS` constant, not freetext | PASS | Checkbox UI only allows predefined values |
+| `isRemittedByOta` uses `.includes()` on channel string | INFO | Could match partial channel names (e.g., a channel named "AirbnbPlus" would match "Airbnb"). Acceptable given real-world channel names. |
+| No cross-tenant data leakage in steuer page | PASS | Queries use Supabase client-side with RLS active |
+| OTA checkboxes do not expose sensitive data | PASS | Only stores OTA names, no credentials |
+| CSV export does not include sensitive fields | PASS | Only tax/booking data |
+| `remittedByOtaName` renders in UI via React (no dangerouslySetInnerHTML) | PASS | No XSS risk |
+
+---
+
+#### 5. Regression Check
+
+| Feature | Check | Result |
+|---------|-------|--------|
+| PROJ-2 Buchungen | XLSX export passes `otaRemitsTax` | PASS |
+| PROJ-3 Reporting | `getBruttoWithoutCityTax` passes `otaRemitsTax` | PASS |
+| PROJ-5 Rechnungen | `fillFromBooking` passes `otaRemitsTax` to calculator | PASS (but see BUG-6 for missing conditional) |
+| PROJ-5 Auto-generate | Passes `otaRemitsTax` to calculator | PASS (but see BUG-6) |
+| Steuer page | Business travel toggle still works | PASS |
+| Steuer page | Tag filtering still works | PASS |
+| Properties page | Tax toggle + city autocomplete still work | PASS |
+| Build | No TypeScript errors | PASS |
+
+---
+
+#### 6. Summary of All Open Bugs
+
+| # | Severity | Description | File | Priority | Status |
+|---|----------|-------------|------|----------|--------|
+| BUG-6 | High | Rechnungen/auto-generate do not suppress tax line for OTA-remitted bookings | rechnungen/page.tsx, auto-generate-invoices.ts | High | NEW |
+| BUG-7 | Medium | Booking-detail-sheet label check for "Airbnb fuehrt ab" is dead code after refactor | booking-detail-sheet.tsx:203 | Medium | NEW |
+| BUG-8 | Medium | Missing Supabase migration for `ota_remits_tax` column | (no file) | High | NEW |
+| BUG-9 | Low | `saveProperty` does not update `ota_remits_tax` in local state after save | properties/page.tsx:288 | Low | NEW |
+| BUG-1 | Minor | `findCityTaxRule` partial match ambiguity | city-tax-rules.ts | Low | Open |
+| BUG-3 | Info | `NO_TAX_RESULT` exported but unused | accommodation-tax.ts | Low | Open |
+| BUG-5 | Minor | Tag input onBlur discards text | properties/page.tsx | Low | Open |
+| BUG-2 | Minor | Rate display assumed percentage model | steuer/page.tsx | Medium | RESOLVED (formatRate helper added) |
+
+---
+
+#### 7. Production-Ready Decision
+
+**NOT READY** -- 1 High-severity bug (BUG-6: invoices include tax line for OTA-remitted bookings) and 1 Medium bug with High priority (BUG-8: missing DB migration) must be resolved before deployment.
+
+**Required before deploy:**
+1. **BUG-8:** Create and apply the Supabase migration: `ALTER TABLE properties ADD COLUMN ota_remits_tax text[] DEFAULT '{}'`
+2. **BUG-6:** Add `remittedByOta` check in `rechnungen/page.tsx` `fillFromBooking()` and `auto-generate-invoices.ts` to either skip the tax line or add a note instead
+3. **BUG-7:** Update booking-detail-sheet label to use `taxResult?.remittedByOta` instead of the removed exemptReason string
+
+**Recommended (not blocking):**
+4. BUG-9: Include `ota_remits_tax` in local state update after save
 
 ## Deployment
 _To be added by /deploy_

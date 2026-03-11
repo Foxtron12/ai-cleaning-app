@@ -17,7 +17,7 @@
 | PROJ-3 | Financial Reporting | Deployed | [PROJ-3-financial-reporting.md](PROJ-3-financial-reporting.md) | 2026-03-03 |
 | PROJ-4 | Meldebescheinigung | In Review | [PROJ-4-meldebescheinigung.md](PROJ-4-meldebescheinigung.md) | 2026-03-03 |
 | PROJ-5 | Rechnungserstellung (PDF) | In Progress | [PROJ-5-rechnungserstellung.md](PROJ-5-rechnungserstellung.md) | 2026-03-03 |
-| PROJ-6 | Beherbergungssteuer-Tracking | Planned | [PROJ-6-beherbergungssteuer.md](PROJ-6-beherbergungssteuer.md) | 2026-03-03 |
+| PROJ-6 | Beherbergungssteuer-Tracking | In Review | [PROJ-6-beherbergungssteuer.md](PROJ-6-beherbergungssteuer.md) | 2026-03-03 |
 | PROJ-7 | Smoobu API-Integration | Planned | [PROJ-7-smoobu-api.md](PROJ-7-smoobu-api.md) | 2026-03-03 |
 | PROJ-8 | Direktbuchungen + Stripe-Zahlung | Planned | [PROJ-8-direktbuchungen-stripe.md](PROJ-8-direktbuchungen-stripe.md) | 2026-03-03 |
 | PROJ-9 | Lexoffice / Buchhaltungs-Integration | Planned | [PROJ-9-lexoffice-integration.md](PROJ-9-lexoffice-integration.md) | 2026-03-03 |

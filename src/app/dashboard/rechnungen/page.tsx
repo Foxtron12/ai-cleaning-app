@@ -209,7 +209,7 @@ function RechnungenContent() {
       ? getTaxConfigForProperty(booking.properties, effectiveRules)
       : null
     const taxResult = taxConfig
-      ? calculateAccommodationTax(booking, taxConfig)
+      ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
     const cityTax = taxResult?.taxAmount ?? 0
     const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
@@ -247,13 +247,22 @@ function RechnungenContent() {
     }
 
     // Beherbergungssteuer (calculated from city_tax_rules)
-    if (cityTax > 0) {
+    // If OTA remits tax, add a note instead of a billable line item
+    if (taxResult?.remittedByOta && cityTax > 0) {
+      const otaName = taxResult.remittedByOtaName ?? 'OTA'
+      items.push({
+        description: `Beherbergungssteuer wird durch ${otaName} erhoben`,
+        quantity: 1,
+        unitPrice: 0,
+        vatRate: 0,
+        vatAmount: 0,
+        total: 0,
+      })
+    } else if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
-      const isAirbnb = taxResult?.isExempt && taxResult?.exemptReason === 'Airbnb führt ab'
-      const airbnbNote = isAirbnb ? ', über Airbnb abgeführt' : ''
       const taxVatAmount = isKlein ? 0 : Math.round(cityTax * (taxVatRate / 100) * 100) / 100
       items.push({
-        description: `Beherbergungssteuer${cityLabel}${airbnbNote}`,
+        description: `Beherbergungssteuer${cityLabel}`,
         quantity: 1,
         unitPrice: Math.round(cityTax * 100) / 100,
         vatRate: taxVatRate,

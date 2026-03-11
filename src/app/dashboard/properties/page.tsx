@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -22,11 +23,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
+/** OTAs that may remit accommodation tax directly to municipalities */
+const OTA_OPTIONS = [
+  { value: 'Airbnb', label: 'Airbnb' },
+  { value: 'Booking.com', label: 'Booking.com' },
+  { value: 'FeWo-direkt', label: 'FeWo-direkt / Vrbo' },
+] as const
+
 interface PropertyForm {
   tax_enabled: boolean
   accommodation_tax_city: string
   accommodation_tax_model: string
   accommodation_tax_rate: string
+  ota_remits_tax: string[]
   default_cleaning_fee: string
   tags: string[]
 }
@@ -167,6 +176,7 @@ export default function PropertiesPage() {
           accommodation_tax_city: prop.accommodation_tax_city ?? prop.city ?? '',
           accommodation_tax_model: prop.accommodation_tax_model ?? matchingRule?.tax_model ?? '',
           accommodation_tax_rate: String(prop.accommodation_tax_rate ?? matchingRule?.tax_rate ?? ''),
+          ota_remits_tax: prop.ota_remits_tax ?? [],
           default_cleaning_fee: prop.default_cleaning_fee != null ? String(prop.default_cleaning_fee) : '',
           tags: prop.tags ?? [],
         }
@@ -220,6 +230,7 @@ export default function PropertiesPage() {
           accommodation_tax_city: '',
           accommodation_tax_model: '',
           accommodation_tax_rate: '',
+          ota_remits_tax: [],
         },
       }))
     }
@@ -265,6 +276,7 @@ export default function PropertiesPage() {
         accommodation_tax_city: form.tax_enabled ? (form.accommodation_tax_city || null) : null,
         accommodation_tax_model: form.tax_enabled ? (form.accommodation_tax_model || null) : null,
         accommodation_tax_rate: form.tax_enabled && form.accommodation_tax_rate ? parseFloat(form.accommodation_tax_rate) : null,
+        ota_remits_tax: form.tax_enabled && form.ota_remits_tax.length > 0 ? form.ota_remits_tax : [],
         default_cleaning_fee: form.default_cleaning_fee ? parseFloat(form.default_cleaning_fee) : null,
         tags: form.tags.length > 0 ? form.tags : null,
         updated_at: new Date().toISOString(),
@@ -281,6 +293,7 @@ export default function PropertiesPage() {
                 accommodation_tax_city: (updates.accommodation_tax_city as string) ?? null,
                 accommodation_tax_model: (updates.accommodation_tax_model as string) ?? null,
                 accommodation_tax_rate: (updates.accommodation_tax_rate as number) ?? null,
+                ota_remits_tax: (updates.ota_remits_tax as string[]) ?? [],
                 tags: (updates.tags as string[]) ?? null,
               }
             : p
@@ -476,6 +489,37 @@ export default function PropertiesPage() {
                             {staticRule.notes ? ` | ${staticRule.notes}` : ''}
                           </p>
                         )}
+
+                        {/* OTA remits tax checkboxes */}
+                        <div className="space-y-2 pt-1">
+                          <Label className="text-xs">OTA führt Steuer direkt ab</Label>
+                          <div className="space-y-1.5">
+                            {OTA_OPTIONS.map((ota) => (
+                              <div key={ota.value} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`ota-${prop.id}-${ota.value}`}
+                                  checked={form.ota_remits_tax.includes(ota.value)}
+                                  onCheckedChange={(checked) => {
+                                    const current = form.ota_remits_tax
+                                    const next = checked
+                                      ? [...current, ota.value]
+                                      : current.filter((v) => v !== ota.value)
+                                    updateForm(prop.id, 'ota_remits_tax', next)
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={`ota-${prop.id}-${ota.value}`}
+                                  className="text-xs font-normal cursor-pointer"
+                                >
+                                  {ota.label}
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Buchungen dieser Portale werden aus deiner Steuermeldung herausgerechnet.
+                          </p>
+                        </div>
                       </div>
                     )}
 

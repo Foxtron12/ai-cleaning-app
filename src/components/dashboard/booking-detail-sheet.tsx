@@ -109,7 +109,7 @@ export function BookingDetailSheet({
   const taxConfig = booking.properties
     ? getTaxConfigForProperty(booking.properties, [])
     : null
-  const taxResult = taxConfig ? calculateAccommodationTax(booking, taxConfig) : null
+  const taxResult = taxConfig ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? []) : null
   const cityTax = taxResult?.taxAmount ?? 0
 
   // Vom Gast bezahlt = gross incl. city tax + portal commission
@@ -200,7 +200,7 @@ export function BookingDetailSheet({
             />
             <InfoRow label="Reinigungsgebühr" value={formatCurrency(getCleaningFee(booking))} />
             <InfoRow
-              label={`Beherbergungssteuer${taxResult?.exemptReason === 'Airbnb führt ab' ? ' (Airbnb)' : ''}`}
+              label={`Beherbergungssteuer${taxResult?.remittedByOta ? ` (von ${taxResult.remittedByOtaName ?? 'OTA'} abgeführt)` : ''}`}
               value={taxResult ? formatCurrency(taxResult.taxAmount) : '–'}
             />
             <InfoRow label="Zusatzgebühren" value={formatCurrency(booking.extra_fees)} />

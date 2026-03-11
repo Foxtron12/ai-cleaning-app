@@ -69,7 +69,7 @@ function getDateRange(range: Exclude<TimeRange, 'custom'>): { from: string; to: 
 function exportXLSX(bookings: BookingWithProperty[]) {
   const rows = bookings.map((b) => {
     const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, []) : null
-    const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig) : null
+    const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig, b.properties?.ota_remits_tax ?? []) : null
     const cityTax = taxResult?.taxAmount ?? 0
 
     const paidByGuest = b.channel === 'Airbnb'

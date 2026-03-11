@@ -110,7 +110,7 @@ export async function autoGenerateInvoices(
       ? getTaxConfigForProperty(booking.properties, cityRules)
       : null
     const taxResult = taxConfig
-      ? calculateAccommodationTax(booking, taxConfig)
+      ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
     const cityTax = taxResult?.taxAmount ?? 0
     const taxVatRate =
@@ -153,17 +153,24 @@ export async function autoGenerateInvoices(
       })
     }
 
-    // City tax
-    if (cityTax > 0) {
+    // City tax – skip billable line if OTA remits, add note instead
+    if (taxResult?.remittedByOta && cityTax > 0) {
+      const otaName = taxResult.remittedByOtaName ?? 'OTA'
+      lineItems.push({
+        description: `Beherbergungssteuer wird durch ${otaName} erhoben`,
+        quantity: 1,
+        unit_price: 0,
+        vat_rate: 0,
+        vat_amount: 0,
+        total: 0,
+      })
+    } else if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
-      const isAirbnb =
-        taxResult?.isExempt && taxResult?.exemptReason === 'Airbnb führt ab'
-      const airbnbNote = isAirbnb ? ', über Airbnb abgeführt' : ''
       const taxVatAmount = isKlein
         ? 0
         : Math.round(cityTax * (taxVatRate / 100) * 100) / 100
       lineItems.push({
-        description: `Beherbergungssteuer${cityLabel}${airbnbNote}`,
+        description: `Beherbergungssteuer${cityLabel}`,
         quantity: 1,
         unit_price: Math.round(cityTax * 100) / 100,
         vat_rate: taxVatRate,

@@ -99,21 +99,26 @@ function formatRate(config: TaxConfig | null | undefined): string {
 }
 
 function computeSummary(items: TaxDataItem[]) {
-  const airbnb = items.filter((d) => d.tax.exemptReason === 'Airbnb führt ab')
-  const nonAirbnb = items.filter((d) => d.tax.exemptReason !== 'Airbnb führt ab')
-  const business = nonAirbnb.filter((d) => d.tax.exemptReason === 'Geschäftsreise')
-  const taxable = nonAirbnb.filter((d) => !d.tax.isExempt)
+  const otaRemitted = items.filter((d) => d.tax.remittedByOta)
+  const selfRemit = items.filter((d) => !d.tax.remittedByOta)
+  const business = selfRemit.filter((d) => d.tax.exemptReason === 'Geschäftsreise')
+  const taxable = selfRemit.filter((d) => !d.tax.isExempt)
+
+  const otaRemittedTax = otaRemitted.reduce((s, d) => s + d.tax.taxAmount, 0)
+  const selfRemitTax = taxable.reduce((s, d) => s + d.tax.taxAmount, 0)
 
   return {
     totalNights: items.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    airbnbNights: airbnb.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    nonAirbnbRevenue: nonAirbnb.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
+    otaRemittedNights: otaRemitted.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
+    otaRemittedTax,
+    selfRemitRevenue: selfRemit.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
     businessNights: business.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
     businessRevenue: business.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
     remainingNights: taxable.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    taxableRevenue: nonAirbnb.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
+    taxableRevenue: selfRemit.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
       - business.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
-    collectedTax: taxable.reduce((s, d) => s + d.tax.taxAmount, 0),
+    selfRemitTax,
+    totalTax: selfRemitTax + otaRemittedTax,
     bookingCount: items.length,
   }
 }
@@ -184,8 +189,8 @@ export default function SteuerPage() {
         ? getTaxConfigForProperty(booking.properties, cityRules)
         : null
       const tax = config
-        ? calculateAccommodationTax(booking, config)
-        : { taxableAmount: 0, taxAmount: 0, isExempt: true, exemptReason: 'Keine Beherbergungssteuer' } as TaxResult
+        ? calculateAccommodationTax(booking, config, booking.properties?.ota_remits_tax ?? [])
+        : { taxableAmount: 0, taxAmount: 0, isExempt: true, exemptReason: 'Keine Beherbergungssteuer', remittedByOta: false } as TaxResult
       return { booking, tax, config }
     })
   }, [filteredBookings, cityRules])
@@ -299,17 +304,19 @@ export default function SteuerPage() {
         ['Stadt', config?.city ?? '–'],
         ['Steuersatz', formatRate(config)],
         ['1. Entgeltliche Übernachtungen', s.totalNights],
-        ['2. abzgl. Airbnb-Übernachtungen', s.airbnbNights],
-        ['3. Umsätze verbleibend', s.nonAirbnbRevenue.toFixed(2)],
+        ['2. abzgl. Von OTA abgeführt', `${s.otaRemittedNights} Nächte / ${s.otaRemittedTax.toFixed(2)} EUR`],
+        ['3. Umsätze verbleibend', s.selfRemitRevenue.toFixed(2)],
         ['4. abzgl. Geschäftsreisen', `${s.businessNights} Nächte / ${s.businessRevenue.toFixed(2)} EUR`],
         ['5. Verbleibende Übernachtungen', s.remainingNights],
         ['6. Steuerpflichtige Umsätze', s.taxableRevenue.toFixed(2)],
-        ['7. Eingezogene Steuer', s.collectedTax.toFixed(2)],
+        ['7. Selbst abzuführen', s.selfRemitTax.toFixed(2)],
       )
     }
     summarySection.push(
       [],
-      ['GESAMT eingezogene Steuer', totalSummary.collectedTax.toFixed(2)],
+      ['GESAMT selbst abzuführen', totalSummary.selfRemitTax.toFixed(2)],
+      ['GESAMT von OTA abgeführt', totalSummary.otaRemittedTax.toFixed(2)],
+      ['GESAMT Steueraufkommen', totalSummary.totalTax.toFixed(2)],
     )
 
     const csv = [...[headers], ...rows, ...summarySection]
@@ -412,32 +419,36 @@ export default function SteuerPage() {
       ) : (
         // Grouped view: Gesamtübersicht → per city → per property
         <>
-          {/* Gesamtübersicht – always shown */}
-          <Card className="border-2">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Gesamtübersicht – {range.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                <div>
-                  <p className="text-2xl font-bold tabular-nums">{totalSummary.totalNights}</p>
-                  <p className="text-xs text-muted-foreground">Nächte gesamt</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold tabular-nums">{totalSummary.remainingNights}</p>
-                  <p className="text-xs text-muted-foreground">Steuerpflichtig</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold tabular-nums">{formatEur(totalSummary.taxableRevenue)}</p>
-                  <p className="text-xs text-muted-foreground">Steuerpfl. Umsatz</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold tabular-nums text-emerald-600">{formatEur(totalSummary.collectedTax)}</p>
-                  <p className="text-xs text-muted-foreground">Eingez. Steuer</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Gesamtübersicht – 4 KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Card className="border-2 border-emerald-200 bg-emerald-50/50">
+              <CardContent className="pt-6 text-center">
+                <p className="text-2xl font-bold tabular-nums text-emerald-700">{formatEur(totalSummary.selfRemitTax)}</p>
+                <p className="text-xs text-muted-foreground mt-1">Selbst abzuführen</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6 text-center">
+                <p className="text-2xl font-bold tabular-nums">{formatEur(totalSummary.otaRemittedTax)}</p>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                  Von OTA abgeführt
+                  <Badge variant="outline" className="border-rose-300 text-rose-600 text-[10px] px-1 py-0">OTA</Badge>
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6 text-center">
+                <p className="text-2xl font-bold tabular-nums">{totalSummary.businessNights}</p>
+                <p className="text-xs text-muted-foreground mt-1">Steuerbefreite Nächte</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6 text-center">
+                <p className="text-2xl font-bold tabular-nums">{formatEur(totalSummary.totalTax)}</p>
+                <p className="text-xs text-muted-foreground mt-1">Gesamt-Steueraufkommen</p>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Per-city sections */}
           {groupedByCity.map((cityGroup) => {
@@ -578,12 +589,12 @@ export default function SteuerPage() {
                         <TableCell className="text-center">{booking.nights ?? 0}</TableCell>
                         <TableCell className="text-right">{formatEur(getAccommodationGrossWithoutCityTax(booking))}</TableCell>
                         <TableCell className="text-right">
-                          {tax.isExempt ? (
-                            <Badge variant="outline" className={
-                              tax.exemptReason === 'Airbnb führt ab'
-                                ? 'border-rose-300 text-rose-600'
-                                : 'border-blue-300 text-blue-600'
-                            }>
+                          {tax.remittedByOta ? (
+                            <Badge variant="outline" className="border-rose-300 text-rose-600">
+                              {tax.remittedByOtaName ?? 'OTA'} führt ab
+                            </Badge>
+                          ) : tax.isExempt ? (
+                            <Badge variant="outline" className="border-blue-300 text-blue-600">
                               {tax.exemptReason}
                             </Badge>
                           ) : (
@@ -591,7 +602,7 @@ export default function SteuerPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {booking.channel !== 'Airbnb' && (
+                          {!tax.remittedByOta && (
                             <Checkbox
                               checked={booking.trip_purpose === 'business'}
                               onCheckedChange={(checked) =>
@@ -606,7 +617,7 @@ export default function SteuerPage() {
                       <TableCell colSpan={selectedPropertyId === 'all' ? 4 : 3}>Gesamt (steuerpflichtig)</TableCell>
                       <TableCell className="text-center">{totalSummary.remainingNights}</TableCell>
                       <TableCell className="text-right">{formatEur(totalSummary.taxableRevenue)}</TableCell>
-                      <TableCell className="text-right">{formatEur(totalSummary.collectedTax)}</TableCell>
+                      <TableCell className="text-right">{formatEur(totalSummary.selfRemitTax)}</TableCell>
                       <TableCell />
                     </TableRow>
                   </TableBody>
@@ -652,14 +663,14 @@ function SinglePropertySummary({
       <CardContent>
         <div className="space-y-1">
           <SummaryLine label="1. Anzahl entgeltlicher Übernachtungen insgesamt" value={`${summary.totalNights} Nächte`} />
-          <SummaryLine label="2. abzgl. Airbnb-Übernachtungen (direkt abgeführt)" value={`– ${summary.airbnbNights} Nächte`} className="text-rose-600" />
-          <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.nonAirbnbRevenue)} />
+          <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedTax)}`} className="text-rose-600" />
+          <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.selfRemitRevenue)} />
           <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen (Geschäftsreisen)" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
           <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />
           <SummaryLine label="6. verbleibende steuerpflichtige Umsätze" value={formatEur(summary.taxableRevenue)} />
-          <div className="flex justify-between py-3 bg-muted/50 rounded px-2 mt-2">
-            <span className="text-sm font-bold">7. eingezogene Beherbergungssteuer ({formatRate(config)})</span>
-            <span className="text-lg font-bold tabular-nums">{formatEur(summary.collectedTax)}</span>
+          <div className="flex justify-between py-3 bg-emerald-50 rounded px-2 mt-2">
+            <span className="text-sm font-bold">7. Selbst abzuführen ({formatRate(config)})</span>
+            <span className="text-lg font-bold tabular-nums text-emerald-700">{formatEur(summary.selfRemitTax)}</span>
           </div>
         </div>
       </CardContent>
@@ -680,20 +691,20 @@ function CompactSummary({ summary, config }: { summary: ReturnType<typeof comput
   return (
     <div className="grid grid-cols-4 gap-4 text-center">
       <div>
-        <p className="text-lg font-bold tabular-nums">{summary.totalNights}</p>
-        <p className="text-xs text-muted-foreground">Nächte</p>
+        <p className="text-lg font-bold tabular-nums text-emerald-700">{formatEur(summary.selfRemitTax)}</p>
+        <p className="text-xs text-muted-foreground">Selbst abzuführen</p>
       </div>
       <div>
-        <p className="text-lg font-bold tabular-nums">{summary.remainingNights}</p>
-        <p className="text-xs text-muted-foreground">Steuerpflichtig</p>
+        <p className="text-lg font-bold tabular-nums">{formatEur(summary.otaRemittedTax)}</p>
+        <p className="text-xs text-muted-foreground">Von OTA abgeführt</p>
       </div>
       <div>
-        <p className="text-lg font-bold tabular-nums">{formatEur(summary.taxableRevenue)}</p>
-        <p className="text-xs text-muted-foreground">Umsatz</p>
+        <p className="text-lg font-bold tabular-nums">{summary.businessNights}</p>
+        <p className="text-xs text-muted-foreground">Steuerbefreit</p>
       </div>
       <div>
-        <p className="text-lg font-bold tabular-nums text-emerald-600">{formatEur(summary.collectedTax)}</p>
-        <p className="text-xs text-muted-foreground">Steuer ({formatRate(config)})</p>
+        <p className="text-lg font-bold tabular-nums">{formatEur(summary.totalTax)}</p>
+        <p className="text-xs text-muted-foreground">Gesamt ({formatRate(config)})</p>
       </div>
     </div>
   )
