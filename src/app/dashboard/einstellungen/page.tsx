@@ -50,6 +50,7 @@ export default function EinstellungenPage() {
           bank_iban, bank_bic, bank_name,
           company_register, managing_director, invoice_thank_you_text,
           invoice_prefix, invoice_next_number, invoice_payment_days,
+          invoice_start_date,
           smoobu_last_sync
         `)
         .eq('user_id', user.id)
@@ -520,6 +521,17 @@ export default function EinstellungenPage() {
                         onChange={(e) => updateField('invoice_payment_days', Number(e.target.value))}
                       />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Rechnungen erst ab (Check-in-Datum)</Label>
+                    <Input
+                      type="date"
+                      value={settings.invoice_start_date ?? ''}
+                      onChange={(e) => updateField('invoice_start_date', e.target.value || null)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Nur Buchungen mit Check-in ab diesem Datum erhalten automatische Rechnungen. Leer = alle Buchungen.
+                    </p>
                   </div>
                   <p className="text-sm text-muted-foreground">
                     Nächste Rechnungsnummer: {settings.invoice_prefix ?? 'RE'}-{new Date().getFullYear()}-
