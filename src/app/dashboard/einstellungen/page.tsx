@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Save } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import type { Settings } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -28,6 +29,7 @@ export default function EinstellungenPage() {
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     async function fetchSettings() {
@@ -82,6 +84,35 @@ export default function EinstellungenPage() {
       .update({ ...updateData, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('user_id', user.id)
+
+    // Propagate landlord data to all existing invoices
+    const landlordSnapshot = {
+      name: settings.landlord_name ?? '',
+      street: settings.landlord_street ?? '',
+      city: settings.landlord_city ?? '',
+      zip: settings.landlord_zip ?? '',
+      country: settings.landlord_country ?? 'DE',
+      phone: settings.landlord_phone ?? '',
+      email: settings.landlord_email ?? '',
+      tax_number: settings.tax_number ?? '',
+      vat_id: settings.vat_id ?? '',
+      bank_iban: settings.bank_iban ?? '',
+      bank_bic: settings.bank_bic ?? '',
+      bank_name: settings.bank_name ?? '',
+    }
+    const { data: updatedInvoices } = await supabase
+      .from('invoices')
+      .update({ landlord_snapshot: landlordSnapshot })
+      .eq('user_id', user.id)
+      .select('id')
+
+    if (updatedInvoices && updatedInvoices.length > 0) {
+      toast({
+        title: `${updatedInvoices.length} Rechnungen aktualisiert`,
+        description: 'Vermieterdaten in allen Rechnungen synchronisiert.',
+      })
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
