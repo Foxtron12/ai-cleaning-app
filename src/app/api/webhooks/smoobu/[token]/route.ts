@@ -8,6 +8,9 @@ import type { SmoobuReservation } from '@/lib/types'
 import type { Json } from '@/lib/database.types'
 import { z } from 'zod'
 
+// Actions that are not reservation events and should be ignored
+const IGNORED_ACTIONS = new Set(['updateRates', 'updateAvailability'])
+
 // Zod schema for Smoobu webhook payload (validates minimum required fields)
 const webhookPayloadSchema = z.object({
   id: z.number().int().positive(),
@@ -23,20 +26,20 @@ const webhookPayloadSchema = z.object({
   }).optional(),
   type: z.string().optional(),
   status: z.string().optional(),
-  firstname: z.string().optional(),
-  lastname: z.string().optional(),
-  email: z.string().optional(),
-  phone: z.union([z.string(), z.null()]).optional(),
-  adults: z.number().optional(),
-  children: z.number().optional(),
-  price: z.number().optional(),
-  'host-payout': z.number().optional(),
-  commission: z.number().optional(),
-  'cleaning-fee': z.number().optional(),
-  'extra-fees': z.number().optional(),
-  currency: z.string().optional(),
-  balance: z.number().optional(),
-  prepayment: z.union([z.number(), z.null()]).optional(),
+  firstname: z.string().optional().nullable(),
+  lastname: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  adults: z.number().optional().nullable(),
+  children: z.number().optional().nullable(),
+  price: z.number().optional().nullable(),
+  'host-payout': z.number().optional().nullable(),
+  commission: z.number().optional().nullable(),
+  'cleaning-fee': z.number().optional().nullable(),
+  'extra-fees': z.number().optional().nullable(),
+  currency: z.string().optional().nullable(),
+  balance: z.number().optional().nullable(),
+  prepayment: z.number().optional().nullable(),
 }).passthrough()
 
 // ─── In-memory rate limiting ────────────────────────────────────────────────
@@ -119,6 +122,18 @@ export async function POST(
     // Log raw webhook payload for debugging
     action = body?.action ?? null
     rawPayload = body
+
+    // Ignore non-reservation events (rate/availability updates)
+    if (action && IGNORED_ACTIONS.has(action)) {
+      await supabase.from('webhook_logs').insert({
+        user_id: userId,
+        provider: 'smoobu',
+        action,
+        payload: rawPayload,
+        processed: true,
+      })
+      return NextResponse.json({ success: true, skipped: action })
+    }
 
     // Smoobu may wrap the payload: { action: "...", data: { ... } }
     // Or send the reservation directly at the top level.
