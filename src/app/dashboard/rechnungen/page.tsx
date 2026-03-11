@@ -571,10 +571,12 @@ function RechnungenContent() {
     const landlordStreet = ls.street ?? ''
     const landlordZipCity = [ls.zip, ls.city].filter(Boolean).join(' ')
 
-    const guestAddr = gs.address
-      ?? [gs.street, [gs.zip, gs.city].filter(Boolean).join(' '), gs.country]
+    // Prefer individual address fields (updated by sync-guest) over legacy combined "address" string
+    const guestAddr = gs.street
+      ? [gs.street, [gs.zip, gs.city].filter(Boolean).join(' '), gs.country]
           .filter(Boolean)
           .join(', ')
+      : (gs.address ?? '')
 
     const checkIn = inv.service_period_start
       ? format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')

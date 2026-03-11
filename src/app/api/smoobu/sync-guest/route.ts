@@ -230,14 +230,24 @@ export async function POST(request: NextRequest) {
         for (const inv of invoicesToUpdate) {
           const gs = inv.guest_snapshot as Record<string, string> | null
 
+          // Build combined address string to replace legacy "address" field
+          const newStreet = updateData.guest_street ?? ''
+          const newCity = updateData.guest_city ?? ''
+          const newZip = updateData.guest_zip ?? ''
+          const newCountry = updateData.guest_country ?? ''
+          const combinedAddress = [newStreet, [newZip, newCity].filter(Boolean).join(' '), newCountry]
+            .filter(Boolean)
+            .join(', ')
+
           const updatedSnapshot = {
             ...gs,
             firstname: updateData.guest_firstname ?? gs?.firstname ?? '',
             lastname: updateData.guest_lastname ?? gs?.lastname ?? '',
-            street: updateData.guest_street ?? '',
-            city: updateData.guest_city ?? '',
-            zip: updateData.guest_zip ?? '',
-            country: updateData.guest_country ?? '',
+            street: newStreet,
+            city: newCity,
+            zip: newZip,
+            country: newCountry,
+            address: combinedAddress, // overwrite legacy combined field
           }
 
           await supabase
