@@ -6,7 +6,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2 } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -37,6 +37,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Table,
   TableBody,
@@ -119,6 +129,7 @@ function RechnungenContent() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [splitting, setSplitting] = useState(false)
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [bulkDownloading, setBulkDownloading] = useState(false)
   const { toast } = useToast()
@@ -190,20 +201,29 @@ function RechnungenContent() {
       }
 
       if (bookingIdParam) {
-        const booking = (bookingsData ?? []).find(
+        // First try the already-loaded list, then fall back to a direct fetch (avoids limit(100) miss)
+        let targetBooking = (bookingsData ?? []).find(
           (b: BookingWithProperty) => b.id === bookingIdParam
         ) as BookingWithProperty | undefined
-        if (booking) {
+        if (!targetBooking) {
+          const { data: directBooking } = await supabase
+            .from('bookings')
+            .select('*, properties(*)')
+            .eq('id', bookingIdParam)
+            .single()
+          targetBooking = directBooking as BookingWithProperty | undefined
+        }
+        if (targetBooking) {
           if (splitParam) {
             if (!settingsData) {
               toast({ title: 'Einstellungen fehlen', description: 'Bitte zuerst Vermieter-Daten in den Einstellungen hinterlegen.', variant: 'destructive' })
             } else {
               setSplitting(true)
-              await createSplitInvoices(booking, settingsData as Settings | null, rules)
+              await createSplitInvoices(targetBooking, settingsData as Settings | null, rules)
               setSplitting(false)
             }
           } else {
-            fillFromBooking(booking, settingsData as Settings | null, rules)
+            fillFromBooking(targetBooking, settingsData as Settings | null, rules)
             setDialogOpen(true)
           }
         }
@@ -710,6 +730,13 @@ function RechnungenContent() {
     }
   }
 
+  async function handleDeleteInvoice(invoiceId: string) {
+    await supabase.from('invoices').delete().eq('id', invoiceId)
+    setInvoices((prev) => prev.filter((inv) => inv.id !== invoiceId))
+    setDeletingInvoiceId(null)
+    toast({ title: 'Rechnung gelöscht' })
+  }
+
   /** Build PDF data from an InvoiceRow (shared between single + bulk download) */
   function buildPdfData(inv: InvoiceRow): InvoicePDFData {
     const ls = inv.landlord_snapshot ?? {}
@@ -1112,16 +1139,26 @@ function RechnungenContent() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={downloading === inv.id}
-                          onClick={() => handleDownloadPDF(inv)}
-                        >
-                          {downloading === inv.id
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : <Download className="h-4 w-4" />}
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={downloading === inv.id}
+                            onClick={() => handleDownloadPDF(inv)}
+                          >
+                            {downloading === inv.id
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Download className="h-4 w-4" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setDeletingInvoiceId(inv.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1131,6 +1168,25 @@ function RechnungenContent() {
           )}
         </CardContent>
       </Card>
+      <AlertDialog open={!!deletingInvoiceId} onOpenChange={(open) => { if (!open) setDeletingInvoiceId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rechnung löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Diese Rechnung wird unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deletingInvoiceId && handleDeleteInvoice(deletingInvoiceId)}
+            >
+              Löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

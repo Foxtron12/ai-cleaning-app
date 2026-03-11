@@ -7,7 +7,11 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { FileText, Receipt, Copy, Check, ExternalLink } from 'lucide-react'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import { useState, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { BookingStatusBadge } from './booking-status-badge'
@@ -86,12 +90,78 @@ export function BookingDetailSheet({
   booking,
   open,
   onOpenChange,
+  onBookingUpdated,
 }: {
   booking: BookingWithProperty | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onBookingUpdated?: (updated: BookingWithProperty) => void
 }) {
   if (!booking) return null
+
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Edit form state (guest data)
+  const [editFirstname, setEditFirstname] = useState(booking.guest_firstname ?? '')
+  const [editLastname, setEditLastname] = useState(booking.guest_lastname ?? '')
+  const [editEmail, setEditEmail] = useState(booking.guest_email ?? '')
+  const [editPhone, setEditPhone] = useState(booking.guest_phone ?? '')
+  const [editStreet, setEditStreet] = useState(booking.guest_street ?? '')
+  const [editZip, setEditZip] = useState(booking.guest_zip ?? '')
+  const [editCity, setEditCity] = useState(booking.guest_city ?? '')
+  const [editCountry, setEditCountry] = useState(booking.guest_country ?? '')
+  const [editNote, setEditNote] = useState(booking.guest_note ?? '')
+
+  async function handleCancel() {
+    setCancelling(true)
+    try {
+      const { data: updated } = await supabase
+        .from('bookings')
+        .update({ status: 'cancelled' })
+        .eq('id', booking!.id)
+        .select('*, properties(*)')
+        .single()
+      if (updated) {
+        onBookingUpdated?.(updated as BookingWithProperty)
+      }
+      setCancelDialogOpen(false)
+      onOpenChange(false)
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  async function handleSaveEdit() {
+    setSaving(true)
+    try {
+      const { data: updated } = await supabase
+        .from('bookings')
+        .update({
+          guest_firstname: editFirstname || null,
+          guest_lastname: editLastname || null,
+          guest_email: editEmail || null,
+          guest_phone: editPhone || null,
+          guest_street: editStreet || null,
+          guest_zip: editZip || null,
+          guest_city: editCity || null,
+          guest_country: editCountry || null,
+          guest_note: editNote || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', booking!.id)
+        .select('*, properties(*)')
+        .single()
+      if (updated) {
+        onBookingUpdated?.(updated as BookingWithProperty)
+      }
+      setEditDialogOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const guestName = [booking.guest_firstname, booking.guest_lastname]
     .filter(Boolean)
@@ -137,6 +207,7 @@ export function BookingDetailSheet({
       : null
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg overflow-y-auto">
         <SheetHeader>
@@ -268,9 +339,119 @@ export function BookingDetailSheet({
                 </Button>
               )
             })()}
+            {booking.status !== 'cancelled' && (
+              <Button
+                variant="outline"
+                className="text-destructive border-destructive/50 hover:bg-destructive/10 justify-start"
+                onClick={() => setCancelDialogOpen(true)}
+              >
+                <XCircle className="mr-2 h-4 w-4" />
+                Buchung stornieren
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              className="justify-start"
+              onClick={() => {
+                setEditFirstname(booking.guest_firstname ?? '')
+                setEditLastname(booking.guest_lastname ?? '')
+                setEditEmail(booking.guest_email ?? '')
+                setEditPhone(booking.guest_phone ?? '')
+                setEditStreet(booking.guest_street ?? '')
+                setEditZip(booking.guest_zip ?? '')
+                setEditCity(booking.guest_city ?? '')
+                setEditCountry(booking.guest_country ?? '')
+                setEditNote(booking.guest_note ?? '')
+                setEditDialogOpen(true)
+              }}
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Buchung bearbeiten
+            </Button>
           </div>
         </div>
       </SheetContent>
     </Sheet>
+
+    {/* Cancel Confirmation Dialog */}
+    <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Buchung stornieren?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Die Buchung von {[booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ') || 'diesem Gast'} wird als storniert markiert. Diese Aenderung kann nicht automatisch rueckgaengig gemacht werden.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={cancelling}>Abbrechen</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={handleCancel}
+            disabled={cancelling}
+          >
+            {cancelling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Stornieren
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Edit Booking Dialog */}
+    <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Buchung bearbeiten</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Vorname</Label>
+              <Input value={editFirstname} onChange={(e) => setEditFirstname(e.target.value)} placeholder="Max" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nachname</Label>
+              <Input value={editLastname} onChange={(e) => setEditLastname(e.target.value)} placeholder="Mustermann" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">E-Mail</Label>
+              <Input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} type="email" placeholder="max@example.de" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Telefon</Label>
+              <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} type="tel" placeholder="+49 123 456789" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Strasse + Hausnummer</Label>
+            <Input value={editStreet} onChange={(e) => setEditStreet(e.target.value)} placeholder="Musterstr. 1" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">PLZ</Label>
+              <Input value={editZip} onChange={(e) => setEditZip(e.target.value)} placeholder="01067" />
+            </div>
+            <div className="space-y-1.5 col-span-2">
+              <Label className="text-xs">Ort</Label>
+              <Input value={editCity} onChange={(e) => setEditCity(e.target.value)} placeholder="Dresden" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Land</Label>
+            <Input value={editCountry} onChange={(e) => setEditCountry(e.target.value)} placeholder="DE" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Notiz</Label>
+            <Input value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Besondere Wuensche..." />
+          </div>
+          <Button className="w-full" onClick={handleSaveEdit} disabled={saving}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Speichern
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

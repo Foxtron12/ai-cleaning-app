@@ -351,6 +351,10 @@ export default function BuchungenPage() {
         booking={selectedBooking}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+        onBookingUpdated={(updated) => {
+          setAllBookings((prev) => prev.map((b) => b.id === updated.id ? updated : b))
+          setSelectedBooking(updated)
+        }}
       />
 
       {/* Direktbuchungs-Wizard */}

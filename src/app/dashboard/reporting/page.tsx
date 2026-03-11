@@ -7,6 +7,9 @@ import {
   endOfMonth,
   subMonths,
   parseISO,
+  differenceInCalendarDays,
+  addDays,
+  addMonths,
 } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { X } from 'lucide-react'
@@ -76,6 +79,60 @@ function getBruttoWithoutCityTax(b: BookingWithProperty, cityRules: CityTaxRule[
     return (b.amount_gross ?? 0) - (taxResult?.taxAmount ?? 0)
   }
   return b.amount_gross ?? 0
+}
+
+/**
+ * Returns what ratio (0–1) of a booking's nights fall within [rangeFrom, rangeTo] (inclusive dates).
+ */
+function getRatioInRange(b: BookingWithProperty, rangeFrom: string, rangeTo: string): number {
+  const checkIn = new Date(b.check_in + 'T00:00:00')
+  const checkOut = new Date(b.check_out + 'T00:00:00')
+  const totalNights = b.nights ?? differenceInCalendarDays(checkOut, checkIn)
+  if (totalNights <= 0) return 1
+  const rangeStart = new Date(rangeFrom + 'T00:00:00')
+  const rangeEndExclusive = addDays(new Date(rangeTo + 'T00:00:00'), 1)
+  const effectiveStart = checkIn < rangeStart ? rangeStart : checkIn
+  const effectiveEnd = checkOut < rangeEndExclusive ? checkOut : rangeEndExclusive
+  const nightsInRange = Math.max(0, differenceInCalendarDays(effectiveEnd, effectiveStart))
+  return nightsInRange / totalNights
+}
+
+/**
+ * Splits a booking into per-calendar-month segments within [rangeFrom, rangeTo].
+ * Returns an array of { monthKey: 'yyyy-MM', nights: number, ratio: number }.
+ */
+function getProRataSegments(
+  b: BookingWithProperty,
+  rangeFrom: string,
+  rangeTo: string
+): Array<{ monthKey: string; nights: number; ratio: number }> {
+  const checkIn = new Date(b.check_in + 'T00:00:00')
+  const checkOut = new Date(b.check_out + 'T00:00:00')
+  const totalNights = b.nights ?? differenceInCalendarDays(checkOut, checkIn)
+  if (totalNights <= 0) return []
+
+  const rangeStart = new Date(rangeFrom + 'T00:00:00')
+  const rangeEndExclusive = addDays(new Date(rangeTo + 'T00:00:00'), 1)
+  const effectiveStart = checkIn < rangeStart ? rangeStart : checkIn
+  const effectiveEnd = checkOut < rangeEndExclusive ? checkOut : rangeEndExclusive
+
+  const segments: Array<{ monthKey: string; nights: number; ratio: number }> = []
+  let current = startOfMonth(effectiveStart)
+  while (current < effectiveEnd) {
+    const nextMonth = addMonths(current, 1)
+    const segStart = effectiveStart > current ? effectiveStart : current
+    const segEnd = effectiveEnd < nextMonth ? effectiveEnd : nextMonth
+    const segNights = differenceInCalendarDays(segEnd, segStart)
+    if (segNights > 0) {
+      segments.push({
+        monthKey: format(current, 'yyyy-MM'),
+        nights: segNights,
+        ratio: segNights / totalNights,
+      })
+    }
+    current = nextMonth
+  }
+  return segments
 }
 
 function getDateRange(range: TimeRange, customMonth: string): { from: string; to: string; label: string } {
@@ -159,8 +216,8 @@ export default function ReportingPage() {
           .from('bookings')
           .select('*, properties(*)')
           .neq('status', 'cancelled')
-          .gte('check_in', r.from)
           .lte('check_in', r.to)
+          .gt('check_out', r.from)
           .order('check_in', { ascending: true })
 
         if (selectedPropertyId !== 'all') {
@@ -212,22 +269,22 @@ export default function ReportingPage() {
   // Aggregate KPIs
   const kpis = useMemo(() => {
     if (filteredBookings.length === 0) return null
-    const totalGross = filteredBookings.reduce((s, b) => s + getBruttoWithoutCityTax(b, cityRules), 0)
-    const totalCleaning = filteredBookings.reduce((s, b) => s + (b.cleaning_fee ?? 0), 0)
+    const r = getDateRange(timeRange, customMonth)
+    const totalGross = filteredBookings.reduce((s, b) => s + getBruttoWithoutCityTax(b, cityRules) * getRatioInRange(b, r.from, r.to), 0)
+    const totalCleaning = filteredBookings.reduce((s, b) => s + (b.cleaning_fee ?? 0) * getRatioInRange(b, r.from, r.to), 0)
     const totalAccommodation = totalGross - totalCleaning
-    const totalCommission = filteredBookings.reduce((s, b) => s + (b.commission_amount ?? 0), 0)
+    const totalCommission = filteredBookings.reduce((s, b) => s + (b.commission_amount ?? 0) * getRatioInRange(b, r.from, r.to), 0)
     const totalAuszahlung = totalGross - totalCommission
     const effectiveVatRate = isKleinunternehmer ? 0 : 7
     const totalVat = effectiveVatRate > 0
-      ? filteredBookings.reduce((s, b) => s + getBruttoWithoutCityTax(b, cityRules) * effectiveVatRate / (100 + effectiveVatRate), 0)
+      ? filteredBookings.reduce((s, b) => s + getBruttoWithoutCityTax(b, cityRules) * getRatioInRange(b, r.from, r.to) * effectiveVatRate / (100 + effectiveVatRate), 0)
       : 0
     const totalNet = totalGross - totalVat
-    const totalNights = filteredBookings.reduce((s, b) => s + (b.nights ?? 0), 0)
+    const totalNights = filteredBookings.reduce((s, b) => s + (b.nights ?? 0) * getRatioInRange(b, r.from, r.to), 0)
     const avgNights = totalNights / filteredBookings.length
     const adr = totalNights > 0 ? totalAccommodation / totalNights : 0
 
     // Occupancy: per-property nights / days in period, then average
-    const r = getDateRange(timeRange, customMonth)
     const fromDate = parseISO(r.from)
     const toDate = parseISO(r.to)
     const daysInPeriod = Math.max(1, Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)) + 1)
@@ -300,29 +357,38 @@ export default function ReportingPage() {
       hasUnknownCommission: boolean
     }>()
 
+    const r = getDateRange(timeRange, customMonth)
     for (const b of filteredBookings) {
-      const key = b.check_in.substring(0, 7)
-      const existing = map.get(key) ?? { bookings: 0, accommodation: 0, cleaning: 0, gross: 0, vat: 0, netVat: 0, commission: 0, tax: 0, net: 0, nights: 0, hasUnknownCommission: false }
-      const gross = getBruttoWithoutCityTax(b, cityRules)
-      const clean = b.cleaning_fee ?? 0
-      const accom = gross - clean
+      const grossTotal = getBruttoWithoutCityTax(b, cityRules)
+      const cleanTotal = b.cleaning_fee ?? 0
+      const commissionTotal = b.commission_amount ?? 0
       const commissionUnknown = b.commission_amount === null
-      const commission = b.commission_amount ?? 0
-      const vatAmount = vatRate > 0 ? gross * vatRate / (100 + vatRate) : 0
       const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, cityRules) : null
       const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig, b.properties?.ota_remits_tax ?? []) : null
-      existing.bookings++
-      existing.accommodation += accom
-      existing.cleaning += clean
-      existing.gross += gross
-      existing.vat += vatAmount
-      existing.netVat += gross - vatAmount
-      existing.commission += commission
-      existing.hasUnknownCommission = existing.hasUnknownCommission || commissionUnknown
-      existing.tax += (taxResult?.isExempt ? 0 : taxResult?.taxAmount) ?? 0
-      existing.net += gross - commission
-      existing.nights += b.nights ?? 0
-      map.set(key, existing)
+      const taxTotal = (taxResult?.isExempt ? 0 : taxResult?.taxAmount) ?? 0
+
+      const segments = getProRataSegments(b, r.from, r.to)
+      for (const seg of segments) {
+        const key = seg.monthKey
+        const existing = map.get(key) ?? { bookings: 0, accommodation: 0, cleaning: 0, gross: 0, vat: 0, netVat: 0, commission: 0, tax: 0, net: 0, nights: 0, hasUnknownCommission: false }
+        const gross = grossTotal * seg.ratio
+        const clean = cleanTotal * seg.ratio
+        const accom = gross - clean
+        const commission = commissionTotal * seg.ratio
+        const vatAmount = vatRate > 0 ? gross * vatRate / (100 + vatRate) : 0
+        existing.bookings++
+        existing.accommodation += accom
+        existing.cleaning += clean
+        existing.gross += gross
+        existing.vat += vatAmount
+        existing.netVat += gross - vatAmount
+        existing.commission += commission
+        existing.hasUnknownCommission = existing.hasUnknownCommission || commissionUnknown
+        existing.tax += taxTotal * seg.ratio
+        existing.net += gross - commission
+        existing.nights += seg.nights
+        map.set(key, existing)
+      }
     }
 
     return Array.from(map.entries())
@@ -332,7 +398,7 @@ export default function ReportingPage() {
         monthKey: key,
         ...val,
       }))
-  }, [filteredBookings, cityRules, vatRate])
+  }, [filteredBookings, cityRules, vatRate, timeRange, customMonth])
 
   // Channel breakdown
   const channelData = useMemo(() => {
