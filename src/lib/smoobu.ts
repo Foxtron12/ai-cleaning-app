@@ -228,6 +228,11 @@ export class SmoobuClient {
     return this.fetch<SmoobuReservation>(`/reservations/${id}`)
   }
 
+  /** Cancel a reservation in Smoobu */
+  async cancelReservation(id: number): Promise<void> {
+    await this.fetch<unknown>(`/reservations/${id}`, { method: 'DELETE' })
+  }
+
   /** Fetch a single guest's details (address, emails, phone numbers) */
   async getGuest(guestId: number): Promise<SmoobuGuest> {
     return this.fetch<SmoobuGuest>(`/guests/${guestId}`)

@@ -118,15 +118,13 @@ export function BookingDetailSheet({
   async function handleCancel() {
     setCancelling(true)
     try {
-      const { data: updated } = await supabase
-        .from('bookings')
-        .update({ status: 'cancelled' })
-        .eq('id', booking!.id)
-        .select('*, properties(*)')
-        .single()
-      if (updated) {
-        onBookingUpdated?.(updated as BookingWithProperty)
+      const res = await fetch(`/api/bookings/${booking!.id}/cancel`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        alert(json.error ?? 'Stornierung fehlgeschlagen')
+        return
       }
+      onBookingUpdated?.(json.booking as BookingWithProperty)
       setCancelDialogOpen(false)
       onOpenChange(false)
     } finally {
