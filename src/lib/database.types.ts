@@ -593,6 +593,7 @@ export type Database = {
           invoice_next_number: number | null
           invoice_payment_days: number | null
           invoice_prefix: string | null
+          invoice_start_date: string | null
           invoice_thank_you_text: string | null
           is_kleinunternehmer: boolean | null
           landlord_city: string | null
@@ -623,6 +624,7 @@ export type Database = {
           invoice_next_number?: number | null
           invoice_payment_days?: number | null
           invoice_prefix?: string | null
+          invoice_start_date?: string | null
           invoice_thank_you_text?: string | null
           is_kleinunternehmer?: boolean | null
           landlord_city?: string | null
@@ -653,6 +655,7 @@ export type Database = {
           invoice_next_number?: number | null
           invoice_payment_days?: number | null
           invoice_prefix?: string | null
+          invoice_start_date?: string | null
           invoice_thank_you_text?: string | null
           is_kleinunternehmer?: boolean | null
           landlord_city?: string | null

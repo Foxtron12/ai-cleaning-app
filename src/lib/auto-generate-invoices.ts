@@ -43,12 +43,6 @@ export async function autoGenerateInvoices(
     (existingInvoices ?? []).map((inv) => inv.booking_id).filter(Boolean)
   )
 
-  // Find bookings without an existing invoice
-  const toCreate = (bookings as BookingWithProperty[]).filter(
-    (b) => !existingBookingIds.has(b.id)
-  )
-  if (toCreate.length === 0) return { created: 0 }
-
   // Load settings for landlord snapshot + invoice numbering
   const { data: settingsData } = await supabase
     .from('settings')
@@ -59,7 +53,8 @@ export async function autoGenerateInvoices(
       tax_number, vat_id, is_kleinunternehmer,
       bank_iban, bank_bic, bank_name,
       company_register, managing_director, invoice_thank_you_text,
-      invoice_prefix, invoice_next_number, invoice_payment_days
+      invoice_prefix, invoice_next_number, invoice_payment_days,
+      invoice_start_date
     `)
     .eq('user_id', userId)
     .limit(1)
@@ -67,6 +62,15 @@ export async function autoGenerateInvoices(
 
   if (!settingsData) return { created: 0 }
   const settings = settingsData as Settings
+
+  // Find bookings without an existing invoice, respecting invoice_start_date
+  const invoiceStartDate = settings.invoice_start_date ?? null
+  const toCreate = (bookings as BookingWithProperty[]).filter(
+    (b) =>
+      !existingBookingIds.has(b.id) &&
+      (!invoiceStartDate || !b.check_in || b.check_in >= invoiceStartDate)
+  )
+  if (toCreate.length === 0) return { created: 0 }
 
   // Load city tax rules
   const { data: rulesData } = await supabase
