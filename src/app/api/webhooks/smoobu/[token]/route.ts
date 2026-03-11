@@ -175,6 +175,7 @@ export async function POST(
 
     const bookingData = mapSmoobuReservation(reservation, property.id)
     const isCancelled =
+      action === 'cancelled_reservation' ||
       reservation.status === 'cancelled' ||
       reservation.type?.toLowerCase().includes('cancellation')
     bookingData.status = calculateBookingStatus(

@@ -181,7 +181,9 @@ export async function POST(request: NextRequest) {
       if (!propertyId) continue
 
       const bookingData = mapSmoobuReservation(reservation, propertyId)
-      const isCancelled = reservation.type?.toLowerCase().includes('cancellation')
+      const isCancelled =
+        reservation.status === 'cancelled' ||
+        reservation.type?.toLowerCase().includes('cancellation')
       bookingData.status = calculateBookingStatus(
         reservation.arrival,
         reservation.departure,
