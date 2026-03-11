@@ -170,6 +170,7 @@ export function CreateBookingWizard({
   // Success state
   const [createdBooking, setCreatedBooking] = useState<BookingWithProperty | null>(null)
   const [stripeLink, setStripeLink] = useState<string | null>(null)
+  const [invoiceId, setInvoiceId] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
 
   // Guest form
@@ -215,6 +216,7 @@ export function CreateBookingWizard({
       setSubmitError(null)
       setCreatedBooking(null)
       setStripeLink(null)
+      setInvoiceId(null)
       setLinkCopied(false)
       setCheckIn('')
       setCheckOut('')
@@ -233,8 +235,14 @@ export function CreateBookingWizard({
     const selectedProperty = properties.find((p) => p.id === selectedPropertyId)
     if (!selectedProperty) return
 
-    const taxRate = selectedProperty.accommodation_tax_rate ?? 6
-    const taxModel = selectedProperty.accommodation_tax_model ?? 'gross_percentage'
+    const taxRate = selectedProperty.accommodation_tax_rate
+    const taxModel = selectedProperty.accommodation_tax_model
+
+    // No BHSt if not configured for this property
+    if (taxRate == null || taxModel == null) {
+      setAccommodationTax(0)
+      return
+    }
 
     const totalBeforeTax = accommodationPrice + cleaningFee
     let tax = 0
@@ -263,8 +271,9 @@ export function CreateBookingWizard({
 
   // BUG-10: correct tax label unit based on tax model
   function getTaxLabel(property: typeof selectedProperty): string {
-    const rate = property?.accommodation_tax_rate ?? 6
-    const model = property?.accommodation_tax_model ?? 'gross_percentage'
+    const rate = property?.accommodation_tax_rate
+    const model = property?.accommodation_tax_model
+    if (rate == null || model == null) return 'Beherbergungssteuer'
     if (model === 'per_person_per_night') return `Beherbergungssteuer (${rate} EUR/Person/Nacht)`
     if (model === 'per_room_per_night') return `Beherbergungssteuer (${rate} EUR/Zimmer/Nacht)`
     return `Beherbergungssteuer (${rate}%)`
@@ -355,6 +364,7 @@ export function CreateBookingWizard({
 
       setCreatedBooking(data.booking)
       setStripeLink(data.stripePaymentLink)
+      setInvoiceId(data.invoiceId)
       setStep(3) // Success
       onBookingCreated?.(data.booking)
     } catch {
@@ -943,6 +953,15 @@ export function CreateBookingWizard({
               <SummaryRow label="Gesamtpreis" value={formatCurrency(totalPrice)} bold />
             </div>
 
+            {invoiceId && (
+              <Alert>
+                <Check className="h-4 w-4 text-green-600" />
+                <AlertDescription>
+                  Rechnung wurde automatisch erstellt. Sie finden sie unter Rechnungen.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {stripeLink ? (
               <div className="rounded-lg border p-4 space-y-2">
                 <Label className="text-sm font-semibold">Stripe-Zahlungslink</Label>
@@ -962,7 +981,6 @@ export function CreateBookingWizard({
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   Stripe-Zahlungslink wird verfuegbar, sobald PROJ-8 implementiert ist.
-                  Rechnung wird verfuegbar, sobald PROJ-5 verbunden ist.
                 </AlertDescription>
               </Alert>
             )}
