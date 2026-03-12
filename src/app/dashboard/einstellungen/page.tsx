@@ -51,6 +51,7 @@ export default function EinstellungenPage() {
           company_register, managing_director, invoice_thank_you_text,
           invoice_prefix, invoice_next_number, invoice_payment_days,
           invoice_start_date,
+          kassenzeichen_dresden, personenkonto_chemnitz,
           smoobu_last_sync
         `)
         .eq('user_id', user.id)
@@ -367,6 +368,37 @@ export default function EinstellungenPage() {
                       Rechnungen werden ohne USt-Ausweis erstellt. Pflichthinweis wird automatisch ergänzt.
                     </p>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Beherbergungssteuer */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Beherbergungssteuer</CardTitle>
+                  <CardDescription>Statische Referenznummern für die Steueranmeldung</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Kassenzeichen (Dresden)</Label>
+                      <Input
+                        value={settings.kassenzeichen_dresden ?? ''}
+                        onChange={(e) => updateField('kassenzeichen_dresden', e.target.value)}
+                        placeholder="Von der Stadt Dresden zugewiesen"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Personenkonto (Chemnitz)</Label>
+                      <Input
+                        value={settings.personenkonto_chemnitz ?? ''}
+                        onChange={(e) => updateField('personenkonto_chemnitz', e.target.value)}
+                        placeholder="Von der Stadt Chemnitz zugewiesen"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Diese Nummern werden automatisch in die Steueranmelde-Vordrucke eingetragen.
+                  </p>
                 </CardContent>
               </Card>
 

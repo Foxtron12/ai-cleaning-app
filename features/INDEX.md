@@ -26,9 +26,11 @@
 | PROJ-11 | Self-Service PMS Integration | Deployed | [PROJ-11-pms-integration.md](PROJ-11-pms-integration.md) | 2026-03-05 |
 | PROJ-12 | Access Payment Gate (Subscription pro Standort) | Deployed | [PROJ-12-payment-gate.md](PROJ-12-payment-gate.md) | 2026-03-05 |
 
+| PROJ-13 | Beherbergungssteuer-Vordrucke (Automatisches Befüllen) | In Review | [PROJ-13-bhst-vordrucke.md](PROJ-13-bhst-vordrucke.md) | 2026-03-12 |
+
 <!-- Add features above this line -->
 
-## Next Available ID: PROJ-13
+## Next Available ID: PROJ-14
 
 ## Build Order (Empfehlung)
 

@@ -7,7 +7,8 @@ import { Download, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
-import type { Booking, Property, CityTaxRule } from '@/lib/types'
+import type { Booking, Property, CityTaxRule, Settings } from '@/lib/types'
+import { VordruckDialog } from '@/components/vordruck-dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -182,6 +183,7 @@ export default function SteuerPage() {
   const [bookings, setBookings] = useState<BookingWithProp[]>([])
   const [properties, setProperties] = useState<Property[]>([])
   const [cityRules, setCityRules] = useState<CityTaxRule[]>([])
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<TimeRange>('this_quarter')
   const [selectedCity, setSelectedCity] = useState<string>('all')
@@ -192,7 +194,9 @@ export default function SteuerPage() {
     setLoading(true)
     const range = getDateRange(timeRange)
 
-    const [{ data: bookingData }, { data: propData }, { data: rulesData }] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const [{ data: bookingData }, { data: propData }, { data: rulesData }, { data: settingsData }] = await Promise.all([
       supabase
         .from('bookings')
         .select('*, properties(*)')
@@ -202,11 +206,15 @@ export default function SteuerPage() {
         .order('check_in', { ascending: true }),
       supabase.from('properties').select('*').order('name'),
       supabase.from('city_tax_rules').select('*').order('city'),
+      user
+        ? supabase.from('settings').select('*').eq('user_id', user.id).limit(1).single()
+        : Promise.resolve({ data: null }),
     ])
 
     setBookings((bookingData ?? []) as BookingWithProp[])
     setProperties((propData ?? []) as Property[])
     setCityRules((rulesData ?? []) as CityTaxRule[])
+    setSettings(settingsData as Settings | null)
     setLoading(false)
   }, [timeRange])
 
@@ -467,6 +475,10 @@ export default function SteuerPage() {
           range={range}
           city={selectedCity}
           config={groupedByCity.find((g) => g.city === selectedCity)?.config ?? null}
+          bookings={bookings}
+          cityRules={cityRules}
+          properties={properties}
+          settings={settings}
         />
       ) : (
         // Grouped view: Gesamtübersicht → per city → per property
@@ -508,11 +520,22 @@ export default function SteuerPage() {
             return (
               <div key={cityGroup.city} className="space-y-3">
                 {/* City header */}
-                <div className="flex items-center gap-2 pt-2">
-                  <h3 className="text-lg font-semibold">{cityGroup.city}</h3>
-                  <span className="text-sm text-muted-foreground">
-                    · {formatRate(cityGroup.config)} · {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
-                  </span>
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold">{cityGroup.city}</h3>
+                    <span className="text-sm text-muted-foreground">
+                      · {formatRate(cityGroup.config)} · {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
+                    </span>
+                  </div>
+                  {(cityGroup.city.toLowerCase() === 'dresden' || cityGroup.city.toLowerCase() === 'chemnitz') && (
+                    <VordruckDialog
+                      city={cityGroup.city}
+                      bookings={bookings}
+                      cityRules={cityRules}
+                      properties={properties}
+                      settings={settings}
+                    />
+                  )}
                 </div>
 
                 {/* City detail summary (always shown in Alle-view) */}
@@ -611,25 +634,47 @@ function SingleCitySummary({
   range,
   city,
   config,
+  bookings,
+  cityRules,
+  properties,
+  settings,
 }: {
   taxData: TaxDataItem[]
   range: { label: string }
   city: string
   config: TaxConfig | null
+  bookings: BookingWithProp[]
+  cityRules: CityTaxRule[]
+  properties: Property[]
+  settings: Settings | null
 }) {
   const summary = computeSummary(taxData)
+  const showVordruck = city.toLowerCase() === 'dresden' || city.toLowerCase() === 'chemnitz'
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">
-          {city} – {range.label}
-        </CardTitle>
-        {config && (
-          <p className="text-sm text-muted-foreground">
-            {formatRate(config)} · {formatModelLabel(config.model)}
-          </p>
-        )}
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base">
+              {city} – {range.label}
+            </CardTitle>
+            {config && (
+              <p className="text-sm text-muted-foreground">
+                {formatRate(config)} · {formatModelLabel(config.model)}
+              </p>
+            )}
+          </div>
+          {showVordruck && (
+            <VordruckDialog
+              city={city}
+              bookings={bookings}
+              cityRules={cityRules}
+              properties={properties}
+              settings={settings}
+            />
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <DetailSummary summary={summary} config={config} />

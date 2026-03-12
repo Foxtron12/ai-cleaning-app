@@ -596,6 +596,7 @@ export type Database = {
           invoice_start_date: string | null
           invoice_thank_you_text: string | null
           is_kleinunternehmer: boolean | null
+          kassenzeichen_dresden: string | null
           landlord_city: string | null
           landlord_country: string | null
           landlord_email: string | null
@@ -606,6 +607,7 @@ export type Database = {
           landlord_website: string | null
           landlord_zip: string | null
           managing_director: string | null
+          personenkonto_chemnitz: string | null
           smoobu_api_key: string | null
           smoobu_last_sync: string | null
           tax_number: string | null
@@ -627,6 +629,7 @@ export type Database = {
           invoice_start_date?: string | null
           invoice_thank_you_text?: string | null
           is_kleinunternehmer?: boolean | null
+          kassenzeichen_dresden?: string | null
           landlord_city?: string | null
           landlord_country?: string | null
           landlord_email?: string | null
@@ -637,6 +640,7 @@ export type Database = {
           landlord_website?: string | null
           landlord_zip?: string | null
           managing_director?: string | null
+          personenkonto_chemnitz?: string | null
           smoobu_api_key?: string | null
           smoobu_last_sync?: string | null
           tax_number?: string | null
@@ -658,6 +662,7 @@ export type Database = {
           invoice_start_date?: string | null
           invoice_thank_you_text?: string | null
           is_kleinunternehmer?: boolean | null
+          kassenzeichen_dresden?: string | null
           landlord_city?: string | null
           landlord_country?: string | null
           landlord_email?: string | null
@@ -668,6 +673,7 @@ export type Database = {
           landlord_website?: string | null
           landlord_zip?: string | null
           managing_director?: string | null
+          personenkonto_chemnitz?: string | null
           smoobu_api_key?: string | null
           smoobu_last_sync?: string | null
           tax_number?: string | null

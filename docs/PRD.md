@@ -27,6 +27,7 @@ Eine Multi-Tenant SaaS-Plattform für Ferienvermieter: jeder Nutzer hat sein eig
 | P0 (Fundament) | User Authentication & Multi-Tenancy | Planned | PROJ-10 |
 | P0 (Fundament) | Self-Service PMS Integration | Planned | PROJ-11 |
 | P0 (Fundament) | Access Payment Gate (Einmalzahlung) | Planned | PROJ-12 |
+| P1 | Beherbergungssteuer-Vordrucke (Dresden + Chemnitz) | Planned | PROJ-13 |
 
 ## Success Metrics
 - Zeitersparnis: Meldeschein in < 30 Sekunden statt 5 Minuten
