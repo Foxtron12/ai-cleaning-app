@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInCalendarDays } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { Download, Plus, X } from 'lucide-react'
+import { Download, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
@@ -11,7 +11,6 @@ import type { Booking, Property, CityTaxRule } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -188,9 +187,6 @@ export default function SteuerPage() {
   const [selectedCity, setSelectedCity] = useState<string>('all')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
 
-  // Tag editor state
-  const [tagPropertyId, setTagPropertyId] = useState<string | null>(null)
-  const [tagInput, setTagInput] = useState('')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -326,25 +322,6 @@ export default function SteuerPage() {
     )
   }
 
-  // --- Tag management ---
-  async function addTag(propertyId: string, tag: string) {
-    const trimmed = tag.trim()
-    if (!trimmed) return
-    const prop = properties.find((p) => p.id === propertyId)
-    if (!prop) return
-    const newTags = [...new Set([...(prop.tags ?? []), trimmed])]
-    await supabase.from('properties').update({ tags: newTags }).eq('id', propertyId)
-    setProperties((prev) => prev.map((p) => (p.id === propertyId ? { ...p, tags: newTags } : p)))
-    setTagInput('')
-  }
-
-  async function removeTag(propertyId: string, tag: string) {
-    const prop = properties.find((p) => p.id === propertyId)
-    if (!prop) return
-    const newTags = (prop.tags ?? []).filter((t) => t !== tag)
-    await supabase.from('properties').update({ tags: newTags }).eq('id', propertyId)
-    setProperties((prev) => prev.map((p) => (p.id === propertyId ? { ...p, tags: newTags } : p)))
-  }
 
   // --- CSV Export ---
   function exportCSV() {
@@ -550,72 +527,6 @@ export default function SteuerPage() {
                   </CardContent>
                 </Card>
 
-                {/* Per-property cards within this city */}
-                {cityGroup.properties.map((group, idx) => {
-                  const summary = computeSummary(group.items)
-                  return (
-                    <Card key={idx}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <CardTitle className="text-base">{group.property?.name ?? 'Unbekannt'}</CardTitle>
-                            <p className="text-sm text-muted-foreground">
-                              {group.property?.street ? `${group.property.street}, ` : ''}
-                              {group.property?.zip ? `${group.property.zip} ` : ''}
-                              {cityGroup.city} · {summary.bookingCount} Buchungen
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {(group.property?.tags ?? []).map((tag) => (
-                              <Badge key={tag} variant="secondary" className="text-xs">
-                                {tag}
-                                <button
-                                  className="ml-1 hover:text-destructive"
-                                  onClick={() => group.property && removeTag(group.property.id, tag)}
-                                >
-                                  <X className="h-2.5 w-2.5" />
-                                </button>
-                              </Badge>
-                            ))}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-1.5 text-xs"
-                              onClick={() => {
-                                setTagPropertyId(group.property?.id ?? null)
-                                setTagInput('')
-                              }}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                            {tagPropertyId === group.property?.id && (
-                              <form
-                                className="flex items-center gap-1"
-                                onSubmit={(e) => {
-                                  e.preventDefault()
-                                  if (group.property) addTag(group.property.id, tagInput)
-                                  setTagPropertyId(null)
-                                }}
-                              >
-                                <Input
-                                  autoFocus
-                                  className="h-6 w-24 text-xs"
-                                  value={tagInput}
-                                  onChange={(e) => setTagInput(e.target.value)}
-                                  placeholder="Tag..."
-                                  onBlur={() => setTagPropertyId(null)}
-                                />
-                              </form>
-                            )}
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <CompactSummary summary={summary} config={cityGroup.config} />
-                      </CardContent>
-                    </Card>
-                  )
-                })}
               </div>
             )
           })}
@@ -736,28 +647,6 @@ function SummaryLine({ label, value, className }: { label: string; value: string
   )
 }
 
-function CompactSummary({ summary, config }: { summary: ReturnType<typeof computeSummary>; config: TaxConfig | null | undefined }) {
-  return (
-    <div className="grid grid-cols-4 gap-4 text-center">
-      <div>
-        <p className="text-lg font-bold tabular-nums text-emerald-700">{formatEur(summary.selfRemitTax)}</p>
-        <p className="text-xs text-muted-foreground">Selbst abzuführen</p>
-      </div>
-      <div>
-        <p className="text-lg font-bold tabular-nums">{formatEur(summary.otaRemittedTax)}</p>
-        <p className="text-xs text-muted-foreground">Von OTA abgeführt</p>
-      </div>
-      <div>
-        <p className="text-lg font-bold tabular-nums">{summary.businessNights}</p>
-        <p className="text-xs text-muted-foreground">Steuerbefreit</p>
-      </div>
-      <div>
-        <p className="text-lg font-bold tabular-nums">{formatEur(summary.totalTax)}</p>
-        <p className="text-xs text-muted-foreground">Gesamt ({formatRate(config)})</p>
-      </div>
-    </div>
-  )
-}
 
 function BookingTable({
   items,
