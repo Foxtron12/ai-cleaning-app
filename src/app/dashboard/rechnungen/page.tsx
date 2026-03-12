@@ -272,43 +272,46 @@ function RechnungenContent() {
 
     const items: InvoiceLineItem[] = []
 
-    // Accommodation (7% USt)
-    const accomNet = isKlein ? accommodationGross : accommodationGross / 1.07
-    const accomVat = isKlein ? 0 : accommodationGross - accomNet
+    // Accommodation (7% USt) – gross as anchor, vat as balancing figure
+    const accomUnitPrice = Math.round((accommodationPerNight / (isKlein ? 1 : 1.07)) * 100) / 100
+    const accomTotal = Math.round(accommodationGross * 100) / 100
+    const accomVat = isKlein ? 0 : Math.round((accomTotal - nights * accomUnitPrice) * 100) / 100
     items.push({
       description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} (${nights} Nächte)`,
       quantity: nights,
-      unitPrice: Math.round((accommodationPerNight / (isKlein ? 1 : 1.07)) * 100) / 100,
+      unitPrice: accomUnitPrice,
       vatRate: 7,
-      vatAmount: Math.round(accomVat * 100) / 100,
-      total: Math.round(accommodationGross * 100) / 100,
+      vatAmount: accomVat,
+      total: accomTotal,
     })
 
     // Cleaning (7% USt – Teil der Beherbergungsleistung)
     if (cleaningFee > 0) {
-      const cleanNet = isKlein ? cleaningFee : cleaningFee / 1.07
-      const cleanVat = isKlein ? 0 : cleaningFee - cleanNet
+      const cleanUnitPrice = Math.round((cleaningFee / (isKlein ? 1 : 1.07)) * 100) / 100
+      const cleanTotal = Math.round(cleaningFee * 100) / 100
+      const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
       items.push({
         description: 'Endreinigung',
         quantity: 1,
-        unitPrice: Math.round(cleanNet * 100) / 100,
+        unitPrice: cleanUnitPrice,
         vatRate: 7,
-        vatAmount: Math.round(cleanVat * 100) / 100,
-        total: Math.round(cleaningFee * 100) / 100,
+        vatAmount: cleanVat,
+        total: cleanTotal,
       })
     }
 
     // Beherbergungssteuer (calculated from city_tax_rules) – always include actual amount
     if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
-      const taxVatAmount = isKlein ? 0 : Math.round(cityTax * (taxVatRate / 100) * 100) / 100
+      const cityTaxRounded = Math.round(cityTax * 100) / 100
+      const taxVatAmount = isKlein ? 0 : Math.round(cityTaxRounded * (taxVatRate / 100) * 100) / 100
       items.push({
         description: `Beherbergungssteuer${cityLabel}`,
         quantity: 1,
-        unitPrice: Math.round(cityTax * 100) / 100,
+        unitPrice: cityTaxRounded,
         vatRate: taxVatRate,
         vatAmount: taxVatAmount,
-        total: Math.round((cityTax + taxVatAmount) * 100) / 100,
+        total: Math.round((cityTaxRounded + taxVatAmount) * 100) / 100,
       })
     }
 
@@ -413,21 +416,23 @@ function RechnungenContent() {
 
       const lineItems: Array<{ description: string; quantity: number; unit_price: number; vat_rate: number; vat_amount: number; total: number }> = []
 
-      const accomNet = isKlein ? segAccomGross : segAccomGross / 1.07
-      const accomVat = isKlein ? 0 : segAccomGross - accomNet
+      const segAccomUnitPrice = Math.round((segAccomGross / (isKlein ? 1 : 1.07) / seg.nights) * 100) / 100
+      const segAccomTotal = Math.round(segAccomGross * 100) / 100
+      const accomVat = isKlein ? 0 : Math.round((segAccomTotal - seg.nights * segAccomUnitPrice) * 100) / 100
       lineItems.push({
         description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${seg.monthLabel} (${seg.nights} Nächte)`,
         quantity: seg.nights,
-        unit_price: Math.round((segAccomGross / (isKlein ? 1 : 1.07) / seg.nights) * 100) / 100,
-        vat_rate: 7, vat_amount: Math.round(accomVat * 100) / 100, total: Math.round(segAccomGross * 100) / 100,
+        unit_price: segAccomUnitPrice,
+        vat_rate: 7, vat_amount: accomVat, total: segAccomTotal,
       })
 
       if (segClean > 0) {
-        const cleanNet = isKlein ? segClean : segClean / 1.07
-        const cleanVat = isKlein ? 0 : segClean - cleanNet
+        const cleanUnitPrice = Math.round((segClean / (isKlein ? 1 : 1.07)) * 100) / 100
+        const cleanTotal = Math.round(segClean * 100) / 100
+        const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
         lineItems.push({
-          description: 'Endreinigung', quantity: 1, unit_price: Math.round(cleanNet * 100) / 100,
-          vat_rate: 7, vat_amount: Math.round(cleanVat * 100) / 100, total: Math.round(segClean * 100) / 100,
+          description: 'Endreinigung', quantity: 1, unit_price: cleanUnitPrice,
+          vat_rate: 7, vat_amount: cleanVat, total: cleanTotal,
         })
       }
 
@@ -443,15 +448,16 @@ function RechnungenContent() {
         })
       }
 
-      const subtotalNet = lineItems.reduce((s, i) => s + i.quantity * i.unit_price, 0)
+      // Derive totals from line item gross (total) to avoid rounding drift
+      const totalGross = Math.round(lineItems.reduce((s, i) => s + i.total, 0) * 100) / 100
       const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
       const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
-      const vat7Net = vat7Items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-      const vat7Amount = isKlein ? 0 : vat7Items.reduce((s, i) => s + i.vat_amount, 0)
-      const vat19Net = vat19Items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-      const vat19Amount = isKlein ? 0 : vat19Items.reduce((s, i) => s + i.vat_amount, 0)
-      const totalVat = vat7Amount + vat19Amount
-      const totalGross = isKlein ? subtotalNet : subtotalNet + totalVat
+      const vat7Net = Math.round(vat7Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
+      const vat7Amount = isKlein ? 0 : Math.round(vat7Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
+      const vat19Net = Math.round(vat19Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
+      const vat19Amount = isKlein ? 0 : Math.round(vat19Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
+      const totalVat = Math.round((vat7Amount + vat19Amount) * 100) / 100
+      const subtotalNet = Math.round((totalGross - totalVat) * 100) / 100
 
       return {
         invoice_number: invoiceNumber,

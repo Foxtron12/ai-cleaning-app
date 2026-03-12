@@ -163,71 +163,66 @@ export async function autoGenerateInvoices(
     }> = []
 
     // Accommodation (7% USt)
-    const accomNet = isKlein ? accommodationGross : accommodationGross / 1.07
-    const accomVat = isKlein ? 0 : accommodationGross - accomNet
+    // Use gross as anchor, derive vat as balancing figure so net + vat = gross exactly
+    const accomUnitPrice = Math.round((accommodationPerNight / (isKlein ? 1 : 1.07)) * 100) / 100
+    const accomTotal = Math.round(accommodationGross * 100) / 100
+    const accomVat = isKlein ? 0 : Math.round((accomTotal - nights * accomUnitPrice) * 100) / 100
     lineItems.push({
       description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} (${nights} Nächte)`,
       quantity: nights,
-      unit_price:
-        Math.round((accommodationPerNight / (isKlein ? 1 : 1.07)) * 100) / 100,
+      unit_price: accomUnitPrice,
       vat_rate: 7,
-      vat_amount: Math.round(accomVat * 100) / 100,
-      total: Math.round(accommodationGross * 100) / 100,
+      vat_amount: accomVat,
+      total: accomTotal,
     })
 
     // Cleaning (7% USt)
     if (cleaningFee > 0) {
-      const cleanNet = isKlein ? cleaningFee : cleaningFee / 1.07
-      const cleanVat = isKlein ? 0 : cleaningFee - cleanNet
+      const cleanUnitPrice = Math.round((cleaningFee / (isKlein ? 1 : 1.07)) * 100) / 100
+      const cleanTotal = Math.round(cleaningFee * 100) / 100
+      const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
       lineItems.push({
         description: 'Endreinigung',
         quantity: 1,
-        unit_price: Math.round(cleanNet * 100) / 100,
+        unit_price: cleanUnitPrice,
         vat_rate: 7,
-        vat_amount: Math.round(cleanVat * 100) / 100,
-        total: Math.round(cleaningFee * 100) / 100,
+        vat_amount: cleanVat,
+        total: cleanTotal,
       })
     }
 
     // City tax – always include with actual amount
     if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
+      const cityTaxRounded = Math.round(cityTax * 100) / 100
       const taxVatAmount = isKlein
         ? 0
-        : Math.round(cityTax * (taxVatRate / 100) * 100) / 100
+        : Math.round(cityTaxRounded * (taxVatRate / 100) * 100) / 100
+      const cityTotal = Math.round((cityTaxRounded + taxVatAmount) * 100) / 100
       lineItems.push({
         description: `Beherbergungssteuer${cityLabel}`,
         quantity: 1,
-        unit_price: Math.round(cityTax * 100) / 100,
+        unit_price: cityTaxRounded,
         vat_rate: taxVatRate,
         vat_amount: taxVatAmount,
-        total: Math.round((cityTax + taxVatAmount) * 100) / 100,
+        total: cityTotal,
       })
     }
 
-    // Calculate totals
-    const subtotalNet = lineItems.reduce(
-      (s, item) => s + item.quantity * item.unit_price,
-      0
-    )
+    // Calculate totals – derive from line item totals (gross) to avoid rounding drift
+    const totalGross = Math.round(lineItems.reduce((s, i) => s + i.total, 0) * 100) / 100
     const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
     const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
-    const vat7Net = vat7Items.reduce(
-      (s, i) => s + i.quantity * i.unit_price,
-      0
-    )
+    const vat7Net = Math.round(vat7Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
     const vat7Amount = isKlein
       ? 0
-      : vat7Items.reduce((s, i) => s + i.vat_amount, 0)
-    const vat19Net = vat19Items.reduce(
-      (s, i) => s + i.quantity * i.unit_price,
-      0
-    )
+      : Math.round(vat7Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
+    const vat19Net = Math.round(vat19Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
     const vat19Amount = isKlein
       ? 0
-      : vat19Items.reduce((s, i) => s + i.vat_amount, 0)
-    const totalVat = vat7Amount + vat19Amount
-    const totalGross = isKlein ? subtotalNet : subtotalNet + totalVat
+      : Math.round(vat19Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
+    const totalVat = Math.round((vat7Amount + vat19Amount) * 100) / 100
+    const subtotalNet = Math.round((totalGross - totalVat) * 100) / 100
 
     const issuedDate = format(new Date(), 'yyyy-MM-dd')
     const dueDate = format(addDays(new Date(), paymentDays), 'yyyy-MM-dd')
