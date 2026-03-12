@@ -90,37 +90,38 @@ function PaymentStatusBadge({ status }: { status: string | null }) {
 
 function generateBookingEmailText({
   guestFirstname,
+  guestLastname,
   propertyName,
   checkIn,
   checkOut,
-  totalPrice,
+  adults,
   stripeLink,
 }: {
   guestFirstname: string
+  guestLastname: string
   propertyName: string
   checkIn: string
   checkOut: string
-  totalPrice: number
+  adults: number
   stripeLink: string
 }): string {
-  return `Sehr geehrte/r ${guestFirstname},
+  return `Guten Tag ${guestFirstname} ${guestLastname},
 
-vielen Dank fuer Ihre Buchung!
+vielen Dank für Ihre Buchung der Unterkunft ${propertyName} vom ${formatDateValue(checkIn)} bis ${formatDateValue(checkOut)} für ${adults} Person(en).
 
-Hier die Details zu Ihrem Aufenthalt:
+Im Anhang finden Sie Ihre Rechnung als PDF.
 
-Objekt: ${propertyName}
-Zeitraum: ${formatDateValue(checkIn)} - ${formatDateValue(checkOut)}
-Gesamtbetrag: ${formatCurrencyValue(totalPrice)}
+Online bezahlen:
+Sie können Ihre Zahlung bequem über folgenden Link vornehmen:
+👉 ${stripeLink}
 
-Bitte begleichen Sie den Betrag ueber folgenden Zahlungslink:
-${stripeLink}
+Stornobedingungen:
+Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise möglich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollständige Rückerstattung auf die ursprünglich verwendete Zahlungsmethode – in der Regel innerhalb von 7 Werktagen.
 
-Der Link ist 30 Tage gueltig. Sie koennen per Kreditkarte oder SEPA-Lastschrift zahlen.
+Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.
 
-Bei Fragen stehe ich Ihnen gerne zur Verfuegung.
-
-Mit freundlichen Gruessen`
+Mit freundlichen Grüßen
+Ihr NORA Stays Team`
 }
 
 function StripePaymentSection({
@@ -151,10 +152,11 @@ function StripePaymentSection({
     if (!stripeLink) return
     const text = generateBookingEmailText({
       guestFirstname: booking.guest_firstname ?? 'Gast',
+      guestLastname: booking.guest_lastname ?? '',
       propertyName: booking.properties?.name ?? 'Ferienwohnung',
       checkIn: booking.check_in,
       checkOut: booking.check_out,
-      totalPrice: booking.amount_gross ?? 0,
+      adults: (booking.adults ?? 1) + (booking.children ?? 0),
       stripeLink,
     })
     navigator.clipboard.writeText(text)
@@ -273,10 +275,11 @@ function StripePaymentSection({
               <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto">
                 {generateBookingEmailText({
                   guestFirstname: booking.guest_firstname ?? 'Gast',
+                  guestLastname: booking.guest_lastname ?? '',
                   propertyName: booking.properties?.name ?? 'Ferienwohnung',
                   checkIn: booking.check_in,
                   checkOut: booking.check_out,
-                  totalPrice: booking.amount_gross ?? 0,
+                  adults: (booking.adults ?? 1) + (booking.children ?? 0),
                   stripeLink,
                 })}
               </pre>

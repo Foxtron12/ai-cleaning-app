@@ -134,37 +134,38 @@ function SummaryRow({ label, value, bold }: { label: string; value: string; bold
 // -- Email Text Generator --
 function generateEmailText({
   guestFirstname,
+  guestLastname,
   propertyName,
   checkIn,
   checkOut,
-  totalPrice,
+  adults,
   stripeLink,
 }: {
   guestFirstname: string
+  guestLastname: string
   propertyName: string
   checkIn: string
   checkOut: string
-  totalPrice: number
+  adults: number
   stripeLink: string
 }): string {
-  return `Sehr geehrte/r ${guestFirstname},
+  return `Guten Tag ${guestFirstname} ${guestLastname},
 
-vielen Dank fuer Ihre Buchung!
+vielen Dank für Ihre Buchung der Unterkunft ${propertyName} vom ${formatDate(checkIn)} bis ${formatDate(checkOut)} für ${adults} Person(en).
 
-Hier die Details zu Ihrem Aufenthalt:
+Im Anhang finden Sie Ihre Rechnung als PDF.
 
-Objekt: ${propertyName}
-Zeitraum: ${formatDate(checkIn)} - ${formatDate(checkOut)}
-Gesamtbetrag: ${formatCurrency(totalPrice)}
+Online bezahlen:
+Sie können Ihre Zahlung bequem über folgenden Link vornehmen:
+👉 ${stripeLink}
 
-Bitte begleichen Sie den Betrag ueber folgenden Zahlungslink:
-${stripeLink}
+Stornobedingungen:
+Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise möglich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollständige Rückerstattung auf die ursprünglich verwendete Zahlungsmethode – in der Regel innerhalb von 7 Werktagen.
 
-Der Link ist 30 Tage gueltig. Sie koennen per Kreditkarte oder SEPA-Lastschrift zahlen.
+Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.
 
-Bei Fragen stehe ich Ihnen gerne zur Verfuegung.
-
-Mit freundlichen Gruessen`
+Mit freundlichen Grüßen
+Ihr NORA Stays Team`
 }
 
 // -- Main Component --
@@ -428,16 +429,17 @@ export function CreateBookingWizard({
     if (!stripeLink || !createdBooking) return
     const text = generateEmailText({
       guestFirstname: createdBooking.guest_firstname ?? 'Gast',
+      guestLastname: createdBooking.guest_lastname ?? '',
       propertyName: selectedProperty?.name ?? 'Ferienwohnung',
       checkIn: createdBooking.check_in,
       checkOut: createdBooking.check_out,
-      totalPrice,
+      adults: (createdBooking.adults ?? 1) + (createdBooking.children ?? 0),
       stripeLink,
     })
     navigator.clipboard.writeText(text)
     setEmailCopied(true)
     setTimeout(() => setEmailCopied(false), 2000)
-  }, [stripeLink, createdBooking, selectedProperty, totalPrice])
+  }, [stripeLink, createdBooking, selectedProperty])
 
   const canProceedStep1 =
     selectedPropertyId &&
@@ -1061,10 +1063,11 @@ export function CreateBookingWizard({
                   <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto">
                     {generateEmailText({
                       guestFirstname: createdBooking.guest_firstname ?? 'Gast',
+                      guestLastname: createdBooking.guest_lastname ?? '',
                       propertyName: selectedProperty?.name ?? 'Ferienwohnung',
                       checkIn: createdBooking.check_in,
                       checkOut: createdBooking.check_out,
-                      totalPrice,
+                      adults: (createdBooking.adults ?? 1) + (createdBooking.children ?? 0),
                       stripeLink,
                     })}
                   </pre>
