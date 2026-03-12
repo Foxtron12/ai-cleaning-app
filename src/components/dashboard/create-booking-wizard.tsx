@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronLeft,
   CalendarIcon,
+  Mail,
 } from 'lucide-react'
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -130,6 +131,42 @@ function SummaryRow({ label, value, bold }: { label: string; value: string; bold
   )
 }
 
+// -- Email Text Generator --
+function generateEmailText({
+  guestFirstname,
+  propertyName,
+  checkIn,
+  checkOut,
+  totalPrice,
+  stripeLink,
+}: {
+  guestFirstname: string
+  propertyName: string
+  checkIn: string
+  checkOut: string
+  totalPrice: number
+  stripeLink: string
+}): string {
+  return `Sehr geehrte/r ${guestFirstname},
+
+vielen Dank fuer Ihre Buchung!
+
+Hier die Details zu Ihrem Aufenthalt:
+
+Objekt: ${propertyName}
+Zeitraum: ${formatDate(checkIn)} - ${formatDate(checkOut)}
+Gesamtbetrag: ${formatCurrency(totalPrice)}
+
+Bitte begleichen Sie den Betrag ueber folgenden Zahlungslink:
+${stripeLink}
+
+Der Link ist 30 Tage gueltig. Sie koennen per Kreditkarte oder SEPA-Lastschrift zahlen.
+
+Bei Fragen stehe ich Ihnen gerne zur Verfuegung.
+
+Mit freundlichen Gruessen`
+}
+
 // -- Main Component --
 export function CreateBookingWizard({
   open,
@@ -172,6 +209,7 @@ export function CreateBookingWizard({
   const [stripeLink, setStripeLink] = useState<string | null>(null)
   const [invoiceId, setInvoiceId] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [emailCopied, setEmailCopied] = useState(false)
 
   // Guest form
   const form = useForm<GuestFormData>({
@@ -218,6 +256,7 @@ export function CreateBookingWizard({
       setStripeLink(null)
       setInvoiceId(null)
       setLinkCopied(false)
+      setEmailCopied(false)
       setCheckIn('')
       setCheckOut('')
       setAdults(1)
@@ -384,6 +423,21 @@ export function CreateBookingWizard({
     setLinkCopied(true)
     setTimeout(() => setLinkCopied(false), 2000)
   }, [stripeLink])
+
+  const handleCopyEmail = useCallback(() => {
+    if (!stripeLink || !createdBooking) return
+    const text = generateEmailText({
+      guestFirstname: createdBooking.guest_firstname ?? 'Gast',
+      propertyName: selectedProperty?.name ?? 'Ferienwohnung',
+      checkIn: createdBooking.check_in,
+      checkOut: createdBooking.check_out,
+      totalPrice,
+      stripeLink,
+    })
+    navigator.clipboard.writeText(text)
+    setEmailCopied(true)
+    setTimeout(() => setEmailCopied(false), 2000)
+  }, [stripeLink, createdBooking, selectedProperty, totalPrice])
 
   const canProceedStep1 =
     selectedPropertyId &&
@@ -963,24 +1017,64 @@ export function CreateBookingWizard({
             )}
 
             {stripeLink ? (
-              <div className="rounded-lg border p-4 space-y-2">
-                <Label className="text-sm font-semibold">Stripe-Zahlungslink</Label>
-                <div className="flex gap-2">
-                  <Input value={stripeLink} readOnly className="text-xs" />
-                  <Button variant="outline" size="icon" onClick={handleCopyLink}>
-                    {linkCopied ? (
-                      <Check className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
+              <div className="space-y-4 text-left">
+                <div className="rounded-lg border p-4 space-y-2">
+                  <Label className="text-sm font-semibold">Stripe-Zahlungslink</Label>
+                  <div className="flex gap-2">
+                    <Input value={stripeLink} readOnly className="text-xs" />
+                    <Button variant="outline" size="icon" onClick={handleCopyLink} aria-label="Zahlungslink kopieren">
+                      {linkCopied ? (
+                        <Check className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Email Text Generator */}
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      E-Mail-Text fuer den Gast
+                    </Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyEmail}
+                      aria-label="E-Mail-Text kopieren"
+                    >
+                      {emailCopied ? (
+                        <>
+                          <Check className="mr-1.5 h-3.5 w-3.5 text-green-600" />
+                          Kopiert
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="mr-1.5 h-3.5 w-3.5" />
+                          Text kopieren
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto">
+                    {generateEmailText({
+                      guestFirstname: createdBooking.guest_firstname ?? 'Gast',
+                      propertyName: selectedProperty?.name ?? 'Ferienwohnung',
+                      checkIn: createdBooking.check_in,
+                      checkOut: createdBooking.check_out,
+                      totalPrice,
+                      stripeLink,
+                    })}
+                  </pre>
                 </div>
               </div>
             ) : (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Stripe-Zahlungslink wird verfuegbar, sobald PROJ-8 implementiert ist.
+                  Kein Stripe-API-Key hinterlegt. Zahlungslink kann unter Integrationen aktiviert werden.
                 </AlertDescription>
               </Alert>
             )}

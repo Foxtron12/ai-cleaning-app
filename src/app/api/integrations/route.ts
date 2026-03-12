@@ -27,7 +27,9 @@ export async function GET() {
     ...integration,
     has_api_key: true, // api_key_encrypted is not selected, so we indicate presence via status
     webhook_url: integration.webhook_token
-      ? `${siteUrl}/api/webhooks/${integration.provider}/${integration.webhook_token}`
+      ? integration.provider === 'stripe'
+        ? `${siteUrl}/api/webhooks/stripe/booking/${integration.webhook_token}`
+        : `${siteUrl}/api/webhooks/${integration.provider}/${integration.webhook_token}`
       : null,
   }))
 

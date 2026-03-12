@@ -10,7 +10,8 @@ import { Separator } from '@/components/ui/separator'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle } from 'lucide-react'
+import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle, CreditCard, Mail, CircleDollarSign, Ban, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { supabase } from '@/lib/supabase'
 import { useState, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
@@ -40,11 +41,104 @@ function InfoRow({ label, value }: { label: string; value: string | number | nul
   )
 }
 
-function StripePaymentLinkSection({ booking }: { booking: BookingWithProperty }) {
+function formatCurrencyValue(value: number): string {
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(value)
+}
+
+function formatDateValue(dateStr: string): string {
+  return format(new Date(dateStr + 'T00:00:00'), 'dd.MM.yyyy', { locale: de })
+}
+
+function PaymentStatusBadge({ status }: { status: string | null }) {
+  if (!status) return null
+
+  const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode }> = {
+    pending: {
+      label: 'Ausstehend',
+      variant: 'outline',
+      icon: <Clock className="h-3 w-3 mr-1" />,
+    },
+    paid: {
+      label: 'Bezahlt',
+      variant: 'default',
+      icon: <CheckCircle2 className="h-3 w-3 mr-1" />,
+    },
+    failed: {
+      label: 'Fehlgeschlagen',
+      variant: 'destructive',
+      icon: <Ban className="h-3 w-3 mr-1" />,
+    },
+    manual: {
+      label: 'Manuell bezahlt',
+      variant: 'secondary',
+      icon: <CircleDollarSign className="h-3 w-3 mr-1" />,
+    },
+  }
+
+  const c = config[status] ?? { label: status, variant: 'outline' as const, icon: null }
+
+  return (
+    <Badge variant={c.variant} className="text-xs">
+      {c.icon}
+      {c.label}
+    </Badge>
+  )
+}
+
+function generateBookingEmailText({
+  guestFirstname,
+  propertyName,
+  checkIn,
+  checkOut,
+  totalPrice,
+  stripeLink,
+}: {
+  guestFirstname: string
+  propertyName: string
+  checkIn: string
+  checkOut: string
+  totalPrice: number
+  stripeLink: string
+}): string {
+  return `Sehr geehrte/r ${guestFirstname},
+
+vielen Dank fuer Ihre Buchung!
+
+Hier die Details zu Ihrem Aufenthalt:
+
+Objekt: ${propertyName}
+Zeitraum: ${formatDateValue(checkIn)} - ${formatDateValue(checkOut)}
+Gesamtbetrag: ${formatCurrencyValue(totalPrice)}
+
+Bitte begleichen Sie den Betrag ueber folgenden Zahlungslink:
+${stripeLink}
+
+Der Link ist 30 Tage gueltig. Sie koennen per Kreditkarte oder SEPA-Lastschrift zahlen.
+
+Bei Fragen stehe ich Ihnen gerne zur Verfuegung.
+
+Mit freundlichen Gruessen`
+}
+
+function StripePaymentSection({
+  booking,
+  onBookingUpdated,
+}: {
+  booking: BookingWithProperty
+  onBookingUpdated?: (updated: BookingWithProperty) => void
+}) {
   const [copied, setCopied] = useState(false)
-  // stripe_payment_link will be available once PROJ-8 is implemented
-  // For now we read it from the booking object if present
-  const stripeLink = (booking as Record<string, unknown>).stripe_payment_link as string | null | undefined
+  const [emailCopied, setEmailCopied] = useState(false)
+  const [creatingLink, setCreatingLink] = useState(false)
+  const [markingPaid, setMarkingPaid] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showEmailText, setShowEmailText] = useState(false)
+
+  const stripeLink = booking.stripe_payment_link as string | null | undefined
+  const paymentStatus = booking.payment_status as string | null
 
   const handleCopy = useCallback(() => {
     if (!stripeLink) return
@@ -53,34 +147,218 @@ function StripePaymentLinkSection({ booking }: { booking: BookingWithProperty })
     setTimeout(() => setCopied(false), 2000)
   }, [stripeLink])
 
-  if (!stripeLink) {
-    return (
-      <div>
-        <h3 className="text-sm font-semibold mb-2">Zahlungslink</h3>
-        <p className="text-sm text-muted-foreground">
-          Noch kein Zahlungslink vorhanden. Wird verfuegbar sobald Stripe-Integration aktiv ist.
-        </p>
-      </div>
-    )
-  }
+  const handleCopyEmail = useCallback(() => {
+    if (!stripeLink) return
+    const text = generateBookingEmailText({
+      guestFirstname: booking.guest_firstname ?? 'Gast',
+      propertyName: booking.properties?.name ?? 'Ferienwohnung',
+      checkIn: booking.check_in,
+      checkOut: booking.check_out,
+      totalPrice: booking.amount_gross ?? 0,
+      stripeLink,
+    })
+    navigator.clipboard.writeText(text)
+    setEmailCopied(true)
+    setTimeout(() => setEmailCopied(false), 2000)
+  }, [stripeLink, booking])
+
+  const handleCreateLink = useCallback(async () => {
+    setCreatingLink(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/bookings/${booking.id}/create-payment-link`, {
+        method: 'POST',
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Fehler beim Erstellen des Zahlungslinks')
+        return
+      }
+      // Refresh booking data
+      const { data: updated } = await supabase
+        .from('bookings')
+        .select('*, properties(*)')
+        .eq('id', booking.id)
+        .single()
+      if (updated) {
+        onBookingUpdated?.(updated as BookingWithProperty)
+      }
+    } catch {
+      setError('Verbindungsfehler. Bitte erneut versuchen.')
+    } finally {
+      setCreatingLink(false)
+    }
+  }, [booking.id, onBookingUpdated])
+
+  const handleMarkPaid = useCallback(async () => {
+    setMarkingPaid(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/bookings/${booking.id}/mark-paid`, {
+        method: 'PATCH',
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'Fehler beim Markieren als bezahlt')
+        return
+      }
+      // Refresh booking data
+      const { data: updated } = await supabase
+        .from('bookings')
+        .select('*, properties(*)')
+        .eq('id', booking.id)
+        .single()
+      if (updated) {
+        onBookingUpdated?.(updated as BookingWithProperty)
+      }
+    } catch {
+      setError('Verbindungsfehler. Bitte erneut versuchen.')
+    } finally {
+      setMarkingPaid(false)
+    }
+  }, [booking.id, onBookingUpdated])
+
+  const isPaid = paymentStatus === 'paid' || paymentStatus === 'manual'
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold mb-2">Stripe-Zahlungslink</h3>
-      <div className="flex gap-2">
-        <Input value={stripeLink} readOnly className="text-xs flex-1" />
-        <Button variant="outline" size="icon" onClick={handleCopy} aria-label="Link kopieren">
-          {copied ? (
-            <Check className="h-4 w-4 text-green-600" />
-          ) : (
-            <Copy className="h-4 w-4" />
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Zahlung</h3>
+        <PaymentStatusBadge status={paymentStatus} />
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Stripe Link display */}
+      {stripeLink && (
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Zahlungslink</Label>
+          <div className="flex gap-2">
+            <Input value={stripeLink} readOnly className="text-xs flex-1" />
+            <Button variant="outline" size="icon" onClick={handleCopy} aria-label="Link kopieren">
+              {copied ? (
+                <Check className="h-4 w-4 text-green-600" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+            <Button variant="outline" size="icon" asChild aria-label="Link oeffnen">
+              <a href={stripeLink} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Email Text Toggle */}
+      {stripeLink && (
+        <div className="space-y-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => setShowEmailText(!showEmailText)}
+          >
+            <Mail className="mr-2 h-4 w-4" />
+            {showEmailText ? 'E-Mail-Text ausblenden' : 'E-Mail-Text anzeigen'}
+          </Button>
+          {showEmailText && (
+            <div className="space-y-2">
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto">
+                {generateBookingEmailText({
+                  guestFirstname: booking.guest_firstname ?? 'Gast',
+                  propertyName: booking.properties?.name ?? 'Ferienwohnung',
+                  checkIn: booking.check_in,
+                  checkOut: booking.check_out,
+                  totalPrice: booking.amount_gross ?? 0,
+                  stripeLink,
+                })}
+              </pre>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={handleCopyEmail}
+                aria-label="E-Mail-Text kopieren"
+              >
+                {emailCopied ? (
+                  <>
+                    <Check className="mr-1.5 h-3.5 w-3.5 text-green-600" />
+                    Kopiert
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    E-Mail-Text kopieren
+                  </>
+                )}
+              </Button>
+            </div>
           )}
-        </Button>
-        <Button variant="outline" size="icon" asChild aria-label="Link oeffnen">
-          <a href={stripeLink} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </Button>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex flex-col gap-2">
+        {/* Create new payment link (if none exists, or if payment failed) */}
+        {(!stripeLink || paymentStatus === 'failed') && !isPaid && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start"
+            onClick={handleCreateLink}
+            disabled={creatingLink}
+          >
+            {creatingLink ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CreditCard className="mr-2 h-4 w-4" />
+            )}
+            {stripeLink ? 'Neuen Zahlungslink erstellen' : 'Zahlungslink erstellen'}
+          </Button>
+        )}
+
+        {/* Regenerate link button (when one already exists and is pending) */}
+        {stripeLink && paymentStatus === 'pending' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start"
+            onClick={handleCreateLink}
+            disabled={creatingLink}
+          >
+            {creatingLink ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CreditCard className="mr-2 h-4 w-4" />
+            )}
+            Neuen Zahlungslink erstellen
+          </Button>
+        )}
+
+        {/* Mark as manually paid */}
+        {!isPaid && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-start"
+            onClick={handleMarkPaid}
+            disabled={markingPaid}
+          >
+            {markingPaid ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CircleDollarSign className="mr-2 h-4 w-4" />
+            )}
+            Manuell als bezahlt markieren
+          </Button>
+        )}
       </div>
     </div>
   )
@@ -288,11 +566,11 @@ export function BookingDetailSheet({
             </>
           )}
 
-          {/* Stripe-Zahlungslink (Direktbuchungen) */}
+          {/* Stripe-Zahlung (Direktbuchungen) */}
           {booking.channel === 'Direct' && (
             <>
               <Separator />
-              <StripePaymentLinkSection booking={booking} />
+              <StripePaymentSection booking={booking} onBookingUpdated={onBookingUpdated} />
             </>
           )}
 

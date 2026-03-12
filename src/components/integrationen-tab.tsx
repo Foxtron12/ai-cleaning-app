@@ -13,6 +13,7 @@ import {
   XCircle,
   Plug,
   Loader2,
+  CreditCard,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -61,7 +62,15 @@ export function IntegrationenTab() {
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<FeedbackMessage>(null)
 
+  // Stripe form state
+  const [stripeApiKey, setStripeApiKey] = useState('')
+  const [showStripeKey, setShowStripeKey] = useState(false)
+  const [stripeSaving, setStripeSaving] = useState(false)
+  const [stripeDeleting, setStripeDeleting] = useState(false)
+  const [stripeFeedback, setStripeFeedback] = useState<FeedbackMessage>(null)
+
   const smoobu = integrations.find((i) => i.provider === 'smoobu')
+  const stripeIntegration = integrations.find((i) => i.provider === 'stripe')
 
   const fetchIntegrations = useCallback(async () => {
     try {
@@ -179,6 +188,50 @@ export function IntegrationenTab() {
       setFeedback({ success: false, message: 'Verbindungsfehler' })
     } finally {
       setDeleting(false)
+    }
+  }
+
+  async function handleSaveStripe() {
+    if (!stripeApiKey.trim()) return
+    setStripeSaving(true)
+    setStripeFeedback(null)
+    try {
+      const res = await fetch('/api/integrations/stripe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: stripeApiKey }),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setStripeFeedback({ success: true, message: json.message })
+        setStripeApiKey('')
+        await fetchIntegrations()
+      } else {
+        setStripeFeedback({ success: false, message: json.error ?? 'Speichern fehlgeschlagen' })
+      }
+    } catch {
+      setStripeFeedback({ success: false, message: 'Verbindungsfehler' })
+    } finally {
+      setStripeSaving(false)
+    }
+  }
+
+  async function handleDeleteStripe() {
+    setStripeDeleting(true)
+    setStripeFeedback(null)
+    try {
+      const res = await fetch('/api/integrations/stripe', { method: 'DELETE' })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setStripeFeedback({ success: true, message: json.message })
+        await fetchIntegrations()
+      } else {
+        setStripeFeedback({ success: false, message: json.error ?? 'Löschen fehlgeschlagen' })
+      }
+    } catch {
+      setStripeFeedback({ success: false, message: 'Verbindungsfehler' })
+    } finally {
+      setStripeDeleting(false)
     }
   }
 
@@ -388,6 +441,112 @@ export function IntegrationenTab() {
                 <XCircle className="h-4 w-4 shrink-0" />
               )}
               {feedback.message}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Stripe Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 text-purple-700">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Stripe</CardTitle>
+                <CardDescription>Zahlungslinks für Direktbuchungen</CardDescription>
+              </div>
+            </div>
+            {statusBadge(stripeIntegration?.status)}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* API Key Input */}
+          <div className="space-y-2">
+            <Label>Secret Key</Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={showStripeKey ? 'text' : 'password'}
+                  value={stripeApiKey}
+                  onChange={(e) => setStripeApiKey(e.target.value)}
+                  placeholder={stripeIntegration?.status === 'connected' ? '••••••••••••••••' : 'sk_live_... oder sk_test_...'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowStripeKey(!showStripeKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showStripeKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <Button onClick={handleSaveStripe} disabled={stripeSaving || !stripeApiKey.trim()}>
+                {stripeSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {stripeSaving ? 'Verbinde...' : 'Speichern & Testen'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Den Secret Key findest du unter Stripe Dashboard &rarr; Entwickler &rarr; API-Schlüssel. Der Webhook wird automatisch eingerichtet.
+            </p>
+          </div>
+
+          {/* Connected actions */}
+          {stripeIntegration?.status === 'connected' && (
+            <>
+              <Separator />
+              <div className="flex flex-wrap gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={stripeDeleting}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Integration entfernen
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Stripe-Integration entfernen?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Die Verbindung wird getrennt und der Webhook aus deinem Stripe-Account entfernt. Bestehende Zahlungslinks bleiben gültig.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDeleteStripe}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Entfernen
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </>
+          )}
+
+          {/* Error message from DB */}
+          {stripeIntegration?.error_message && (
+            <div className="flex items-center gap-2 text-sm p-3 rounded-md bg-red-50 text-red-700">
+              <XCircle className="h-4 w-4 shrink-0" />
+              {stripeIntegration.error_message}
+            </div>
+          )}
+
+          {/* Feedback message */}
+          {stripeFeedback && (
+            <div
+              className={`flex items-center gap-2 text-sm p-3 rounded-md ${
+                stripeFeedback.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}
+            >
+              {stripeFeedback.success ? (
+                <CheckCircle className="h-4 w-4 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 shrink-0" />
+              )}
+              {stripeFeedback.message}
             </div>
           )}
         </CardContent>

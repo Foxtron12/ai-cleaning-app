@@ -73,7 +73,9 @@ export type Database = {
           price_details: string | null
           property_id: string | null
           security_deposit: number | null
+          payment_status: string | null
           status: string
+          stripe_checkout_session_id: string | null
           stripe_payment_link: string | null
           synced_at: string | null
           trip_purpose: string | null
@@ -114,7 +116,9 @@ export type Database = {
           price_details?: string | null
           property_id?: string | null
           security_deposit?: number | null
+          payment_status?: string | null
           status?: string
+          stripe_checkout_session_id?: string | null
           stripe_payment_link?: string | null
           synced_at?: string | null
           trip_purpose?: string | null
@@ -155,7 +159,9 @@ export type Database = {
           price_details?: string | null
           property_id?: string | null
           security_deposit?: number | null
+          payment_status?: string | null
           status?: string
+          stripe_checkout_session_id?: string | null
           stripe_payment_link?: string | null
           synced_at?: string | null
           trip_purpose?: string | null
@@ -225,6 +231,7 @@ export type Database = {
           status: string
           updated_at: string
           user_id: string
+          webhook_secret_encrypted: string | null
           webhook_token: string | null
         }
         Insert: {
@@ -237,6 +244,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id: string
+          webhook_secret_encrypted?: string | null
           webhook_token?: string | null
         }
         Update: {
@@ -249,6 +257,7 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+          webhook_secret_encrypted?: string | null
           webhook_token?: string | null
         }
         Relationships: []

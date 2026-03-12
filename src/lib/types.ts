@@ -17,7 +17,7 @@ export type Integration = Database['public']['Tables']['integrations']['Row']
 export type IntegrationInsert = Database['public']['Tables']['integrations']['Insert']
 
 // Integration provider type
-export type IntegrationProvider = 'smoobu' | 'apaleo' | 'mews'
+export type IntegrationProvider = 'smoobu' | 'apaleo' | 'mews' | 'stripe'
 
 // Integration status type
 export type IntegrationStatus = 'connected' | 'error' | 'unconfigured'

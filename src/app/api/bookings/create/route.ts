@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
 import { getServerUser } from '@/lib/supabase-server'
 import { decrypt } from '@/lib/encryption'
@@ -174,12 +175,78 @@ export async function POST(request: NextRequest) {
       console.error('Auto-generate invoice after booking creation failed:', e)
     }
 
+    // 4. Create Stripe payment link if user has Stripe configured
+    let stripePaymentLink: string | null = null
+    try {
+      const { data: stripeIntegration } = await supabase
+        .from('integrations')
+        .select('api_key_encrypted')
+        .eq('user_id', user.id)
+        .eq('provider', 'stripe')
+        .eq('status', 'connected')
+        .single()
+
+      if (stripeIntegration?.api_key_encrypted) {
+        const { plaintext: stripeKey } = decrypt(stripeIntegration.api_key_encrypted)
+        const stripe = new Stripe(stripeKey, { apiVersion: '2026-02-25.clover' })
+
+        const propertyName = booking.properties?.name ?? 'Ferienwohnung'
+        const fmtDate = (d: string) => {
+          const [y, m, day] = d.split('-')
+          return `${day}.${m}.${y}`
+        }
+        const description = `${propertyName} – ${fmtDate(data.checkIn)} bis ${fmtDate(data.checkOut)}`
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+
+        const session = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          payment_method_types: ['card', 'sepa_debit'],
+          line_items: [
+            {
+              price_data: {
+                currency: 'eur',
+                product_data: {
+                  name: description,
+                  description: `Gast: ${data.guestFirstname} ${data.guestLastname}`,
+                },
+                unit_amount: Math.round(totalPrice * 100),
+              },
+              quantity: 1,
+            },
+          ],
+          metadata: {
+            type: 'booking_payment',
+            booking_id: booking.id,
+            user_id: user.id,
+          },
+          customer_email: data.guestEmail,
+          success_url: `${siteUrl}/dashboard/buchungen?payment=success&booking=${booking.id}`,
+          cancel_url: `${siteUrl}/dashboard/buchungen?payment=cancelled&booking=${booking.id}`,
+          expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+        })
+
+        stripePaymentLink = session.url
+
+        await supabase
+          .from('bookings')
+          .update({
+            stripe_checkout_session_id: session.id,
+            stripe_payment_link: session.url,
+            payment_status: 'pending',
+          })
+          .eq('id', booking.id)
+          .eq('user_id', user.id)
+      }
+    } catch (e) {
+      console.error('Auto-create Stripe payment link failed:', e)
+    }
+
     return NextResponse.json({
       success: true,
       booking,
       smoobuId: smoobuResult.id,
       invoiceId,
-      stripePaymentLink: null,
+      stripePaymentLink,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler'
