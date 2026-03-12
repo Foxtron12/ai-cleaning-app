@@ -124,7 +124,8 @@ export default function BuchungenPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState('Alle')
-  const [status, setStatus] = useState('Alle')
+  const [status, setStatus] = useState('upcoming')
+  const [property, setProperty] = useState('Alle')
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -172,6 +173,11 @@ export default function BuchungenPage() {
     setPage(0)
   }, [sortColumn])
 
+  const propertyOptions = useMemo(() => {
+    const names = new Set(allBookings.map((b) => b.properties?.name).filter(Boolean) as string[])
+    return Array.from(names).sort()
+  }, [allBookings])
+
   const filtered = useMemo(() => {
     let result = allBookings
 
@@ -180,6 +186,9 @@ export default function BuchungenPage() {
     }
     if (status !== 'Alle') {
       result = result.filter((b) => b.status === status)
+    }
+    if (property !== 'Alle') {
+      result = result.filter((b) => b.properties?.name === property)
     }
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -208,7 +217,7 @@ export default function BuchungenPage() {
     })
 
     return result
-  }, [allBookings, channel, status, search, sortColumn, sortDirection])
+  }, [allBookings, channel, status, property, search, sortColumn, sortDirection])
 
   const paginated = useMemo(() => {
     return filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -286,6 +295,19 @@ export default function BuchungenPage() {
             {CHANNELS.map((ch) => (
               <SelectItem key={ch} value={ch}>
                 {ch === 'Alle' ? 'Alle Kanäle' : ch}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={property} onValueChange={(v) => { setProperty(v); setPage(0) }}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Alle">Alle Objekte</SelectItem>
+            {propertyOptions.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
               </SelectItem>
             ))}
           </SelectContent>
