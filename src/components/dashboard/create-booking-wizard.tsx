@@ -47,6 +47,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 
 import { supabase } from '@/lib/supabase'
+import { generateBookingEmailHtml, copyHtmlToClipboard } from '@/lib/email-template'
 import type { Property, BookingWithProperty } from '@/lib/types'
 
 // -- Types --
@@ -129,45 +130,6 @@ function SummaryRow({ label, value, bold }: { label: string; value: string; bold
       <span className={`text-sm text-right ${bold ? 'font-bold' : 'font-medium'}`}>{value}</span>
     </div>
   )
-}
-
-// -- Email Text Generator --
-function generateEmailText({
-  guestFirstname,
-  guestLastname,
-  propertyName,
-  checkIn,
-  checkOut,
-  adults,
-  bookingId,
-}: {
-  guestFirstname: string
-  guestLastname: string
-  propertyName: string
-  checkIn: string
-  checkOut: string
-  adults: number
-  bookingId: string
-}): string {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-  const payLink = `${baseUrl}/pay/${bookingId}`
-  return `Guten Tag ${guestFirstname} ${guestLastname},
-
-vielen Dank für Ihre Buchung der Unterkunft ${propertyName} vom ${formatDate(checkIn)} bis ${formatDate(checkOut)} für ${adults} Person(en).
-
-Im Anhang finden Sie Ihre Rechnung als PDF.
-
-Online bezahlen:
-Sie können Ihre Zahlung bequem über folgenden Link vornehmen:
-👉 ${payLink}
-
-Stornobedingungen:
-Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise möglich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollständige Rückerstattung auf die ursprünglich verwendete Zahlungsmethode – in der Regel innerhalb von 7 Werktagen.
-
-Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.
-
-Mit freundlichen Grüßen
-Ihr NORA Stays Team`
 }
 
 // -- Main Component --
@@ -427,9 +389,9 @@ export function CreateBookingWizard({
     setTimeout(() => setLinkCopied(false), 2000)
   }, [stripeLink])
 
-  const handleCopyEmail = useCallback(() => {
+  const handleCopyEmail = useCallback(async () => {
     if (!stripeLink || !createdBooking) return
-    const text = generateEmailText({
+    const html = generateBookingEmailHtml({
       guestFirstname: createdBooking.guest_firstname ?? 'Gast',
       guestLastname: createdBooking.guest_lastname ?? '',
       propertyName: selectedProperty?.name ?? 'Ferienwohnung',
@@ -438,7 +400,7 @@ export function CreateBookingWizard({
       adults: (createdBooking.adults ?? 1) + (createdBooking.children ?? 0),
       bookingId: createdBooking.id,
     })
-    navigator.clipboard.writeText(text)
+    await copyHtmlToClipboard(html)
     setEmailCopied(true)
     setTimeout(() => setEmailCopied(false), 2000)
   }, [stripeLink, createdBooking, selectedProperty])
@@ -1062,17 +1024,20 @@ export function CreateBookingWizard({
                       )}
                     </Button>
                   </div>
-                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto">
-                    {generateEmailText({
-                      guestFirstname: createdBooking.guest_firstname ?? 'Gast',
-                      guestLastname: createdBooking.guest_lastname ?? '',
-                      propertyName: selectedProperty?.name ?? 'Ferienwohnung',
-                      checkIn: createdBooking.check_in,
-                      checkOut: createdBooking.check_out,
-                      adults: (createdBooking.adults ?? 1) + (createdBooking.children ?? 0),
-                      bookingId: createdBooking.id,
-                    })}
-                  </pre>
+                  <div
+                    className="text-xs bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto border"
+                    dangerouslySetInnerHTML={{
+                      __html: generateBookingEmailHtml({
+                        guestFirstname: createdBooking.guest_firstname ?? 'Gast',
+                        guestLastname: createdBooking.guest_lastname ?? '',
+                        propertyName: selectedProperty?.name ?? 'Ferienwohnung',
+                        checkIn: createdBooking.check_in,
+                        checkOut: createdBooking.check_out,
+                        adults: (createdBooking.adults ?? 1) + (createdBooking.children ?? 0),
+                        bookingId: createdBooking.id,
+                      }),
+                    }}
+                  />
                 </div>
               </div>
             ) : (

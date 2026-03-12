@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle, CreditCard, Mail, CircleDollarSign, Ban, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { supabase } from '@/lib/supabase'
+import { generateBookingEmailHtml, copyHtmlToClipboard } from '@/lib/email-template'
 import { useState, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { BookingStatusBadge } from './booking-status-badge'
@@ -88,44 +89,6 @@ function PaymentStatusBadge({ status }: { status: string | null }) {
   )
 }
 
-function generateBookingEmailText({
-  guestFirstname,
-  guestLastname,
-  propertyName,
-  checkIn,
-  checkOut,
-  adults,
-  bookingId,
-}: {
-  guestFirstname: string
-  guestLastname: string
-  propertyName: string
-  checkIn: string
-  checkOut: string
-  adults: number
-  bookingId: string
-}): string {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-  const payLink = `${baseUrl}/pay/${bookingId}`
-  return `Guten Tag ${guestFirstname} ${guestLastname},
-
-vielen Dank für Ihre Buchung der Unterkunft ${propertyName} vom ${formatDateValue(checkIn)} bis ${formatDateValue(checkOut)} für ${adults} Person(en).
-
-Im Anhang finden Sie Ihre Rechnung als PDF.
-
-Online bezahlen:
-Sie können Ihre Zahlung bequem über folgenden Link vornehmen:
-👉 ${payLink}
-
-Stornobedingungen:
-Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise möglich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollständige Rückerstattung auf die ursprünglich verwendete Zahlungsmethode – in der Regel innerhalb von 7 Werktagen.
-
-Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.
-
-Mit freundlichen Grüßen
-Ihr NORA Stays Team`
-}
-
 function StripePaymentSection({
   booking,
   onBookingUpdated,
@@ -150,9 +113,9 @@ function StripePaymentSection({
     setTimeout(() => setCopied(false), 2000)
   }, [stripeLink])
 
-  const handleCopyEmail = useCallback(() => {
+  const handleCopyEmail = useCallback(async () => {
     if (!stripeLink) return
-    const text = generateBookingEmailText({
+    const html = generateBookingEmailHtml({
       guestFirstname: booking.guest_firstname ?? 'Gast',
       guestLastname: booking.guest_lastname ?? '',
       propertyName: booking.properties?.name ?? 'Ferienwohnung',
@@ -161,7 +124,7 @@ function StripePaymentSection({
       adults: (booking.adults ?? 1) + (booking.children ?? 0),
       bookingId: booking.id,
     })
-    navigator.clipboard.writeText(text)
+    await copyHtmlToClipboard(html)
     setEmailCopied(true)
     setTimeout(() => setEmailCopied(false), 2000)
   }, [stripeLink, booking])
@@ -274,17 +237,20 @@ function StripePaymentSection({
           </Button>
           {showEmailText && (
             <div className="space-y-2">
-              <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto">
-                {generateBookingEmailText({
-                  guestFirstname: booking.guest_firstname ?? 'Gast',
-                  guestLastname: booking.guest_lastname ?? '',
-                  propertyName: booking.properties?.name ?? 'Ferienwohnung',
-                  checkIn: booking.check_in,
-                  checkOut: booking.check_out,
-                  adults: (booking.adults ?? 1) + (booking.children ?? 0),
-                  bookingId: booking.id,
-                })}
-              </pre>
+              <div
+                className="text-xs bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto border"
+                dangerouslySetInnerHTML={{
+                  __html: generateBookingEmailHtml({
+                    guestFirstname: booking.guest_firstname ?? 'Gast',
+                    guestLastname: booking.guest_lastname ?? '',
+                    propertyName: booking.properties?.name ?? 'Ferienwohnung',
+                    checkIn: booking.check_in,
+                    checkOut: booking.check_out,
+                    adults: (booking.adults ?? 1) + (booking.children ?? 0),
+                    bookingId: booking.id,
+                  }),
+                }}
+              />
               <Button
                 variant="outline"
                 size="sm"
