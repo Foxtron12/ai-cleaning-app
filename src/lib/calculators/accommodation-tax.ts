@@ -113,7 +113,7 @@ export function calculateAccommodationTax(
       taxableAmount: 0,
       taxAmount: 0,
       isExempt: true,
-      exemptReason: 'Geschäftsreise',
+      exemptReason: 'Befreit',
       ...baseResult,
     }
   }

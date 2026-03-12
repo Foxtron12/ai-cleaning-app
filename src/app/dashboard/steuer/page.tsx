@@ -101,7 +101,7 @@ function formatRate(config: TaxConfig | null | undefined): string {
 function computeSummary(items: TaxDataItem[]) {
   const otaRemitted = items.filter((d) => d.tax.remittedByOta)
   const selfRemit = items.filter((d) => !d.tax.remittedByOta)
-  const business = selfRemit.filter((d) => d.tax.exemptReason === 'Geschäftsreise')
+  const business = selfRemit.filter((d) => d.tax.exemptReason === 'Befreit')
   const taxable = selfRemit.filter((d) => !d.tax.isExempt)
 
   const otaRemittedTax = otaRemitted.reduce((s, d) => s + d.tax.taxAmount, 0)
@@ -185,7 +185,7 @@ export default function SteuerPage() {
   const [cityRules, setCityRules] = useState<CityTaxRule[]>([])
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<TimeRange>('this_quarter')
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all')
+  const [selectedCity, setSelectedCity] = useState<string>('all')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
 
   // Tag editor state
@@ -223,11 +223,26 @@ export default function SteuerPage() {
     return Array.from(tags).sort()
   }, [properties])
 
-  // Filter bookings by property/tag
+  // All unique cities across properties (for dropdown)
+  const allCities = useMemo(() => {
+    const citySet = new Set<string>()
+    for (const prop of properties) {
+      const config = getTaxConfigForProperty(prop, cityRules)
+      const city = config?.city ?? prop.city ?? ''
+      if (city) citySet.add(city)
+    }
+    return Array.from(citySet).sort()
+  }, [properties, cityRules])
+
+  // Filter bookings by city/tag
   const filteredBookings = useMemo(() => {
     let result = bookings
-    if (selectedPropertyId !== 'all') {
-      result = result.filter((b) => b.property_id === selectedPropertyId)
+    if (selectedCity !== 'all') {
+      result = result.filter((b) => {
+        const config = b.properties ? getTaxConfigForProperty(b.properties, cityRules) : null
+        const city = config?.city ?? b.properties?.city ?? 'Unbekannt'
+        return city === selectedCity
+      })
     }
     if (selectedTags.length > 0) {
       const tagPropIds = properties
@@ -236,7 +251,7 @@ export default function SteuerPage() {
       result = result.filter((b) => tagPropIds.includes(b.property_id ?? ''))
     }
     return result
-  }, [bookings, selectedPropertyId, selectedTags, properties])
+  }, [bookings, selectedCity, selectedTags, properties, cityRules])
 
   // Calculate tax per booking using per-property config, splitting multi-month bookings
   const taxData = useMemo<TaxDataItem[]>(() => {
@@ -366,7 +381,7 @@ export default function SteuerPage() {
         ['1. Entgeltliche Übernachtungen', s.totalNights],
         ['2. abzgl. Von OTA abgeführt', `${s.otaRemittedNights} Nächte / ${s.otaRemittedRevenue.toFixed(2)} EUR`],
         ['3. Umsätze verbleibend', s.selfRemitRevenue.toFixed(2)],
-        ['4. abzgl. Geschäftsreisen', `${s.businessNights} Nächte / ${s.businessRevenue.toFixed(2)} EUR`],
+        ['4. abzgl. steuerbefreite Übernachtungen', `${s.businessNights} Nächte / ${s.businessRevenue.toFixed(2)} EUR`],
         ['5. Verbleibende Übernachtungen', s.remainingNights],
         ['6. Steuerpflichtige Umsätze', s.taxableRevenue.toFixed(2)],
         ['7. Selbst abzuführen', s.selfRemitTax.toFixed(2)],
@@ -399,15 +414,15 @@ export default function SteuerPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Beherbergungssteuer</h2>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Property filter */}
-          <Select value={selectedPropertyId} onValueChange={setSelectedPropertyId}>
+          {/* City filter */}
+          <Select value={selectedCity} onValueChange={setSelectedCity}>
             <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Alle Objekte" />
+              <SelectValue placeholder="Alle Städte" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Alle Objekte</SelectItem>
-              {properties.map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              <SelectItem value="all">Alle Städte</SelectItem>
+              {allCities.map((city) => (
+                <SelectItem key={city} value={city}>{city}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -468,13 +483,13 @@ export default function SteuerPage() {
             </div>
           </CardContent>
         </Card>
-      ) : selectedPropertyId !== 'all' ? (
-        // Single property view
-        <SinglePropertySummary
+      ) : selectedCity !== 'all' ? (
+        // Single city view
+        <SingleCitySummary
           taxData={taxData}
           range={range}
-          cityRules={cityRules}
-          property={properties.find((p) => p.id === selectedPropertyId) ?? null}
+          city={selectedCity}
+          config={groupedByCity.find((g) => g.city === selectedCity)?.config ?? null}
         />
       ) : (
         // Grouped view: Gesamtübersicht → per city → per property
@@ -607,88 +622,55 @@ export default function SteuerPage() {
         </>
       )}
 
-      {/* Booking table */}
-      {!loading && (
+      {/* Booking table(s) */}
+      {!loading && taxData.length === 0 && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Buchungen im Zeitraum</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {taxData.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                Keine Buchungen im gewählten Zeitraum
-              </p>
-            ) : (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {selectedPropertyId === 'all' && <TableHead>Objekt</TableHead>}
-                      <TableHead>Gast</TableHead>
-                      <TableHead>Kanal</TableHead>
-                      <TableHead>Zeitraum</TableHead>
-                      <TableHead className="text-center">Nächte</TableHead>
-                      <TableHead className="text-right">Umsatz</TableHead>
-                      <TableHead className="text-right">Steuer</TableHead>
-                      <TableHead className="text-center">Geschäftsreise</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {taxData.map(({ booking, tax }) => (
-                      <TableRow key={booking.id} className={tax.isExempt ? 'opacity-60' : ''}>
-                        {selectedPropertyId === 'all' && (
-                          <TableCell className="text-sm text-muted-foreground">
-                            {booking.properties?.name ?? '–'}
-                          </TableCell>
-                        )}
-                        <TableCell className="font-medium">
-                          {[booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ') || '–'}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{booking.channel}</TableCell>
-                        <TableCell>
-                          {format(new Date(booking.check_in + 'T00:00:00'), 'dd.MM.', { locale: de })} –{' '}
-                          {format(new Date(booking.check_out + 'T00:00:00'), 'dd.MM.yy', { locale: de })}
-                        </TableCell>
-                        <TableCell className="text-center">{booking.nights ?? 0}</TableCell>
-                        <TableCell className="text-right">{formatEur(getAccommodationGrossWithoutCityTax(booking))}</TableCell>
-                        <TableCell className="text-right">
-                          {tax.remittedByOta ? (
-                            <Badge variant="outline" className="border-rose-300 text-rose-600">
-                              {tax.remittedByOtaName ?? 'OTA'} führt ab
-                            </Badge>
-                          ) : tax.isExempt ? (
-                            <Badge variant="outline" className="border-blue-300 text-blue-600">
-                              {tax.exemptReason}
-                            </Badge>
-                          ) : (
-                            formatEur(tax.taxAmount)
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {!tax.remittedByOta && (
-                            <Checkbox
-                              checked={booking.trip_purpose === 'business'}
-                              onCheckedChange={(checked) =>
-                                toggleBusinessTravel(booking.id, checked === true)
-                              }
-                            />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="font-bold bg-muted/50">
-                      <TableCell colSpan={selectedPropertyId === 'all' ? 4 : 3}>Gesamt (steuerpflichtig)</TableCell>
-                      <TableCell className="text-center">{totalSummary.remainingNights}</TableCell>
-                      <TableCell className="text-right">{formatEur(totalSummary.taxableRevenue)}</TableCell>
-                      <TableCell className="text-right">{formatEur(totalSummary.selfRemitTax)}</TableCell>
-                      <TableCell />
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              Keine Buchungen im gewählten Zeitraum
+            </p>
           </CardContent>
         </Card>
+      )}
+      {!loading && taxData.length > 0 && (
+        selectedCity === 'all' ? (
+          // Per-city booking tables
+          <div className="space-y-4">
+            {groupedByCity.filter((g) => g.items.length > 0).map((cityGroup) => {
+              const citySummaryForTable = computeSummary(cityGroup.items)
+              return (
+                <Card key={cityGroup.city}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Buchungen – {cityGroup.city}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <BookingTable
+                      items={cityGroup.items}
+                      showProperty
+                      summary={citySummaryForTable}
+                      onToggleExempt={toggleBusinessTravel}
+                    />
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        ) : (
+          // Single city table
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Buchungen im Zeitraum</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <BookingTable
+                items={taxData}
+                showProperty={false}
+                summary={totalSummary}
+                onToggleExempt={toggleBusinessTravel}
+              />
+            </CardContent>
+          </Card>
+        )
       )}
     </div>
   )
@@ -702,7 +684,7 @@ function DetailSummary({ summary, config }: { summary: ReturnType<typeof compute
       <SummaryLine label="1. Anzahl entgeltlicher Übernachtungen insgesamt" value={`${summary.totalNights} Nächte`} />
       <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedRevenue)}`} className="text-rose-600" />
       <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.selfRemitRevenue)} />
-      <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen (Geschäftsreisen)" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
+      <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
       <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />
       <SummaryLine label="6. verbleibende steuerpflichtige Umsätze" value={formatEur(summary.taxableRevenue)} />
       <div className="flex justify-between py-3 bg-emerald-50 rounded px-2 mt-2">
@@ -713,46 +695,33 @@ function DetailSummary({ summary, config }: { summary: ReturnType<typeof compute
   )
 }
 
-function SinglePropertySummary({
+function SingleCitySummary({
   taxData,
   range,
-  cityRules,
-  property,
+  city,
+  config,
 }: {
   taxData: TaxDataItem[]
   range: { label: string }
-  cityRules: CityTaxRule[]
-  property: Property | null
+  city: string
+  config: TaxConfig | null
 }) {
-  const config = property ? getTaxConfigForProperty(property, cityRules) : null
   const summary = computeSummary(taxData)
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base">
-          {property?.name ?? 'Unbekannt'} – {range.label}
+          {city} – {range.label}
         </CardTitle>
         {config && (
           <p className="text-sm text-muted-foreground">
-            {config.city} · {formatRate(config)} ·{' '}
-            {formatModelLabel(config.model)}
+            {formatRate(config)} · {formatModelLabel(config.model)}
           </p>
         )}
       </CardHeader>
       <CardContent>
-        <div className="space-y-1">
-          <SummaryLine label="1. Anzahl entgeltlicher Übernachtungen insgesamt" value={`${summary.totalNights} Nächte`} />
-          <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedRevenue)}`} className="text-rose-600" />
-          <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.selfRemitRevenue)} />
-          <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen (Geschäftsreisen)" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
-          <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />
-          <SummaryLine label="6. verbleibende steuerpflichtige Umsätze" value={formatEur(summary.taxableRevenue)} />
-          <div className="flex justify-between py-3 bg-emerald-50 rounded px-2 mt-2">
-            <span className="text-sm font-bold">7. Selbst abzuführen ({formatRate(config)})</span>
-            <span className="text-lg font-bold tabular-nums text-emerald-700">{formatEur(summary.selfRemitTax)}</span>
-          </div>
-        </div>
+        <DetailSummary summary={summary} config={config} />
       </CardContent>
     </Card>
   )
@@ -786,6 +755,88 @@ function CompactSummary({ summary, config }: { summary: ReturnType<typeof comput
         <p className="text-lg font-bold tabular-nums">{formatEur(summary.totalTax)}</p>
         <p className="text-xs text-muted-foreground">Gesamt ({formatRate(config)})</p>
       </div>
+    </div>
+  )
+}
+
+function BookingTable({
+  items,
+  showProperty,
+  summary,
+  onToggleExempt,
+}: {
+  items: TaxDataItem[]
+  showProperty: boolean
+  summary: ReturnType<typeof computeSummary>
+  onToggleExempt: (bookingId: string, isExempt: boolean) => void
+}) {
+  return (
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {showProperty && <TableHead>Objekt</TableHead>}
+            <TableHead>Gast</TableHead>
+            <TableHead>Kanal</TableHead>
+            <TableHead>Zeitraum</TableHead>
+            <TableHead className="text-center">Nächte</TableHead>
+            <TableHead className="text-right">Umsatz</TableHead>
+            <TableHead className="text-right">Steuer</TableHead>
+            <TableHead className="text-center">Befreit</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map(({ booking, tax }) => (
+            <TableRow key={booking.id} className={tax.isExempt ? 'opacity-60' : ''}>
+              {showProperty && (
+                <TableCell className="text-sm text-muted-foreground">
+                  {booking.properties?.name ?? '–'}
+                </TableCell>
+              )}
+              <TableCell className="font-medium">
+                {[booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ') || '–'}
+              </TableCell>
+              <TableCell className="text-muted-foreground">{booking.channel}</TableCell>
+              <TableCell>
+                {format(new Date(booking.check_in + 'T00:00:00'), 'dd.MM.', { locale: de })} –{' '}
+                {format(new Date(booking.check_out + 'T00:00:00'), 'dd.MM.yy', { locale: de })}
+              </TableCell>
+              <TableCell className="text-center">{booking.nights ?? 0}</TableCell>
+              <TableCell className="text-right">{formatEur(getAccommodationGrossWithoutCityTax(booking))}</TableCell>
+              <TableCell className="text-right">
+                {tax.remittedByOta ? (
+                  <Badge variant="outline" className="border-rose-300 text-rose-600">
+                    {tax.remittedByOtaName ?? 'OTA'} führt ab
+                  </Badge>
+                ) : tax.isExempt ? (
+                  <Badge variant="outline" className="border-blue-300 text-blue-600">
+                    {tax.exemptReason}
+                  </Badge>
+                ) : (
+                  formatEur(tax.taxAmount)
+                )}
+              </TableCell>
+              <TableCell className="text-center">
+                {!tax.remittedByOta && (
+                  <Checkbox
+                    checked={booking.trip_purpose === 'business'}
+                    onCheckedChange={(checked) =>
+                      onToggleExempt(booking.id, checked === true)
+                    }
+                  />
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+          <TableRow className="font-bold bg-muted/50">
+            <TableCell colSpan={showProperty ? 4 : 3}>Gesamt (steuerpflichtig)</TableCell>
+            <TableCell className="text-center">{summary.remainingNights}</TableCell>
+            <TableCell className="text-right">{formatEur(summary.taxableRevenue)}</TableCell>
+            <TableCell className="text-right">{formatEur(summary.selfRemitTax)}</TableCell>
+            <TableCell />
+          </TableRow>
+        </TableBody>
+      </Table>
     </div>
   )
 }
