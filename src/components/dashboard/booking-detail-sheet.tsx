@@ -105,7 +105,8 @@ function generateBookingEmailText({
   adults: number
   bookingId: string
 }): string {
-  const payLink = `https://uebernachten-im-windrad.de/pay/${bookingId}`
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+  const payLink = `${baseUrl}/pay/${bookingId}`
   return `Guten Tag ${guestFirstname} ${guestLastname},
 
 vielen Dank für Ihre Buchung der Unterkunft ${propertyName} vom ${formatDateValue(checkIn)} bis ${formatDateValue(checkOut)} für ${adults} Person(en).
