@@ -95,7 +95,7 @@ function generateBookingEmailText({
   checkIn,
   checkOut,
   adults,
-  stripeLink,
+  bookingId,
 }: {
   guestFirstname: string
   guestLastname: string
@@ -103,8 +103,9 @@ function generateBookingEmailText({
   checkIn: string
   checkOut: string
   adults: number
-  stripeLink: string
+  bookingId: string
 }): string {
+  const payLink = `https://uebernachten-im-windrad.de/pay/${bookingId}`
   return `Guten Tag ${guestFirstname} ${guestLastname},
 
 vielen Dank für Ihre Buchung der Unterkunft ${propertyName} vom ${formatDateValue(checkIn)} bis ${formatDateValue(checkOut)} für ${adults} Person(en).
@@ -113,7 +114,7 @@ Im Anhang finden Sie Ihre Rechnung als PDF.
 
 Online bezahlen:
 Sie können Ihre Zahlung bequem über folgenden Link vornehmen:
-👉 ${stripeLink}
+👉 ${payLink}
 
 Stornobedingungen:
 Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise möglich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollständige Rückerstattung auf die ursprünglich verwendete Zahlungsmethode – in der Regel innerhalb von 7 Werktagen.
@@ -157,7 +158,7 @@ function StripePaymentSection({
       checkIn: booking.check_in,
       checkOut: booking.check_out,
       adults: (booking.adults ?? 1) + (booking.children ?? 0),
-      stripeLink,
+      bookingId: booking.id,
     })
     navigator.clipboard.writeText(text)
     setEmailCopied(true)
@@ -280,7 +281,7 @@ function StripePaymentSection({
                   checkIn: booking.check_in,
                   checkOut: booking.check_out,
                   adults: (booking.adults ?? 1) + (booking.children ?? 0),
-                  stripeLink,
+                  bookingId: booking.id,
                 })}
               </pre>
               <Button
