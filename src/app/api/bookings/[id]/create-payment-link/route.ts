@@ -95,7 +95,6 @@ export async function POST(
       customer_email: booking.guest_email ?? undefined,
       success_url: `${siteUrl}/dashboard/buchungen?payment=success&booking=${bookingId}`,
       cancel_url: `${siteUrl}/dashboard/buchungen?payment=cancelled&booking=${bookingId}`,
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days
     })
 
     // Store the checkout session info on the booking
