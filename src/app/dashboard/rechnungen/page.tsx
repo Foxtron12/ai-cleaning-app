@@ -1106,22 +1106,47 @@ function RechnungenContent() {
                   })}
                 </div>
 
-                {/* Totals */}
-                {lineItems.length > 0 && (
-                  <div className="text-right space-y-1 pt-2 border-t">
-                    <p className="text-sm">
-                      Netto: {formatEur(lineItems.reduce((s, i) => s + i.quantity * i.unitPrice, 0))}
-                    </p>
-                    {!settings?.is_kleinunternehmer && (
-                      <p className="text-sm">
-                        USt: {formatEur(lineItems.reduce((s, i) => s + i.vatAmount, 0))}
-                      </p>
-                    )}
-                    <p className="text-base font-bold">
-                      Gesamt: {formatEur(lineItems.reduce((s, i) => s + i.total, 0))}
-                    </p>
-                  </div>
-                )}
+                {/* Totals – aufgeschlüsselt nach MwSt-Satz */}
+                {lineItems.length > 0 && (() => {
+                  const groups: Record<number, { net: number; vat: number; gross: number }> = {}
+                  for (const item of lineItems) {
+                    const rate = item.vatRate ?? 0
+                    if (!groups[rate]) groups[rate] = { net: 0, vat: 0, gross: 0 }
+                    groups[rate].net += item.quantity * item.unitPrice
+                    groups[rate].vat += item.vatAmount
+                    groups[rate].gross += item.total
+                  }
+                  const entries = Object.entries(groups)
+                    .map(([r, v]) => ({ rate: Number(r), ...v }))
+                    .filter((e) => e.net !== 0)
+                    .sort((a, b) => a.rate - b.rate)
+                  const totalNet = entries.reduce((s, e) => s + e.net, 0)
+                  const totalVat = entries.reduce((s, e) => s + e.vat, 0)
+                  const totalGross = entries.reduce((s, e) => s + e.gross, 0)
+
+                  return (
+                    <div className="text-right space-y-1 pt-2 border-t text-sm">
+                      {entries.map((e) => (
+                        <p key={`net-${e.rate}`}>
+                          Nettobetrag {e.rate > 0 ? `${e.rate}%` : '0%'}: {formatEur(e.net)}
+                        </p>
+                      ))}
+                      <div className="border-t pt-1 mt-1">
+                        <p>Netto gesamt: {formatEur(totalNet)}</p>
+                      </div>
+                      {!settings?.is_kleinunternehmer && entries.map((e) => (
+                        <p key={`vat-${e.rate}`}>
+                          Umsatzsteuer {e.rate > 0 ? `${e.rate}%` : '0%'}: {formatEur(e.vat)}
+                        </p>
+                      ))}
+                      <div className="border-t pt-1 mt-1">
+                        <p className="text-base font-bold">
+                          Rechnungsbetrag: {formatEur(totalGross)}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               <Button
