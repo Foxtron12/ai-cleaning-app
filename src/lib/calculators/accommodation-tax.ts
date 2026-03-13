@@ -137,8 +137,8 @@ export function calculateAccommodationTax(
         const cityTax = extractCityTaxFromDetails(details) ?? 0
         gross -= cityTax
       }
-      // Airbnb: cleaning is always included in amount_gross (even though booking.cleaning_fee = 0)
-      const cleaningInGross = (booking.cleaning_fee ?? 0) > 0 || booking.channel === 'Airbnb'
+      // Airbnb/Direct: cleaning is always included in amount_gross (even though booking.cleaning_fee may be 0 after sync)
+      const cleaningInGross = (booking.cleaning_fee ?? 0) > 0 || booking.channel === 'Airbnb' || booking.channel === 'Direct'
       taxableAmount = cleaningInGross ? gross : gross + cleaningFee
       taxAmount = taxableAmount * (config.rate / 100)
       break

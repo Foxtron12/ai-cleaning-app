@@ -160,7 +160,7 @@ export async function POST(
     // Find the property by Smoobu apartment ID (scoped to user)
     const { data: property } = await supabase
       .from('properties')
-      .select('id')
+      .select('id, default_cleaning_fee')
       .eq('external_id', reservation.apartment.id)
       .eq('user_id', userId)
       .single()
@@ -194,11 +194,19 @@ export async function POST(
 
     if (existing) {
       const { external_id: _, ...updateData } = bookingData
+      // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
+      if ((updateData.cleaning_fee ?? 0) === 0 && property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
+        updateData.cleaning_fee = property.default_cleaning_fee
+      }
       await supabase
         .from('bookings')
         .update({ ...updateData, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
     } else {
+      // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
+      if ((bookingData.cleaning_fee ?? 0) === 0 && property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
+        bookingData.cleaning_fee = property.default_cleaning_fee
+      }
       await supabase
         .from('bookings')
         .insert({ ...bookingData, user_id: userId })

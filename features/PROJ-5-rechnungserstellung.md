@@ -261,7 +261,94 @@ Buchungen über OTA-Kanäle (Airbnb, Booking.com, etc.) werden automatisch als b
 - Rechnungsarchiv-Tabelle im UI
 
 ## QA Test Results
-_To be added by /qa_
+
+### QA Round 1 (2026-03-13) -- City Tax Overcharge on Direct Booking Invoices
+
+**QA Date:** 2026-03-13
+**Scope:** Targeted investigation of city tax (Beherbergungssteuer) calculation for direct bookings in invoice generation. User-reported issue: 800 EUR brutto (750 Unterkunft + 50 Reinigung) produces 51 EUR city tax instead of the correct 48 EUR (6% of 800).
+
+**Root Cause Analysis:** Two interacting bugs cause the city tax to be calculated on an inflated base amount.
+
+---
+
+#### BUG-10 (HIGH): `createReservation` does not send `cleaningFee` to Smoobu API
+
+- **Severity:** High
+- **Priority:** High
+- **Description:** When creating a direct booking via the wizard, the `createReservation` call to Smoobu sends `price: totalPrice` (accommodation + cleaning combined = 800) but does NOT include the `cleaningFee` parameter in the request body. The `cleaningFee` param exists in the TypeScript function signature (`src/lib/smoobu.ts` line 190) but is never included in the `body` object (lines 197-216). As a result, Smoobu stores the booking with no cleaning fee information.
+- **Impact:** When the next Smoobu sync runs (`/api/smoobu/sync`), `mapSmoobuReservation` reads `reservation['cleaning-fee']` from Smoobu (which is 0 since it was never sent) and overwrites `booking.cleaning_fee` to 0 in the local database. This destroys the cleaning fee data for direct bookings.
+- **File:** `src/lib/smoobu.ts` lines 197-216 (body object in `createReservation`)
+- **Steps to reproduce:**
+  1. Create a direct booking via wizard with accommodation 750 EUR, cleaning 50 EUR
+  2. Booking is saved with `amount_gross = 800`, `cleaning_fee = 50`
+  3. Run Smoobu sync
+  4. Check booking record in DB: `cleaning_fee` is now 0
+
+---
+
+#### BUG-11 (HIGH): City tax `gross_percentage` model double-counts cleaning fee after sync
+
+- **Severity:** High
+- **Priority:** High (Critical for invoice correctness)
+- **Description:** In `calculateAccommodationTax` (`src/lib/calculators/accommodation-tax.ts` lines 131-144), the `gross_percentage` model uses this logic to determine if cleaning is already in the gross:
+  ```
+  const cleaningInGross = (booking.cleaning_fee ?? 0) > 0 || booking.channel === 'Airbnb'
+  taxableAmount = cleaningInGross ? gross : gross + cleaningFee
+  ```
+  For direct bookings after Smoobu sync, `booking.cleaning_fee = 0` (due to BUG-10) and `booking.channel = 'Direct'` (not Airbnb). So `cleaningInGross = false`, and the calculator adds the default cleaning fee (50) ON TOP of `amount_gross` (800, which already includes cleaning). This results in `taxableAmount = 850` instead of the correct 800.
+- **Calculation trace:**
+  - `gross = booking.amount_gross = 800` (already includes 750 accommodation + 50 cleaning)
+  - `cleaningFee = getCleaningFee(booking, defaultFee)` = 50 (falls back to default since `booking.cleaning_fee = 0`)
+  - `cleaningInGross = (0 > 0) || ('Direct' === 'Airbnb')` = false
+  - `taxableAmount = 800 + 50 = 850`
+  - `taxAmount = 850 * 6% = 51` (WRONG, should be 48)
+- **Steps to reproduce:**
+  1. Configure a property in Dresden with 6% gross_percentage Beherbergungssteuer
+  2. Create a direct booking: 750 EUR accommodation, 50 EUR cleaning
+  3. Run Smoobu sync (cleaning_fee gets overwritten to 0)
+  4. Go to Rechnungen page or trigger auto-generate invoices
+  5. City tax shows 51 EUR instead of 48 EUR
+- **Expected:** City tax = 800 * 6% = 48 EUR
+- **Actual:** City tax = 850 * 6% = 51 EUR
+- **Files affected:**
+  - `src/lib/calculators/accommodation-tax.ts` lines 131-144 (tax calculation)
+  - `src/lib/auto-generate-invoices.ts` (consumes the wrong tax amount)
+  - `src/app/dashboard/rechnungen/page.tsx` `fillFromBooking()` (consumes the wrong tax amount)
+  - `src/components/dashboard/booking-detail-sheet.tsx` (displays the wrong tax amount)
+  - `src/app/dashboard/steuer/page.tsx` (displays the wrong tax amount)
+  - `src/app/dashboard/reporting/page.tsx` (displays the wrong tax amount)
+
+---
+
+#### Fix Recommendations (for developer)
+
+**Fix for BUG-10 (preferred primary fix):**
+In `src/lib/smoobu.ts` `createReservation`, add `'cleaning-fee': params.cleaningFee ?? 0` to the request body so Smoobu stores the cleaning fee correctly. This prevents the sync from overwriting `cleaning_fee` to 0.
+
+Additionally, in `src/app/api/smoobu/sync/route.ts`, protect direct bookings (channel_id = 0) from having their `cleaning_fee` overwritten to 0 during sync if the existing DB value is > 0.
+
+**Fix for BUG-11 (defense-in-depth):**
+The `cleaningInGross` heuristic in `calculateAccommodationTax` is fragile. For direct bookings (channel = 'Direct'), cleaning is ALWAYS included in `amount_gross` (see `create/route.ts` line 83: `totalPrice = accommodationPrice + cleaningFee`). Add `booking.channel === 'Direct'` to the `cleaningInGross` condition:
+```
+const cleaningInGross = (booking.cleaning_fee ?? 0) > 0 || booking.channel === 'Airbnb' || booking.channel === 'Direct'
+```
+
+---
+
+#### Summary
+
+| # | Severity | Description | Priority | Status |
+|---|----------|-------------|----------|--------|
+| BUG-10 | High | `createReservation` does not send cleaningFee to Smoobu; sync overwrites it to 0 | High | NEW |
+| BUG-11 | High | City tax gross_percentage double-counts cleaning fee for direct bookings after sync | High | NEW |
+
+**Total bugs found:** 2 (both High severity)
+**Acceptance criteria tested:** City tax calculation for direct bookings -- FAIL
+**Production-ready decision:** NOT READY -- both bugs must be fixed. Every direct booking invoice is affected.
+
+---
+
+**Next steps:** The developer needs to fix BUG-10 and BUG-11 before deployment. After fixes, run `/qa` again to verify the city tax calculation produces the correct amount (48 EUR for 800 EUR brutto at 6%).
 
 ## Deployment
 _To be added by /deploy_

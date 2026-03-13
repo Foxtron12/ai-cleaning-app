@@ -53,13 +53,14 @@ export async function POST(request: NextRequest) {
     // 1. Sync apartments/properties
     const apartments = await smoobu.getApartments()
     const propertyMap = new Map<number, string>() // external_id → uuid
+    const propertyCleaningFees = new Map<string, number>() // property uuid → default_cleaning_fee
 
     for (const apartment of apartments) {
       const propertyData = mapSmoobuApartment(apartment)
 
       const { data: existing } = await supabase
         .from('properties')
-        .select('id')
+        .select('id, default_cleaning_fee')
         .eq('external_id', apartment.id)
         .eq('user_id', userId)
         .single()
@@ -89,6 +90,9 @@ export async function POST(request: NextRequest) {
           .update(updateData)
           .eq('id', existing.id)
         propertyMap.set(apartment.id, existing.id)
+        if (existing.default_cleaning_fee != null) {
+          propertyCleaningFees.set(existing.id, existing.default_cleaning_fee)
+        }
       } else {
         const { data: inserted } = await supabase
           .from('properties')
@@ -199,12 +203,26 @@ export async function POST(request: NextRequest) {
 
       if (existing) {
         const { external_id: _, ...updateData } = bookingData
+        // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
+        if ((updateData.cleaning_fee ?? 0) === 0) {
+          const fallback = propertyCleaningFees.get(propertyId)
+          if (fallback != null && fallback > 0) {
+            updateData.cleaning_fee = fallback
+          }
+        }
         await supabase
           .from('bookings')
           .update({ ...updateData, updated_at: new Date().toISOString() })
           .eq('id', existing.id)
         updated++
       } else {
+        // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
+        if ((bookingData.cleaning_fee ?? 0) === 0) {
+          const fallback = propertyCleaningFees.get(propertyId)
+          if (fallback != null && fallback > 0) {
+            bookingData.cleaning_fee = fallback
+          }
+        }
         await supabase.from('bookings').insert({ ...bookingData, user_id: userId })
         created++
       }
