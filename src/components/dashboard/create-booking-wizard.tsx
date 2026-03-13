@@ -273,6 +273,13 @@ export function CreateBookingWizard({
       : 0
   const totalPrice = accommodationPrice + cleaningFee + accommodationTax
 
+  // MwSt-Aufschlüsselung: Übernachtung 7%, Reinigung + BHSt 0%
+  const vat7Net = Math.round((accommodationPrice / 1.07) * 100) / 100
+  const vat7Amount = Math.round((accommodationPrice - vat7Net) * 100) / 100
+  const vat0Net = Math.round((cleaningFee + accommodationTax) * 100) / 100
+  const nettoGesamt = Math.round((vat7Net + vat0Net) * 100) / 100
+  const totalVat = vat7Amount
+
   // BUG-10: correct tax label unit based on tax model
   function getTaxLabel(property: typeof selectedProperty): string {
     const rate = property?.accommodation_tax_rate
@@ -660,8 +667,34 @@ export function CreateBookingWizard({
 
                   <Separator />
 
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <div className="flex justify-between">
+                      <span>Nettobetrag 0%</span>
+                      <span>{formatCurrency(vat0Net)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Nettobetrag 7%</span>
+                      <span>{formatCurrency(vat7Net)}</span>
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between">
+                      <span>Netto gesamt</span>
+                      <span>{formatCurrency(nettoGesamt)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Umsatzsteuer 0%</span>
+                      <span>{formatCurrency(0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Umsatzsteuer 7%</span>
+                      <span>{formatCurrency(vat7Amount)}</span>
+                    </div>
+                  </div>
+
+                  <Separator />
+
                   <div className="flex justify-between font-semibold">
-                    <span>Gesamtpreis</span>
+                    <span>Rechnungsbetrag</span>
                     <span>{formatCurrency(totalPrice)}</span>
                   </div>
                 </div>
@@ -918,7 +951,14 @@ export function CreateBookingWizard({
                 value={formatCurrency(accommodationTax)}
               />
               <Separator />
-              <SummaryRow label="Gesamtpreis" value={formatCurrency(totalPrice)} bold />
+              <SummaryRow label="Nettobetrag 0%" value={formatCurrency(vat0Net)} />
+              <SummaryRow label="Nettobetrag 7%" value={formatCurrency(vat7Net)} />
+              <Separator />
+              <SummaryRow label="Netto gesamt" value={formatCurrency(nettoGesamt)} />
+              <SummaryRow label="Umsatzsteuer 0%" value={formatCurrency(0)} />
+              <SummaryRow label="Umsatzsteuer 7%" value={formatCurrency(vat7Amount)} />
+              <Separator />
+              <SummaryRow label="Rechnungsbetrag" value={formatCurrency(totalPrice)} bold />
             </div>
 
             {submitError && (
