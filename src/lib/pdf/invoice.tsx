@@ -245,25 +245,24 @@ export interface InvoicePDFData {
 export function InvoicePDF({ data }: { data: InvoicePDFData }) {
   const openBalance = Math.max(0, data.totalGross - data.amountPaid)
 
-  // Build tax rows (group by vatRate)
+  // Build tax rows (group by vatRate, including 0%)
   const taxGroups: Record<number, { net: number; vat: number; gross: number }> = {}
   if (!data.isKleinunternehmer) {
     for (const item of data.lineItems) {
-      if (item.vatRate > 0) {
-        if (!taxGroups[item.vatRate]) {
-          taxGroups[item.vatRate] = { net: 0, vat: 0, gross: 0 }
-        }
-        const netForItem = item.quantity * item.unitPrice
-        taxGroups[item.vatRate].net += netForItem
-        taxGroups[item.vatRate].vat += item.vatAmount
-        taxGroups[item.vatRate].gross += item.total
+      const rate = item.vatRate ?? 0
+      if (!taxGroups[rate]) {
+        taxGroups[rate] = { net: 0, vat: 0, gross: 0 }
       }
+      const netForItem = item.quantity * item.unitPrice
+      taxGroups[rate].net += netForItem
+      taxGroups[rate].vat += item.vatAmount
+      taxGroups[rate].gross += item.total
     }
   }
-  const taxEntries = Object.entries(taxGroups).map(([rate, vals]) => ({
-    rate: Number(rate),
-    ...vals,
-  }))
+  const taxEntries = Object.entries(taxGroups)
+    .map(([rate, vals]) => ({ rate: Number(rate), ...vals }))
+    .filter((e) => e.net !== 0)
+    .sort((a, b) => a.rate - b.rate)
   const totalNet = taxEntries.reduce((s, t) => s + t.net, 0)
   const totalVatSum = taxEntries.reduce((s, t) => s + t.vat, 0)
   const totalGrossSum = taxEntries.reduce((s, t) => s + t.gross, 0)
@@ -399,7 +398,7 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
             </View>
             {taxEntries.map((entry, i) => (
               <View key={i} style={styles.taxRow}>
-                <Text style={styles.taxColRate}>{entry.rate} %</Text>
+                <Text style={styles.taxColRate}>{entry.rate > 0 ? `${entry.rate} %` : '—'}</Text>
                 <Text style={styles.taxColMwst}>{formatEur(entry.vat)}</Text>
                 <Text style={styles.taxColNetto}>{formatEur(entry.net)}</Text>
                 <Text style={styles.taxColGesamt}>{formatEur(entry.gross)}</Text>
