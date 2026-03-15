@@ -163,10 +163,11 @@ export async function autoGenerateInvoices(
     }> = []
 
     // Accommodation (7% USt)
-    // Use gross as anchor, derive vat as balancing figure so net + vat = gross exactly
-    const accomUnitPrice = Math.round((accommodationPerNight / (isKlein ? 1 : 1.07)) * 100) / 100
+    // Use gross as anchor, derive vat from total (not per-unit) to avoid rounding errors
     const accomTotal = Math.round(accommodationGross * 100) / 100
-    const accomVat = isKlein ? 0 : Math.round((accomTotal - nights * accomUnitPrice) * 100) / 100
+    const accomNetTotal = isKlein ? accomTotal : Math.round((accommodationGross / 1.07) * 100) / 100
+    const accomUnitPrice = nights > 0 ? Math.round((accomNetTotal / nights) * 100) / 100 : 0
+    const accomVat = isKlein ? 0 : Math.round((accomTotal - accomNetTotal) * 100) / 100
     lineItems.push({
       description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} (${nights} Nächte)`,
       quantity: nights,
@@ -213,11 +214,11 @@ export async function autoGenerateInvoices(
     const totalGross = Math.round(lineItems.reduce((s, i) => s + i.total, 0) * 100) / 100
     const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
     const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
-    const vat7Net = Math.round(vat7Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
+    const vat7Net = Math.round(vat7Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
     const vat7Amount = isKlein
       ? 0
       : Math.round(vat7Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
-    const vat19Net = Math.round(vat19Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
+    const vat19Net = Math.round(vat19Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
     const vat19Amount = isKlein
       ? 0
       : Math.round(vat19Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100

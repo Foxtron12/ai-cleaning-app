@@ -253,7 +253,7 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
       if (!taxGroups[rate]) {
         taxGroups[rate] = { net: 0, vat: 0, gross: 0 }
       }
-      const netForItem = item.quantity * item.unitPrice
+      const netForItem = item.total - item.vatAmount
       taxGroups[rate].net += netForItem
       taxGroups[rate].vat += item.vatAmount
       taxGroups[rate].gross += item.total

@@ -285,10 +285,11 @@ export function CreateBookingWizard({
 
   const totalPrice = accommodationPrice + cleaningFee + accommodationTax
 
-  // MwSt-Aufschlüsselung: Übernachtung 7%, Reinigung + BHSt 0%
-  const vat7Net = Math.round((accommodationPrice / 1.07) * 100) / 100
-  const vat7Amount = Math.round((accommodationPrice - vat7Net) * 100) / 100
-  const vat0Net = Math.round((cleaningFee + accommodationTax) * 100) / 100
+  // MwSt-Aufschlüsselung: Übernachtung + Reinigung 7%, BHSt 0%
+  const accomPlusClean = accommodationPrice + cleaningFee
+  const vat7Net = Math.round((accomPlusClean / 1.07) * 100) / 100
+  const vat7Amount = Math.round((accomPlusClean - vat7Net) * 100) / 100
+  const vat0Net = Math.round(accommodationTax * 100) / 100
   const nettoGesamt = Math.round((vat7Net + vat0Net) * 100) / 100
   const totalVat = vat7Amount
 

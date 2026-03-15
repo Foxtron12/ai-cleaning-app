@@ -350,5 +350,175 @@ const cleaningInGross = (booking.cleaning_fee ?? 0) > 0 || booking.channel === '
 
 **Next steps:** The developer needs to fix BUG-10 and BUG-11 before deployment. After fixes, run `/qa` again to verify the city tax calculation produces the correct amount (48 EUR for 800 EUR brutto at 6%).
 
+---
+
+### QA Round 2 (2026-03-15) -- MwSt-Berechnung falsch (Rundungsfehler durch Unit-Price-Rounding)
+
+**QA Date:** 2026-03-15
+**Scope:** User-reported bug: 1500 EUR Bruttobetrag zeigt Umsatzsteuer 7% von 98,24 EUR statt korrekt 98,13 EUR.
+
+**Root Cause Analysis:** The VAT (MwSt) calculation uses a per-unit rounding approach that introduces cumulative rounding errors. Instead of computing VAT directly from the total gross amount, the code first divides gross by number of nights, rounds the per-night net price to 2 decimal places, then multiplies back and derives VAT as the balancing difference. This "round-then-multiply" pattern amplifies rounding errors proportional to the number of nights.
+
+---
+
+#### BUG-12 (HIGH): VAT calculated incorrectly via per-unit-price rounding ("round-then-multiply" error)
+
+- **Severity:** High
+- **Priority:** High (every invoice is affected)
+- **Description:** The `fillFromBooking()` function in `rechnungen/page.tsx` (lines 276-278) and the `auto-generate-invoices.ts` (lines 167-169) calculate accommodation VAT using this flawed approach:
+  ```
+  accomUnitPrice = round(accommodationPerNight / 1.07)    // round per-night NET
+  accomVat = round(accomTotal - nights * accomUnitPrice)   // VAT = gross - (nights * rounded net)
+  ```
+  The per-night net price is rounded to 2 decimal places BEFORE multiplication by the number of nights. This means the total net (`nights * accomUnitPrice`) can deviate from the true net (`accomTotal / 1.07`) by up to `0.005 * nights` EUR, and consequently the VAT amount is wrong by the same margin.
+
+  **Correct formula** (already used in `create-booking-wizard.tsx` lines 277-278):
+  ```
+  vat7Net = round(totalGross / 1.07)           // compute net from TOTAL gross
+  vat7Amount = round(totalGross - vat7Net)      // VAT = gross - net (no per-unit rounding)
+  ```
+
+- **Calculation example (user-reported):**
+  - Bruttobetrag: 1500 EUR, USt-Satz: 7%
+  - Correct: VAT = 1500 - round(1500 / 1.07) = 1500 - 1401.87 = **98.13 EUR**
+  - Bug produces: **98.24 EUR** (11 cents too high, depending on nights/cleaning split)
+
+- **Files affected (all need the same fix):**
+  1. `src/app/dashboard/rechnungen/page.tsx` -- `fillFromBooking()` lines 276-278 (accommodation) and lines 290-292 (cleaning)
+  2. `src/app/dashboard/rechnungen/page.tsx` -- `createSplitInvoices()` lines 419-421 (accommodation) and lines 430-432 (cleaning)
+  3. `src/lib/auto-generate-invoices.ts` -- lines 167-169 (accommodation) and lines 181-183 (cleaning)
+  4. `src/app/dashboard/rechnungen/page.tsx` -- `updateLineItem()` line 520 uses a different formula (`net * rate/100`) which is also inconsistent but less wrong for single-quantity items
+
+- **Steps to reproduce:**
+  1. Have a booking with gross amount 1500 EUR and any number of nights > 1
+  2. Go to Rechnungen page, create or auto-generate an invoice for this booking
+  3. Check the MwSt-Aufschluesselung table in the PDF
+  4. VAT amount deviates from the mathematically correct value (gross * 7/107)
+
+- **Expected:** USt 7% = 98.13 EUR (for 1500 EUR gross)
+- **Actual:** USt 7% = 98.24 EUR (or similar wrong value depending on nights)
+
+---
+
+#### BUG-12 Fix Recommendation (for developer)
+
+The fix should compute VAT from the TOTAL gross amount per line item, not from rounded per-unit prices. The per-unit net price should be calculated AFTER determining the correct total VAT, or alternatively the VAT should be computed directly as `gross - round(gross / 1.07)`.
+
+**Pattern to follow** (already correct in `create-booking-wizard.tsx`):
+```typescript
+// For accommodation (total gross = accomTotal, e.g. 1450 EUR):
+const accomNet = Math.round((accomTotal / 1.07) * 100) / 100
+const accomVat = Math.round((accomTotal - accomNet) * 100) / 100
+const accomUnitPrice = Math.round((accomNet / nights) * 100) / 100
+// NOTE: nights * accomUnitPrice may not equal accomNet exactly (display rounding),
+// but the VAT is correct because it was computed from the total, not from units.
+
+// For cleaning (total gross = cleaningFee, e.g. 50 EUR):
+const cleanNet = Math.round((cleaningFee / 1.07) * 100) / 100
+const cleanVat = Math.round((cleaningFee - cleanNet) * 100) / 100
+```
+
+Apply this pattern in all three locations listed above. Also ensure `updateLineItem()` (line 520) uses consistent logic: for multi-quantity items, compute `totalGross = quantity * unitPriceGross`, then `vatAmount = totalGross - round(totalGross / (1 + rate/100))`.
+
+---
+
+#### Summary (Round 2)
+
+| # | Severity | Description | Priority | Status |
+|---|----------|-------------|----------|--------|
+| BUG-12 | High | VAT calculated incorrectly via per-unit-price rounding in 3 code locations | High | NEW |
+
+**Total bugs found this round:** 1 (High severity)
+**Acceptance criteria tested:** "Automatische USt-Berechnung je Position" -- FAIL
+**Production-ready decision:** NOT READY -- BUG-12 must be fixed. Every invoice with multi-night stays is affected.
+
+---
+
+**Next steps:** The developer needs to fix BUG-12 in all three affected files. The correct pattern already exists in `create-booking-wizard.tsx` (lines 277-278) and should be replicated. After fixes, run `/qa` again to verify VAT calculation produces the correct amounts.
+
+### QA Round 3 (2026-03-15) -- Netto-Betrag in MwSt-Tabelle falsch (Rundungsfehler durch quantity * rounded unit_price)
+
+**QA Date:** 2026-03-15
+**Scope:** User-reported bug: 800 EUR Brutto-Buchung zeigt Nettobetrag 747,65 EUR statt korrekt 747,66 EUR (800 / 1.07 = 747.6635... -> gerundet 747.66).
+
+**Root Cause Analysis:** BUG-12 was partially fixed -- the VAT amount per line item is now correctly derived from the total gross (not per-unit). However, the MwSt summary table (Steuersatz / MwSt / Netto / Gesamt) still recalculates the net amount by multiplying `quantity * unit_price` (rounded per-night net). This re-introduces the same class of rounding error that BUG-12 described, but now specifically in the net column of the tax summary.
+
+---
+
+#### BUG-13 (HIGH): MwSt summary net amount computed from quantity * rounded unit_price instead of (total - vat_amount)
+
+- **Severity:** High
+- **Priority:** High (every multi-night invoice is affected)
+- **Description:** After the BUG-12 fix, the line item VAT (`vat_amount`) and gross (`total`) are now correct. But the MwSt-Aufschluesselung (tax summary table) still derives the net amount by summing `quantity * unit_price` across line items. Since `unit_price` is the rounded per-night net price, multiplying it back by the number of nights does NOT recover the correct total net.
+
+  The correct net for a line item is simply `total - vat_amount` (both of which are already correctly stored). Alternatively, a dedicated `net_total` field could be stored per line item.
+
+- **Concrete calculation trace (user-reported, 800 EUR, 4 nights, 50 EUR cleaning):**
+  - accommodationGross = 800 - 50 = 750
+  - accomNetTotal = round(750 / 1.07 * 100) / 100 = 700.93
+  - accomUnitPrice = round(700.93 / 4 * 100) / 100 = round(17523.25) / 100 = 175.23
+  - accomVat = round(750 - 700.93) = 49.07 (CORRECT)
+  - cleanUnitPrice = round(50 / 1.07 * 100) / 100 = 46.73
+  - cleanVat = round(50 - 46.73) = 3.27 (CORRECT)
+  - **MwSt summary net (current, WRONG):** 4 * 175.23 + 1 * 46.73 = 700.92 + 46.73 = **747.65**
+  - **MwSt summary net (correct):** (750 - 49.07) + (50 - 3.27) = 700.93 + 46.73 = **747.66**
+  - Alternatively: round(800 / 1.07 * 100) / 100 = **747.66**
+
+- **Files affected (all compute net from quantity * unit_price):**
+  1. `src/lib/auto-generate-invoices.ts` line 217 -- `vat7Net = SUM(quantity * unit_price)` used to store `vat_7_net` in the DB
+  2. `src/app/dashboard/rechnungen/page.tsx` line 547 -- `vat7Net = SUM(quantity * unitPrice)` used when saving invoices manually
+  3. `src/lib/pdf/invoice.tsx` line 256 -- `netForItem = quantity * unitPrice` used when rendering the PDF tax summary table
+
+- **Steps to reproduce:**
+  1. Have a booking with gross amount 800 EUR, 4 nights, cleaning fee 50 EUR
+  2. Go to Rechnungen page, create or auto-generate an invoice
+  3. Download the PDF
+  4. Check the MwSt-Aufschluesselung table: Netto column shows 747.65 instead of 747.66
+  5. The difference is 1 cent, but it violates the mathematical identity: Netto = Brutto / 1.07
+
+- **Expected:** Netto 7% = 747.66 EUR (i.e. 800 / 1.07 rounded to 2 decimals)
+- **Actual:** Netto 7% = 747.65 EUR
+
+---
+
+#### BUG-13 Fix Recommendation (for developer)
+
+The net amount in the tax summary should be derived from the line item data that is already correct, NOT recalculated from rounded unit prices. Three options (in order of preference):
+
+**Option A (simplest, recommended):** Change the net calculation in all three locations from `quantity * unit_price` to `total - vat_amount`:
+```typescript
+// Instead of:
+const netForItem = item.quantity * item.unit_price   // WRONG: uses rounded unit price
+// Use:
+const netForItem = item.total - item.vat_amount      // CORRECT: both values are already correctly computed
+```
+
+Apply in:
+- `src/lib/auto-generate-invoices.ts` line 217: `vat7Items.reduce((s, i) => s + (i.total - i.vat_amount), 0)`
+- `src/app/dashboard/rechnungen/page.tsx` line 547: `vat7Items.reduce((s, i) => s + (i.total - i.vatAmount), 0)`
+- `src/lib/pdf/invoice.tsx` line 256: `const netForItem = item.total - item.vatAmount`
+
+**Option B:** Store a `net_total` field per line item (more explicit, but requires schema change).
+
+**Option C:** Do NOT round `unit_price` at all -- store it with full precision. This makes the display less clean but eliminates all rounding issues.
+
+Option A is the cleanest fix because `total` and `vat_amount` are already correctly computed from the gross total (the BUG-12 fix ensured this). Deriving net from them preserves the identity: net = gross - vat.
+
+---
+
+#### Summary (Round 3)
+
+| # | Severity | Description | Priority | Status |
+|---|----------|-------------|----------|--------|
+| BUG-13 | High | MwSt summary net computed from quantity * rounded unit_price; should use (total - vat_amount) | High | NEW |
+
+**Total bugs found this round:** 1 (High severity)
+**Acceptance criteria tested:** "Nettobetrag, USt-Satz, USt-Betrag, Bruttobetrag" -- FAIL
+**Production-ready decision:** NOT READY -- BUG-13 must be fixed. Every multi-night invoice shows incorrect net in the MwSt table.
+
+---
+
+**Next steps:** The developer needs to fix BUG-13 in all three affected files by changing the net calculation from `quantity * unit_price` to `total - vat_amount`. After fixes, run `/qa` again to verify the Netto column shows 747.66 for an 800 EUR booking.
+
 ## Deployment
 _To be added by /deploy_

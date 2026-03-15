@@ -272,10 +272,11 @@ function RechnungenContent() {
 
     const items: InvoiceLineItem[] = []
 
-    // Accommodation (7% USt) – gross as anchor, vat as balancing figure
-    const accomUnitPrice = Math.round((accommodationPerNight / (isKlein ? 1 : 1.07)) * 100) / 100
+    // Accommodation (7% USt) – gross as anchor, vat from total (not per-unit) to avoid rounding errors
     const accomTotal = Math.round(accommodationGross * 100) / 100
-    const accomVat = isKlein ? 0 : Math.round((accomTotal - nights * accomUnitPrice) * 100) / 100
+    const accomNetTotal = isKlein ? accomTotal : Math.round((accommodationGross / 1.07) * 100) / 100
+    const accomUnitPrice = nights > 0 ? Math.round((accomNetTotal / nights) * 100) / 100 : 0
+    const accomVat = isKlein ? 0 : Math.round((accomTotal - accomNetTotal) * 100) / 100
     items.push({
       description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} (${nights} Nächte)`,
       quantity: nights,
@@ -416,9 +417,10 @@ function RechnungenContent() {
 
       const lineItems: Array<{ description: string; quantity: number; unit_price: number; vat_rate: number; vat_amount: number; total: number }> = []
 
-      const segAccomUnitPrice = Math.round((segAccomGross / (isKlein ? 1 : 1.07) / seg.nights) * 100) / 100
       const segAccomTotal = Math.round(segAccomGross * 100) / 100
-      const accomVat = isKlein ? 0 : Math.round((segAccomTotal - seg.nights * segAccomUnitPrice) * 100) / 100
+      const segAccomNetTotal = isKlein ? segAccomTotal : Math.round((segAccomGross / 1.07) * 100) / 100
+      const segAccomUnitPrice = seg.nights > 0 ? Math.round((segAccomNetTotal / seg.nights) * 100) / 100 : 0
+      const accomVat = isKlein ? 0 : Math.round((segAccomTotal - segAccomNetTotal) * 100) / 100
       lineItems.push({
         description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${seg.monthLabel} (${seg.nights} Nächte)`,
         quantity: seg.nights,
@@ -452,9 +454,9 @@ function RechnungenContent() {
       const totalGross = Math.round(lineItems.reduce((s, i) => s + i.total, 0) * 100) / 100
       const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
       const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
-      const vat7Net = Math.round(vat7Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
+      const vat7Net = Math.round(vat7Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
       const vat7Amount = isKlein ? 0 : Math.round(vat7Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
-      const vat19Net = Math.round(vat19Items.reduce((s, i) => s + i.quantity * i.unit_price, 0) * 100) / 100
+      const vat19Net = Math.round(vat19Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
       const vat19Amount = isKlein ? 0 : Math.round(vat19Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
       const totalVat = Math.round((vat7Amount + vat19Amount) * 100) / 100
       const subtotalNet = Math.round((totalGross - totalVat) * 100) / 100
@@ -537,14 +539,14 @@ function RechnungenContent() {
       const isKlein = settings.is_kleinunternehmer ?? false
 
       const subtotalNet = lineItems.reduce(
-        (s, item) => s + item.quantity * item.unitPrice,
+        (s, item) => s + (item.total - item.vatAmount),
         0
       )
       const vat7Items = lineItems.filter((i) => i.vatRate === 7)
       const vat19Items = lineItems.filter((i) => i.vatRate === 19)
-      const vat7Net = vat7Items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
+      const vat7Net = vat7Items.reduce((s, i) => s + (i.total - i.vatAmount), 0)
       const vat7Amount = isKlein ? 0 : vat7Items.reduce((s, i) => s + i.vatAmount, 0)
-      const vat19Net = vat19Items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)
+      const vat19Net = vat19Items.reduce((s, i) => s + (i.total - i.vatAmount), 0)
       const vat19Amount = isKlein ? 0 : vat19Items.reduce((s, i) => s + i.vatAmount, 0)
       const totalVat = vat7Amount + vat19Amount
       const totalGross = isKlein ? subtotalNet : subtotalNet + totalVat
@@ -1112,7 +1114,7 @@ function RechnungenContent() {
                   for (const item of lineItems) {
                     const rate = item.vatRate ?? 0
                     if (!groups[rate]) groups[rate] = { net: 0, vat: 0, gross: 0 }
-                    groups[rate].net += item.quantity * item.unitPrice
+                    groups[rate].net += item.total - item.vatAmount
                     groups[rate].vat += item.vatAmount
                     groups[rate].gross += item.total
                   }
