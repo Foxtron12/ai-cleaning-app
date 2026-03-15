@@ -161,6 +161,8 @@ export function CreateBookingWizard({
 
   // Editable pricing
   const [accommodationPrice, setAccommodationPrice] = useState(0)
+  const [pricePerNight, setPricePerNight] = useState(0)
+  const [lastEditedPriceField, setLastEditedPriceField] = useState<'total' | 'perNight'>('total')
   const [cleaningFee, setCleaningFee] = useState(0)
   const [accommodationTax, setAccommodationTax] = useState(0)
   // BUG-7: track whether Smoobu provided cleaning fee
@@ -228,6 +230,8 @@ export function CreateBookingWizard({
       setChildren(0)
       setPromoCode('')
       setAccommodationPrice(0)
+      setPricePerNight(0)
+      setLastEditedPriceField('total')
       setCleaningFee(0)
       setAccommodationTax(0)
       form.reset()
@@ -271,6 +275,14 @@ export function CreateBookingWizard({
     checkIn && checkOut
       ? differenceInCalendarDays(new Date(checkOut), new Date(checkIn))
       : 0
+
+  // Recalculate total when nights change and per-night was last edited
+  useEffect(() => {
+    if (nights > 0 && lastEditedPriceField === 'perNight' && pricePerNight > 0) {
+      setAccommodationPrice(Math.round(pricePerNight * nights * 100) / 100)
+    }
+  }, [nights]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const totalPrice = accommodationPrice + cleaningFee + accommodationTax
 
   // MwSt-Aufschlüsselung: Übernachtung 7%, Reinigung + BHSt 0%
@@ -320,6 +332,12 @@ export function CreateBookingWizard({
 
       if (data.available && data.price !== null) {
         setAccommodationPrice(data.price)
+        // Calculate per-night price from total
+        const currentNights = checkIn && checkOut
+          ? differenceInCalendarDays(new Date(checkOut), new Date(checkIn))
+          : 0
+        setPricePerNight(currentNights > 0 ? Math.round((data.price / currentNights) * 100) / 100 : 0)
+        setLastEditedPriceField('total')
         // Use Smoobu cleaning fee if provided, otherwise fall back to property default
         const smoobuCleaningFee = data.cleaningFee
         const propertyDefault = selectedProperty?.default_cleaning_fee != null
@@ -628,7 +646,7 @@ export function CreateBookingWizard({
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <Label htmlFor="acc-price" className="text-xs text-muted-foreground">
-                      Uebernachtungskosten ({nights} Naechte)
+                      Uebernachtungskosten gesamt ({nights} Naechte)
                     </Label>
                     <Input
                       id="acc-price"
@@ -636,8 +654,37 @@ export function CreateBookingWizard({
                       step="0.01"
                       min={0}
                       value={accommodationPrice}
-                      onChange={(e) => setAccommodationPrice(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => {
+                        const total = parseFloat(e.target.value) || 0
+                        setAccommodationPrice(total)
+                        setLastEditedPriceField('total')
+                        if (nights > 0) {
+                          setPricePerNight(Math.round((total / nights) * 100) / 100)
+                        }
+                      }}
                       placeholder={String(ratesResult.price ?? 0)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="price-per-night" className="text-xs text-muted-foreground">
+                      Preis pro Nacht (brutto)
+                    </Label>
+                    <Input
+                      id="price-per-night"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={pricePerNight}
+                      onChange={(e) => {
+                        const perNight = parseFloat(e.target.value) || 0
+                        setPricePerNight(perNight)
+                        setLastEditedPriceField('perNight')
+                        if (nights > 0) {
+                          setAccommodationPrice(Math.round(perNight * nights * 100) / 100)
+                        }
+                      }}
+                      placeholder={nights > 0 ? String(Math.round(((ratesResult.price ?? 0) / nights) * 100) / 100) : '0'}
                     />
                   </div>
 
