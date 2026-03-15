@@ -6,7 +6,9 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Trash2, Download, FileText, AlertTriangle, Archive, Loader2 } from 'lucide-react'
+import Link from 'next/link'
+import { Plus, Trash2, Download, FileText, AlertTriangle, Archive, Loader2, Info } from 'lucide-react'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { MeldescheinPDF, type MeldescheinData } from '@/lib/pdf/meldeschein'
 import type { BookingWithProperty } from '@/lib/types'
@@ -28,6 +30,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import {
   Table,
   TableBody,
@@ -97,6 +110,8 @@ function MeldescheineContent() {
   const [deleting, setDeleting] = useState(false)
   const [bulkDownloading, setBulkDownloading] = useState(false)
   const [syncingGuestId, setSyncingGuestId] = useState<string | null>(null)
+  const [deletingAll, setDeletingAll] = useState(false)
+  const [skippedCount, setSkippedCount] = useState(0)
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState<string>('')
@@ -163,7 +178,7 @@ function MeldescheineContent() {
             : {},
         })
         if (res.ok) {
-          const { created } = await res.json() as { created: number }
+          const { created, skipped } = await res.json() as { created: number; skipped: number }
           if (created > 0) {
             setAutoGenInfo(`${created} Meldeschein${created > 1 ? 'e' : ''} automatisch erstellt`)
             const { data: refreshed } = await supabase
@@ -172,6 +187,9 @@ function MeldescheineContent() {
               .neq('status', 'deleted')
               .order('created_at', { ascending: false })
             setForms(refreshed ?? [])
+          }
+          if (skipped > 0) {
+            setSkippedCount(skipped)
           }
         }
       } catch {
@@ -497,8 +515,44 @@ function MeldescheineContent() {
     }
   }
 
+  /** PROJ-15: Delete ALL registration forms for the current user */
+  async function handleDeleteAll() {
+    setDeletingAll(true)
+    try {
+      const count = forms.length
+      const { error } = await supabase
+        .from('registration_forms')
+        .delete()
+        .gte('created_at', '1970-01-01T00:00:00Z') // delete all rows (RLS scopes to user)
+      if (error) {
+        console.error('Delete all failed:', error.message)
+        toast.error('Löschen fehlgeschlagen')
+        return
+      }
+      setForms([])
+      toast.success(`${count} Meldeschein${count > 1 ? 'e' : ''} wurden gelöscht`)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* PROJ-15: Info banner for skipped bookings (missing mandatory fields) */}
+      {skippedCount > 0 && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p>
+              {skippedCount} Buchung{skippedCount > 1 ? 'en' : ''} wurde{skippedCount > 1 ? 'n' : ''} übersprungen, da Pflichtfelder fehlen (z.B. Nationalität oder Adresse). Bitte{' '}
+              <Link href="/dashboard/buchungen" className="font-medium underline underline-offset-2 hover:text-amber-900">
+                manuell ergänzen
+              </Link>.
+            </p>
+          </div>
+        </div>
+      )}
+
       {autoGenInfo && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
           {autoGenInfo}
@@ -507,7 +561,43 @@ function MeldescheineContent() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Meldescheine</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {/* PROJ-15: Delete all button with confirmation */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={forms.length === 0 || deletingAll}
+                className="text-destructive border-destructive/30 hover:bg-destructive/10"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Alle löschen
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  Alle Meldescheine löschen?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  Diese Aktion löscht alle {forms.length} Meldeschein{forms.length !== 1 ? 'e' : ''} permanent. Sie kann nicht rückgängig gemacht werden.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deletingAll}>Abbrechen</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={deletingAll}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={handleDeleteAll}
+                >
+                  {deletingAll ? 'Wird gelöscht...' : 'Alle löschen'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
           <Button
             variant="outline"
             disabled={bulkDownloading || forms.length === 0}

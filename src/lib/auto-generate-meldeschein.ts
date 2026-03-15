@@ -3,13 +3,16 @@ import type { Database } from './database.types'
 
 /**
  * Auto-generates registration_form records for bookings that have
- * sufficient data (firstname, lastname, check_in, check_out) but no
- * existing form. Called on page load and after Smoobu sync.
+ * sufficient data but no existing form. Called on page load and after Smoobu sync.
+ *
+ * PROJ-15: Stricter validation – all 6 mandatory fields per BeherbStatG must be present:
+ * guest_firstname, guest_lastname, check_in, check_out, guest_nationality, guest_street.
+ * Bookings missing any of these are skipped (no error, just not auto-generated).
  */
 export async function autoGenerateMeldescheine(
   userId: string,
   supabase: SupabaseClient<Database>
-): Promise<{ created: number }> {
+): Promise<{ created: number; skipped: number }> {
 
   // Fetch bookings with minimum required fields, scoped to user
   const { data: bookings, error: bookingsError } = await supabase
@@ -20,7 +23,7 @@ export async function autoGenerateMeldescheine(
     .not('guest_lastname', 'is', null)
     .neq('status', 'cancelled')
 
-  if (bookingsError || !bookings || bookings.length === 0) return { created: 0 }
+  if (bookingsError || !bookings || bookings.length === 0) return { created: 0, skipped: 0 }
 
   // Get booking IDs that already have a registration form for this user
   const { data: existingForms } = await supabase
@@ -34,8 +37,22 @@ export async function autoGenerateMeldescheine(
   )
 
   // Find bookings without an existing form
-  const toCreate = bookings.filter((b) => !existingBookingIds.has(b.id))
-  if (toCreate.length === 0) return { created: 0 }
+  const withoutForm = bookings.filter((b) => !existingBookingIds.has(b.id))
+  if (withoutForm.length === 0) return { created: 0, skipped: 0 }
+
+  // PROJ-15: Strict mandatory field check per BeherbStatG
+  // All 6 fields must be non-empty for auto-generation
+  const toCreate = withoutForm.filter(
+    (b) =>
+      b.guest_firstname?.trim() &&
+      b.guest_lastname?.trim() &&
+      b.check_in &&
+      b.check_out &&
+      b.guest_nationality?.trim() &&
+      b.guest_street?.trim()
+  )
+  const skipped = withoutForm.length - toCreate.length
+  if (toCreate.length === 0) return { created: 0, skipped }
 
   type PropertySnapshot = { name?: string; street?: string; city?: string; zip?: string }
 
@@ -70,8 +87,8 @@ export async function autoGenerateMeldescheine(
 
   if (insertError) {
     console.error('autoGenerateMeldescheine insert error:', insertError.message)
-    return { created: 0 }
+    return { created: 0, skipped }
   }
 
-  return { created: toCreate.length }
+  return { created: toCreate.length, skipped }
 }

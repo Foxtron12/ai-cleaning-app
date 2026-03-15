@@ -28,6 +28,10 @@ Eine Multi-Tenant SaaS-Plattform für Ferienvermieter: jeder Nutzer hat sein eig
 | P0 (Fundament) | Self-Service PMS Integration | Planned | PROJ-11 |
 | P0 (Fundament) | Access Payment Gate (Einmalzahlung) | Planned | PROJ-12 |
 | P1 | Beherbergungssteuer-Vordrucke (Dresden + Chemnitz) | Planned | PROJ-13 |
+| P1 | Rechnungs-Erweiterungen (Notizfeld, Zahlungsplan, Gastadresse) | Planned | PROJ-14 |
+| P1 | Meldeschein-Verbesserungen (Alle löschen, strengere Pflichtfelder) | Planned | PROJ-15 |
+| P1 | BhSt UI & Export-Verbesserungen (Zeitraum-Auswahl, Excel-Export) | Planned | PROJ-16 |
+| P1 | Buchungs-Dokumenten-Upload (BhSt-Befreiungsbelege) | Planned | PROJ-17 |
 
 ## Success Metrics
 - Zeitersparnis: Meldeschein in < 30 Sekunden statt 5 Minuten

@@ -10,11 +10,12 @@ import { Separator } from '@/components/ui/separator'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle, CreditCard, Mail, CircleDollarSign, Ban, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle, CreditCard, Mail, CircleDollarSign, Ban, Clock, CheckCircle2, AlertCircle, Upload, Trash2, Image, FileIcon } from 'lucide-react'
+import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { supabase } from '@/lib/supabase'
 import { generateBookingEmailHtml, copyHtmlToClipboard } from '@/lib/email-template'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { BookingStatusBadge } from './booking-status-badge'
 import type { BookingWithProperty } from '@/lib/types'
@@ -335,6 +336,296 @@ function StripePaymentSection({
   )
 }
 
+// ─── Document Upload Types & Helpers ─────────────────────────────────────────
+
+interface BookingDocument {
+  id: string
+  booking_id: string
+  user_id: string
+  file_name: string
+  file_size: number
+  mime_type: string
+  storage_path: string
+  created_at: string
+}
+
+const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png']
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getFileIcon(mimeType: string) {
+  if (mimeType === 'application/pdf') {
+    return <FileIcon className="h-4 w-4 text-red-500 shrink-0" />
+  }
+  return <Image className="h-4 w-4 text-blue-500 shrink-0" />
+}
+
+// ─── Documents Section Component ─────────────────────────────────────────────
+
+function DocumentsSection({ bookingId }: { bookingId: string }) {
+  const [documents, setDocuments] = useState<BookingDocument[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState<Record<string, boolean>>({})
+  const [deleting, setDeleting] = useState<Record<string, boolean>>({})
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch documents on mount
+  const fetchDocuments = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('booking_documents')
+        .select('*')
+        .eq('booking_id', bookingId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching documents:', error)
+        return
+      }
+      setDocuments(data ?? [])
+    } catch (err) {
+      console.error('Error fetching documents:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [bookingId])
+
+  useEffect(() => {
+    fetchDocuments()
+  }, [fetchDocuments])
+
+  // Handle file selection and upload
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    // Upload each file in parallel
+    const uploadPromises = Array.from(files).map(async (file) => {
+      // Client-side validation
+      if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+        toast.error(`"${file.name}" hat ein ungueltiges Format. Erlaubt: PDF, JPG, PNG.`)
+        return
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`"${file.name}" ist zu gross. Maximal 10 MB erlaubt.`)
+        return
+      }
+      if (file.size === 0) {
+        toast.error(`"${file.name}" ist leer.`)
+        return
+      }
+
+      const uploadKey = `${file.name}-${Date.now()}`
+      setUploading(prev => ({ ...prev, [uploadKey]: true }))
+
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('booking_id', bookingId)
+
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch('/api/booking-documents/upload', {
+          method: 'POST',
+          headers: session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {},
+          body: formData,
+        })
+
+        const json = await res.json()
+
+        if (!res.ok) {
+          toast.error(json.error ?? `Upload von "${file.name}" fehlgeschlagen.`)
+          return
+        }
+
+        // Add new document to list immediately
+        if (json.document) {
+          setDocuments(prev => [json.document as BookingDocument, ...prev])
+        }
+        toast.success(`"${file.name}" hochgeladen.`)
+      } catch {
+        toast.error(`Netzwerkfehler beim Upload von "${file.name}".`)
+      } finally {
+        setUploading(prev => {
+          const next = { ...prev }
+          delete next[uploadKey]
+          return next
+        })
+      }
+    })
+
+    await Promise.all(uploadPromises)
+
+    // Reset file input so the same file can be uploaded again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [bookingId])
+
+  // Open document via signed URL
+  const handleOpen = useCallback(async (doc: BookingDocument) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('booking-documents')
+        .createSignedUrl(doc.storage_path, 60)
+
+      if (error || !data?.signedUrl) {
+        toast.error('Signierter URL konnte nicht erstellt werden.')
+        return
+      }
+
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    } catch {
+      toast.error('Fehler beim Oeffnen des Dokuments.')
+    }
+  }, [])
+
+  // Delete document
+  const handleDelete = useCallback(async (doc: BookingDocument) => {
+    setDeleting(prev => ({ ...prev, [doc.id]: true }))
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/booking-documents/${doc.id}`, {
+        method: 'DELETE',
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {},
+      })
+
+      const json = await res.json()
+
+      if (!res.ok) {
+        toast.error(json.error ?? 'Loeschen fehlgeschlagen.')
+        return
+      }
+
+      // Remove from list
+      setDocuments(prev => prev.filter(d => d.id !== doc.id))
+      toast.success(`"${doc.file_name}" geloescht.`)
+    } catch {
+      toast.error('Netzwerkfehler beim Loeschen.')
+    } finally {
+      setDeleting(prev => {
+        const next = { ...prev }
+        delete next[doc.id]
+        return next
+      })
+    }
+  }, [])
+
+  const isUploading = Object.keys(uploading).length > 0
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Dokumente / Belege</h3>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          aria-label="Dokument hochladen"
+        >
+          {isUploading ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Hochladen
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png"
+          multiple
+          className="hidden"
+          onChange={handleFileChange}
+          aria-label="Datei auswaehlen"
+        />
+      </div>
+
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-xs text-muted-foreground">Dokumente laden...</span>
+        </div>
+      )}
+
+      {/* Upload progress indicators */}
+      {Object.keys(uploading).length > 0 && (
+        <div className="space-y-1.5">
+          {Object.keys(uploading).map((key) => (
+            <div key={key} className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+              <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+              <span className="truncate">Wird hochgeladen...</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!loading && documents.length === 0 && !isUploading && (
+        <p className="text-xs text-muted-foreground py-2">
+          Noch keine Dokumente -- Beleg hochladen
+        </p>
+      )}
+
+      {/* Document list */}
+      {!loading && documents.length > 0 && (
+        <div className="space-y-1.5">
+          {documents.map((doc) => (
+            <div
+              key={doc.id}
+              className="flex items-center gap-2 rounded-md border px-3 py-2"
+            >
+              {getFileIcon(doc.mime_type)}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate" title={doc.file_name}>
+                  {doc.file_name}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {formatFileSize(doc.file_size)} &middot; {format(new Date(doc.created_at), 'dd.MM.yyyy HH:mm', { locale: de })}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => handleOpen(doc)}
+                aria-label={`${doc.file_name} oeffnen`}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                onClick={() => handleDelete(doc)}
+                disabled={deleting[doc.id] ?? false}
+                aria-label={`${doc.file_name} loeschen`}
+              >
+                {deleting[doc.id] ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BookingDetailSheet({
   booking,
   open,
@@ -544,6 +835,11 @@ export function BookingDetailSheet({
               <StripePaymentSection booking={booking} onBookingUpdated={onBookingUpdated} />
             </>
           )}
+
+          <Separator />
+
+          {/* Dokumente / Belege */}
+          <DocumentsSection bookingId={booking.id} />
 
           <Separator />
 

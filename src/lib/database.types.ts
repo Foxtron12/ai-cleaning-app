@@ -38,6 +38,47 @@ export type Database = {
         }
         Relationships: []
       }
+      booking_documents: {
+        Row: {
+          id: string
+          booking_id: string
+          user_id: string
+          file_name: string
+          file_size: number
+          mime_type: string
+          storage_path: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          booking_id: string
+          user_id: string
+          file_name: string
+          file_size: number
+          mime_type: string
+          storage_path: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          booking_id?: string
+          user_id?: string
+          file_name?: string
+          file_size?: number
+          mime_type?: string
+          storage_path?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_documents_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           adults: number | null
@@ -276,9 +317,12 @@ export type Database = {
           landlord_snapshot: Json
           lexoffice_id: string | null
           line_items: Json
+          notes: string | null
+          notes_footer: string | null
           paid_date: string | null
           payment_method: string | null
           payment_note: string | null
+          payment_schedule: Json | null
           property_id: string | null
           service_period_end: string | null
           service_period_start: string | null
@@ -306,9 +350,12 @@ export type Database = {
           landlord_snapshot?: Json
           lexoffice_id?: string | null
           line_items?: Json
+          notes?: string | null
+          notes_footer?: string | null
           paid_date?: string | null
           payment_method?: string | null
           payment_note?: string | null
+          payment_schedule?: Json | null
           property_id?: string | null
           service_period_end?: string | null
           service_period_start?: string | null
@@ -336,9 +383,12 @@ export type Database = {
           landlord_snapshot?: Json
           lexoffice_id?: string | null
           line_items?: Json
+          notes?: string | null
+          notes_footer?: string | null
           paid_date?: string | null
           payment_method?: string | null
           payment_note?: string | null
+          payment_schedule?: Json | null
           property_id?: string | null
           service_period_end?: string | null
           service_period_start?: string | null

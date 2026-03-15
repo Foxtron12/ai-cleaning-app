@@ -8,6 +8,11 @@ import { decrypt } from '@/lib/encryption'
  * to verify what fields are available.
  */
 export async function GET(request: NextRequest) {
+  // Only available in development
+  if (process.env.NODE_ENV !== 'development') {
+    return NextResponse.json({ error: 'Not available in production' }, { status: 404 })
+  }
+
   const { user, supabase } = await getServerUser()
   if (!user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

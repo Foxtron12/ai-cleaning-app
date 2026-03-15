@@ -202,7 +202,8 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (existing) {
-        const { external_id: _, ...updateData } = bookingData
+        const { external_id: _, trip_purpose: _tripPurpose, ...updateData } = bookingData
+        // Preserve manually set trip_purpose – never overwrite on sync
         // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
         if ((updateData.cleaning_fee ?? 0) === 0) {
           const fallback = propertyCleaningFees.get(propertyId)

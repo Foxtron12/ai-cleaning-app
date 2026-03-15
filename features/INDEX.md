@@ -27,10 +27,14 @@
 | PROJ-12 | Access Payment Gate (Subscription pro Standort) | Deployed | [PROJ-12-payment-gate.md](PROJ-12-payment-gate.md) | 2026-03-05 |
 
 | PROJ-13 | Beherbergungssteuer-Vordrucke (Automatisches Befüllen) | In Review | [PROJ-13-bhst-vordrucke.md](PROJ-13-bhst-vordrucke.md) | 2026-03-12 |
+| PROJ-14 | Rechnungs-Erweiterungen (Notizfeld, Zahlungsplan, Leistungszeitraum, Gastadresse) | In Review | [PROJ-14-rechnungs-erweiterungen.md](PROJ-14-rechnungs-erweiterungen.md) | 2026-03-15 |
+| PROJ-15 | Meldeschein-Verbesserungen (Alle löschen, strengere Pflichtfelder) | In Review | [PROJ-15-meldeschein-verbesserungen.md](PROJ-15-meldeschein-verbesserungen.md) | 2026-03-15 |
+| PROJ-16 | BhSt UI & Export-Verbesserungen (Monatsnamen, Zeitraum-Auswahl, Excel-Export) | In Review | [PROJ-16-bhst-verbesserungen.md](PROJ-16-bhst-verbesserungen.md) | 2026-03-15 |
+| PROJ-17 | Buchungs-Dokumenten-Upload (BhSt-Befreiungsbelege, Supabase Storage) | In Review | [PROJ-17-buchungs-dokumenten-upload.md](PROJ-17-buchungs-dokumenten-upload.md) | 2026-03-15 |
 
 <!-- Add features above this line -->
 
-## Next Available ID: PROJ-14
+## Next Available ID: PROJ-18
 
 ## Build Order (Empfehlung)
 

@@ -235,6 +235,12 @@ export interface InvoicePDFData {
   paymentDays: number
   // Options
   isKleinunternehmer: boolean
+  // Notes / Anschreiben
+  notes?: string
+  // Schlusstext unter der Rechnung
+  notesFooter?: string
+  // Payment schedule (Zahlungsplan)
+  paymentSchedule?: Array<{ due_date: string; amount: number }>
   // New layout fields
   logoUrl?: string
   companyRegister?: string
@@ -313,6 +319,12 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
               <Text style={styles.metaLabel}>Abreise:</Text>
               <Text style={styles.metaValue}>{data.checkOut}</Text>
             </View>
+            {data.servicePeriod ? (
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>Leistungszeitraum:</Text>
+                <Text style={styles.metaValue}>{data.servicePeriod}</Text>
+              </View>
+            ) : null}
             <View style={styles.metaRow}>
               <Text style={styles.metaLabel}>Gast:</Text>
               <Text style={styles.metaValue}>{data.guestName}</Text>
@@ -337,6 +349,13 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
         <Text style={styles.introText}>
           für Ihren Aufenthalt erlauben wir uns folgende Punkte in Rechnung zu stellen:
         </Text>
+
+        {/* Notes / Anschreiben */}
+        {data.notes ? (
+          <Text style={{ fontSize: 9, color: '#333', marginBottom: 12, lineHeight: 1.5 }}>
+            {data.notes}
+          </Text>
+        ) : null}
 
         {/* Line items: simple 2-column table */}
         <View style={styles.table}>
@@ -387,6 +406,40 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
           </View>
         )}
 
+        {/* Payment schedule (Zahlungsplan) */}
+        {data.paymentSchedule && data.paymentSchedule.length > 0 && (
+          <View style={{ marginTop: 16, marginBottom: 8 }}>
+            <Text style={{ fontSize: 9, color: '#555', marginBottom: 8, lineHeight: 1.5 }}>
+              Der Rechnungsbetrag wird in monatlichen gleichmäßigen Raten aufgeteilt.
+            </Text>
+            <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', marginBottom: 6 }}>
+              Zahlungsplan:
+            </Text>
+            {data.paymentSchedule.map((entry, i) => {
+              const dueFormatted = (() => {
+                try {
+                  const d = new Date(entry.due_date + 'T00:00:00')
+                  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
+                } catch {
+                  return entry.due_date
+                }
+              })()
+              return (
+                <View key={i} style={{ flexDirection: 'row', paddingVertical: 2 }}>
+                  <Text style={{ width: '50%', fontSize: 9 }}>{dueFormatted}</Text>
+                  <Text style={{ width: '50%', textAlign: 'right', fontSize: 9 }}>{formatEur(entry.amount)}</Text>
+                </View>
+              )
+            })}
+            <View style={{ flexDirection: 'row', paddingVertical: 2, borderTopWidth: 0.5, borderTopColor: '#999', marginTop: 2 }}>
+              <Text style={{ width: '50%', fontSize: 9, fontFamily: 'Helvetica-Bold' }}>Gesamt:</Text>
+              <Text style={{ width: '50%', textAlign: 'right', fontSize: 9, fontFamily: 'Helvetica-Bold' }}>
+                {formatEur(data.paymentSchedule.reduce((s, e) => s + e.amount, 0))}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Tax summary table */}
         {!data.isKleinunternehmer && taxEntries.length > 0 && (
           <View style={styles.taxTable}>
@@ -418,6 +471,13 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
             Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).
           </Text>
         )}
+
+        {/* Schlusstext / Fußnote */}
+        {data.notesFooter ? (
+          <Text style={{ fontSize: 9, color: '#333', marginTop: 16, lineHeight: 1.5 }}>
+            {data.notesFooter}
+          </Text>
+        ) : null}
 
         {/* Thank you text */}
         {data.thankYouText ? (

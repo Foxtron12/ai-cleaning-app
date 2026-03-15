@@ -6,7 +6,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2 } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -56,7 +56,20 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+
+interface PaymentScheduleEntry {
+  due_date: string
+  amount: number
+}
 
 interface InvoiceRow {
   id: string
@@ -76,6 +89,9 @@ interface InvoiceRow {
   is_kleinunternehmer: boolean | null
   service_period_start: string | null
   service_period_end: string | null
+  notes: string | null
+  notes_footer: string | null
+  payment_schedule: PaymentScheduleEntry[] | null
   landlord_snapshot: Record<string, string>
   guest_snapshot: Record<string, string>
   line_items: Array<{
@@ -93,7 +109,7 @@ interface PropertyInfo {
   name: string
 }
 
-const INVOICE_SELECT = 'id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, property_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items'
+const INVOICE_SELECT = 'id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, property_id, is_kleinunternehmer, service_period_start, service_period_end, notes, notes_footer, payment_schedule, landlord_snapshot, guest_snapshot, line_items'
 
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value)
@@ -146,9 +162,17 @@ function RechnungenContent() {
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState('')
   const [guestName, setGuestName] = useState('')
-  const [guestAddress, setGuestAddress] = useState('')
+  const [guestStreet, setGuestStreet] = useState('')
+  const [guestZip, setGuestZip] = useState('')
+  const [guestCity, setGuestCity] = useState('')
+  const [guestCountry, setGuestCountry] = useState('')
+  const [servicePeriodStart, setServicePeriodStart] = useState('')
+  const [servicePeriodEnd, setServicePeriodEnd] = useState('')
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
   const [issuedDate, setIssuedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [notes, setNotes] = useState('')
+  const [notesFooter, setNotesFooter] = useState('')
+  const [paymentScheduleEnabled, setPaymentScheduleEnabled] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -242,13 +266,17 @@ function RechnungenContent() {
 
   function fillFromBooking(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
     setSelectedBookingId(booking.id)
+    setNotes('')
+    setNotesFooter('')
+    setPaymentScheduleEnabled(false)
     const name = [booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ')
     setGuestName(name)
-    setGuestAddress(
-      [booking.guest_street, [booking.guest_zip, booking.guest_city].filter(Boolean).join(' '), booking.guest_country]
-        .filter(Boolean)
-        .join(', ')
-    )
+    setGuestStreet(booking.guest_street ?? '')
+    setGuestZip(booking.guest_zip ?? '')
+    setGuestCity(booking.guest_city ?? '')
+    setGuestCountry(booking.guest_country ?? '')
+    setServicePeriodStart(booking.check_in)
+    setServicePeriodEnd(booking.check_out)
 
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
@@ -591,10 +619,37 @@ function RechnungenContent() {
       const guestSnapshotData = {
         firstname: guestName.split(' ')[0] ?? '',
         lastname: guestName.split(' ').slice(1).join(' ') ?? '',
-        address: guestAddress,
+        street: guestStreet,
+        zip: guestZip,
+        city: guestCity,
+        country: guestCountry,
         booking_reference: selectedBooking?.external_id?.toString() ?? '',
         guest_count: selectedBooking ? String((selectedBooking.adults ?? 0) + (selectedBooking.children ?? 0)) : '',
         payment_channel: selectedBooking?.channel ?? '',
+      }
+
+      // Compute payment schedule if enabled
+      let computedSchedule: PaymentScheduleEntry[] | null = null
+      if (paymentScheduleEnabled && servicePeriodStart && servicePeriodEnd) {
+        const ciDate = new Date(servicePeriodStart + 'T00:00:00')
+        const coDate = new Date(servicePeriodEnd + 'T00:00:00')
+        const months =
+          (coDate.getFullYear() - ciDate.getFullYear()) * 12 +
+          (coDate.getMonth() - ciDate.getMonth()) + 1
+        if (months >= 2) {
+          const perMonth = Math.round((totalGross / months) * 100) / 100
+          computedSchedule = []
+          for (let m = 0; m < months; m++) {
+            const dueDate = new Date(ciDate.getFullYear(), ciDate.getMonth() + m, 1)
+            const amount = m < months - 1
+              ? perMonth
+              : Math.round((totalGross - perMonth * (months - 1)) * 100) / 100
+            computedSchedule.push({
+              due_date: format(dueDate, 'yyyy-MM-dd'),
+              amount,
+            })
+          }
+        }
       }
 
       const { data: saved } = await supabase
@@ -607,6 +662,9 @@ function RechnungenContent() {
           landlord_snapshot: landlordSnapshotData,
           guest_snapshot: guestSnapshotData,
           line_items: lineItemsJson,
+          notes: notes.trim() || null,
+          notes_footer: notesFooter.trim() || null,
+          payment_schedule: computedSchedule as unknown as import('@/lib/database.types').Json ?? null,
           subtotal_net: Math.round(subtotalNet * 100) / 100,
           vat_7_net: Math.round(vat7Net * 100) / 100,
           vat_7_amount: Math.round(vat7Amount * 100) / 100,
@@ -617,11 +675,11 @@ function RechnungenContent() {
           is_kleinunternehmer: isKlein,
           issued_date: issuedDate,
           due_date: format(addDays(new Date(issuedDate), paymentDays), 'yyyy-MM-dd'),
-          service_period_start: selectedBooking?.check_in ?? null,
-          service_period_end: selectedBooking?.check_out ?? null,
+          service_period_start: servicePeriodStart || null,
+          service_period_end: servicePeriodEnd || null,
           status: 'created',
         })
-        .select('id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, is_kleinunternehmer, service_period_start, service_period_end, landlord_snapshot, guest_snapshot, line_items')
+        .select(INVOICE_SELECT)
         .single()
 
       // Increment invoice number
@@ -824,13 +882,6 @@ function RechnungenContent() {
           .join(', ')
       : (gs.address ?? '')
 
-    const checkIn = inv.service_period_start
-      ? format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')
-      : ''
-    const checkOut = inv.service_period_end
-      ? format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')
-      : ''
-
     const pdfLineItems: InvoiceLineItem[] = items.map((i) => ({
       description: i.description,
       quantity: i.quantity,
@@ -843,6 +894,24 @@ function RechnungenContent() {
     const booking = inv.booking_id
       ? bookings.find((b) => b.id === inv.booking_id)
       : null
+
+    // Anreise/Abreise = always the full booking dates
+    const bookingCheckIn = booking?.check_in ?? inv.service_period_start
+    const bookingCheckOut = booking?.check_out ?? inv.service_period_end
+    const checkIn = bookingCheckIn
+      ? format(new Date(bookingCheckIn + 'T00:00:00'), 'dd.MM.yyyy')
+      : ''
+    const checkOut = bookingCheckOut
+      ? format(new Date(bookingCheckOut + 'T00:00:00'), 'dd.MM.yyyy')
+      : ''
+
+    // Leistungszeitraum = only for split invoices (when segment differs from booking dates)
+    const isSplit = inv.service_period_start && inv.service_period_end
+      && booking
+      && (inv.service_period_start !== booking.check_in || inv.service_period_end !== booking.check_out)
+    const servicePeriod = isSplit
+      ? `${format(new Date(inv.service_period_start! + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(inv.service_period_end! + 'T00:00:00'), 'dd.MM.yyyy')}`
+      : ''
     const channel = (gs as Record<string, string>).payment_channel ?? booking?.channel ?? ''
     const isOta = channel && channel.toLowerCase() !== 'direct' && channel !== ''
     const amountPaid = isOta ? inv.total_gross : 0
@@ -855,9 +924,7 @@ function RechnungenContent() {
       dueDate: inv.due_date
         ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy')
         : '',
-      servicePeriod: inv.service_period_start && inv.service_period_end
-        ? `${format(new Date(inv.service_period_start + 'T00:00:00'), 'dd.MM.yyyy')} – ${format(new Date(inv.service_period_end + 'T00:00:00'), 'dd.MM.yyyy')}`
-        : '',
+      servicePeriod,
       checkIn,
       checkOut,
       landlordName: ls.name ?? '',
@@ -898,6 +965,9 @@ function RechnungenContent() {
       companyRegister: ls.company_register || undefined,
       managingDirector: ls.managing_director || undefined,
       thankYouText: ls.invoice_thank_you_text || undefined,
+      notes: inv.notes || undefined,
+      notesFooter: inv.notes_footer || undefined,
+      paymentSchedule: (inv.payment_schedule as PaymentScheduleEntry[] | null) || undefined,
     }
   }
 
@@ -970,9 +1040,17 @@ function RechnungenContent() {
                 onClick={() => {
                   setSelectedBookingId('')
                   setGuestName('')
-                  setGuestAddress('')
+                  setGuestStreet('')
+                  setGuestZip('')
+                  setGuestCity('')
+                  setGuestCountry('')
+                  setServicePeriodStart('')
+                  setServicePeriodEnd('')
                   setLineItems([])
                   setIssuedDate(format(new Date(), 'yyyy-MM-dd'))
+                  setNotes('')
+                  setNotesFooter('')
+                  setPaymentScheduleEnabled(false)
                 }}
               >
                 <Plus className="mr-2 h-4 w-4" />
@@ -1009,11 +1087,21 @@ function RechnungenContent() {
               </div>
 
               {/* Guest & date */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Empfänger (Gast)</Label>
                   <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Name" />
-                  <Input value={guestAddress} onChange={(e) => setGuestAddress(e.target.value)} placeholder="Adresse" />
+                  <Input
+                    value={guestStreet}
+                    onChange={(e) => setGuestStreet(e.target.value)}
+                    placeholder="Straße, Nr."
+                    className={!guestStreet ? 'border-destructive' : ''}
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input value={guestZip} onChange={(e) => setGuestZip(e.target.value)} placeholder="PLZ" />
+                    <Input value={guestCity} onChange={(e) => setGuestCity(e.target.value)} placeholder="Ort" className="col-span-2" />
+                  </div>
+                  <Input value={guestCountry} onChange={(e) => setGuestCountry(e.target.value)} placeholder="Land" />
                 </div>
                 <div className="space-y-2">
                   <Label>Rechnungsdatum</Label>
@@ -1030,14 +1118,14 @@ function RechnungenContent() {
                     Position
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 overflow-x-auto">
                   {lineItems.map((item, i) => {
                     const isKlein = settings?.is_kleinunternehmer ?? false
                     const grossUnitPrice = isKlein || item.vatRate === 0
                       ? item.unitPrice
                       : Math.round(item.unitPrice * (1 + item.vatRate / 100) * 100) / 100
                     return (
-                      <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                      <div key={i} className="grid grid-cols-12 gap-2 items-end min-w-[600px]">
                         <div className="col-span-3">
                           {i === 0 && <Label className="text-xs">Beschreibung</Label>}
                           <Input
@@ -1149,6 +1237,114 @@ function RechnungenContent() {
                     </div>
                   )
                 })()}
+              </div>
+
+              {/* Notiz / Anschreiben */}
+              <div className="space-y-2">
+                <Label>Notiz / Anschreiben (optional)</Label>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="z.B. Vielen Dank für Ihren Aufenthalt..."
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Erscheint auf dem PDF zwischen Titel und Positionen.
+                </p>
+              </div>
+
+              {/* Zahlungsplan / Ratenzahlung */}
+              {(() => {
+                const hasServicePeriod = servicePeriodStart && servicePeriodEnd
+                const monthCount = hasServicePeriod
+                  ? (() => {
+                      const ciDate = new Date(servicePeriodStart + 'T00:00:00')
+                      const coDate = new Date(servicePeriodEnd + 'T00:00:00')
+                      const months =
+                        (coDate.getFullYear() - ciDate.getFullYear()) * 12 +
+                        (coDate.getMonth() - ciDate.getMonth()) + 1
+                      return months
+                    })()
+                  : 0
+                const canEnable = hasServicePeriod && monthCount >= 2
+                const totalGross = lineItems.reduce((s, i) => s + i.total, 0)
+
+                // Compute payment schedule entries
+                const scheduleEntries: PaymentScheduleEntry[] = []
+                if (paymentScheduleEnabled && canEnable && totalGross > 0) {
+                  const ciDate = new Date(servicePeriodStart + 'T00:00:00')
+                  const coDate = new Date(servicePeriodEnd + 'T00:00:00')
+                  const months =
+                    (coDate.getFullYear() - ciDate.getFullYear()) * 12 +
+                    (coDate.getMonth() - ciDate.getMonth()) + 1
+                  const perMonth = Math.round((totalGross / months) * 100) / 100
+                  for (let m = 0; m < months; m++) {
+                    const dueDate = new Date(ciDate.getFullYear(), ciDate.getMonth() + m, 1)
+                    const amount = m < months - 1
+                      ? perMonth
+                      : Math.round((totalGross - perMonth * (months - 1)) * 100) / 100
+                    scheduleEntries.push({
+                      due_date: format(dueDate, 'yyyy-MM-dd'),
+                      amount,
+                    })
+                  }
+                }
+
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="payment-schedule"
+                        checked={paymentScheduleEnabled}
+                        onCheckedChange={(checked) => setPaymentScheduleEnabled(!!checked)}
+                        disabled={!canEnable}
+                      />
+                      <Label htmlFor="payment-schedule" className={!canEnable ? 'text-muted-foreground' : ''}>
+                        Zahlungsplan (monatliche Raten)
+                      </Label>
+                      {!canEnable && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>{!hasServicePeriod ? 'Bitte zuerst eine Buchung mit Anreise und Abreise wählen.' : 'Ratenzahlung ab 2 Monaten Aufenthaltsdauer'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+
+                    {/* Zahlungsplan Vorschau */}
+                    {paymentScheduleEnabled && scheduleEntries.length > 0 && (
+                      <div className="rounded-md border p-3 space-y-1 text-sm">
+                        <p className="font-medium text-xs text-muted-foreground mb-2">Zahlungsplan-Vorschau:</p>
+                        {scheduleEntries.map((entry, i) => (
+                          <div key={i} className="flex justify-between">
+                            <span>{format(new Date(entry.due_date + 'T00:00:00'), 'dd.MM.yyyy')}</span>
+                            <span>{formatEur(entry.amount)}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between border-t pt-1 mt-1 font-medium">
+                          <span>Gesamt:</span>
+                          <span>{formatEur(scheduleEntries.reduce((s, e) => s + e.amount, 0))}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Schlusstext / Fußnote */}
+              <div className="space-y-2">
+                <Label>Schlusstext unter der Rechnung (optional)</Label>
+                <Textarea
+                  value={notesFooter}
+                  onChange={(e) => setNotesFooter(e.target.value)}
+                  placeholder="z.B. Zahlungsbedingungen, Hinweise..."
+                  rows={3}
+                />
               </div>
 
               <Button

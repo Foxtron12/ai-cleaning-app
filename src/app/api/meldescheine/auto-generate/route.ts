@@ -10,7 +10,7 @@ export async function POST() {
 
   try {
     const result = await autoGenerateMeldescheine(user.id, supabase)
-    return NextResponse.json({ success: true, created: result.created })
+    return NextResponse.json({ success: true, created: result.created, skipped: result.skipped })
   } catch (error) {
     console.error('Auto-generate meldescheine route error:', error)
     return NextResponse.json(
