@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, differenceInCalendarDays } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { Download, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { toast } from 'sonner'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
 import type { Booking, Property, CityTaxRule, Settings } from '@/lib/types'
@@ -17,7 +19,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -32,48 +36,113 @@ import {
 
 type BookingWithProp = Booking & { properties: Property | null }
 
-type TimeRange = 'this_month' | 'last_month' | 'this_quarter' | 'this_year'
-
 interface TaxDataItem {
   booking: BookingWithProp
   tax: TaxResult
   config: TaxConfig | null
 }
 
-function getDateRange(range: TimeRange): { from: string; to: string; label: string } {
+// --- Period helpers ---
+
+const MONTH_NAMES_DE = [
+  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+]
+
+const QUARTER_MONTH_LABELS: Record<number, string> = {
+  1: 'Jan \u2013 Mär',
+  2: 'Apr \u2013 Jun',
+  3: 'Jul \u2013 Sep',
+  4: 'Okt \u2013 Dez',
+}
+
+interface PeriodOption {
+  value: string // e.g. '2026-03', '2026-Q1', '2026'
+  label: string // e.g. 'März 2026', 'Q1 2026 (Jan – Mär)', 'Gesamtjahr 2026'
+  group: 'month' | 'quarter' | 'year'
+}
+
+function generatePeriodOptions(): PeriodOption[] {
   const now = new Date()
-  switch (range) {
-    case 'this_month':
-      return {
-        from: format(startOfMonth(now), 'yyyy-MM-dd'),
-        to: format(endOfMonth(now), 'yyyy-MM-dd'),
-        label: format(now, 'MMMM yyyy', { locale: de }),
-      }
-    case 'last_month': {
-      const last = subMonths(now, 1)
-      return {
-        from: format(startOfMonth(last), 'yyyy-MM-dd'),
-        to: format(endOfMonth(last), 'yyyy-MM-dd'),
-        label: format(last, 'MMMM yyyy', { locale: de }),
-      }
-    }
-    case 'this_quarter': {
-      const q = Math.floor(now.getMonth() / 3)
-      const qs = new Date(now.getFullYear(), q * 3, 1)
-      const qe = new Date(now.getFullYear(), q * 3 + 3, 0)
-      return {
-        from: format(qs, 'yyyy-MM-dd'),
-        to: format(qe, 'yyyy-MM-dd'),
-        label: `Q${q + 1} ${now.getFullYear()}`,
-      }
-    }
-    case 'this_year':
-      return {
-        from: `${now.getFullYear()}-01-01`,
-        to: `${now.getFullYear()}-12-31`,
-        label: String(now.getFullYear()),
-      }
+  const options: PeriodOption[] = []
+
+  // Months: current + 23 past months
+  for (let i = 0; i < 24; i++) {
+    const d = subMonths(now, i)
+    const year = d.getFullYear()
+    const month = d.getMonth() // 0-indexed
+    const value = `${year}-${String(month + 1).padStart(2, '0')}`
+    const label = `${MONTH_NAMES_DE[month]} ${year}`
+    options.push({ value, label, group: 'month' })
   }
+
+  // Quarters: current + 7 past quarters
+  const currentQ = Math.floor(now.getMonth() / 3) + 1
+  const currentYear = now.getFullYear()
+  for (let i = 0; i < 8; i++) {
+    let q = currentQ - i
+    let y = currentYear
+    while (q <= 0) { q += 4; y -= 1 }
+    const value = `${y}-Q${q}`
+    const label = `Q${q} ${y} (${QUARTER_MONTH_LABELS[q]})`
+    options.push({ value, label, group: 'quarter' })
+  }
+
+  // Years: current + 2 past years
+  for (let i = 0; i < 3; i++) {
+    const y = currentYear - i
+    options.push({ value: String(y), label: `Gesamtjahr ${y}`, group: 'year' })
+  }
+
+  return options
+}
+
+function getCurrentMonthPeriod(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+function parsePeriod(period: string): { from: string; to: string; label: string } {
+  // Year: '2026'
+  if (/^\d{4}$/.test(period)) {
+    const year = parseInt(period)
+    return {
+      from: `${year}-01-01`,
+      to: `${year}-12-31`,
+      label: `Gesamtjahr ${year}`,
+    }
+  }
+
+  // Quarter: '2026-Q1'
+  const qMatch = period.match(/^(\d{4})-Q([1-4])$/)
+  if (qMatch) {
+    const year = parseInt(qMatch[1])
+    const q = parseInt(qMatch[2])
+    const startMonth = (q - 1) * 3 // 0-indexed
+    const qs = new Date(year, startMonth, 1)
+    const qe = new Date(year, startMonth + 3, 0) // last day of quarter
+    return {
+      from: format(qs, 'yyyy-MM-dd'),
+      to: format(qe, 'yyyy-MM-dd'),
+      label: `Q${q} ${year} (${QUARTER_MONTH_LABELS[q]})`,
+    }
+  }
+
+  // Month: '2026-03'
+  const mMatch = period.match(/^(\d{4})-(\d{2})$/)
+  if (mMatch) {
+    const year = parseInt(mMatch[1])
+    const month = parseInt(mMatch[2]) - 1 // 0-indexed
+    const d = new Date(year, month, 1)
+    return {
+      from: format(startOfMonth(d), 'yyyy-MM-dd'),
+      to: format(endOfMonth(d), 'yyyy-MM-dd'),
+      label: `${MONTH_NAMES_DE[month]} ${year}`,
+    }
+  }
+
+  // Fallback: current month
+  return parsePeriod(getCurrentMonthPeriod())
 }
 
 function formatEur(value: number): string {
@@ -91,9 +160,9 @@ function formatModelLabel(model: string): string {
 }
 
 function formatRate(config: TaxConfig | null | undefined): string {
-  if (!config) return '–'
+  if (!config) return '\u2013'
   if (config.model === 'per_person_per_night' || config.model === 'per_room_per_night') {
-    return `${config.rate.toFixed(2)} €`
+    return `${config.rate.toFixed(2)} \u20AC`
   }
   return `${config.rate}%`
 }
@@ -142,12 +211,8 @@ function splitBookingByMonth(booking: BookingWithProp, rangeFrom: string, rangeT
   let current = startOfMonth(checkIn)
 
   while (current <= checkOut) {
-    const monthEnd = endOfMonth(current)
     const segStart = checkIn > current ? checkIn : current
-    const segEnd = checkOut < monthEnd ? checkOut : monthEnd
 
-    const segNights = differenceInCalendarDays(segEnd, segStart) + (checkOut > monthEnd ? 0 : 0)
-    // Nights in this segment = nights from segStart to min(checkout, end of month)
     // checkout is exclusive (day guest leaves), so nights = differenceInCalendarDays(min(checkout, nextMonthStart), segStart)
     const nextMonthStart = addMonths(current, 1)
     const segNightsActual = differenceInCalendarDays(checkOut < nextMonthStart ? checkOut : nextMonthStart, segStart)
@@ -173,26 +238,55 @@ function splitBookingByMonth(booking: BookingWithProp, rangeFrom: string, rangeT
     }
 
     current = nextMonthStart
-    if (segEnd >= checkOut) break
+    if (checkOut <= nextMonthStart) break
   }
 
   return segments.length > 0 ? segments : [booking]
 }
 
+// Wrap main content in Suspense for useSearchParams
 export default function SteuerPage() {
+  return (
+    <Suspense fallback={
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}><CardContent className="pt-6"><Skeleton className="h-16 w-full" /></CardContent></Card>
+          ))}
+        </div>
+      </div>
+    }>
+      <SteuerPageContent />
+    </Suspense>
+  )
+}
+
+function SteuerPageContent() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [bookings, setBookings] = useState<BookingWithProp[]>([])
   const [properties, setProperties] = useState<Property[]>([])
   const [cityRules, setCityRules] = useState<CityTaxRule[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
-  const [timeRange, setTimeRange] = useState<TimeRange>('this_quarter')
   const [selectedCity, setSelectedCity] = useState<string>('all')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
 
+  // Period from URL or default to current month
+  const period = searchParams.get('period') ?? getCurrentMonthPeriod()
+  const periodOptions = useMemo(() => generatePeriodOptions(), [])
+
+  const setPeriod = useCallback((newPeriod: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('period', newPeriod)
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }, [searchParams, router])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const range = getDateRange(timeRange)
+    const range = parsePeriod(period)
 
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -216,7 +310,7 @@ export default function SteuerPage() {
     setCityRules((rulesData ?? []) as CityTaxRule[])
     setSettings(settingsData as Settings | null)
     setLoading(false)
-  }, [timeRange])
+  }, [period])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -259,7 +353,7 @@ export default function SteuerPage() {
 
   // Calculate tax per booking using per-property config, splitting multi-month bookings
   const taxData = useMemo<TaxDataItem[]>(() => {
-    const range = getDateRange(timeRange)
+    const range = parsePeriod(period)
     return filteredBookings.flatMap((booking) => {
       const config = booking.properties
         ? getTaxConfigForProperty(booking.properties, cityRules)
@@ -272,9 +366,9 @@ export default function SteuerPage() {
         return { booking: seg, tax, config }
       })
     })
-  }, [filteredBookings, cityRules, timeRange])
+  }, [filteredBookings, cityRules, period])
 
-  // Group by property for "Alle" view – include properties without bookings
+  // Group by property for "Alle" view - include properties without bookings
   const groupedByProperty = useMemo(() => {
     const groups = new Map<string, { property: Property | null; items: TaxDataItem[] }>()
 
@@ -324,35 +418,61 @@ export default function SteuerPage() {
   // --- Business travel toggle ---
   async function toggleBusinessTravel(bookingId: string, isBusiness: boolean) {
     const newPurpose = isBusiness ? 'business' : 'unknown'
-    await supabase.from('bookings').update({ trip_purpose: newPurpose }).eq('id', bookingId)
+    const { error } = await supabase.from('bookings').update({ trip_purpose: newPurpose }).eq('id', bookingId)
+    if (error) {
+      toast.error('Fehler beim Speichern des Befreiungsstatus')
+      return
+    }
     setBookings((prev) =>
       prev.map((b) => (b.id === bookingId ? { ...b, trip_purpose: newPurpose } : b))
     )
+    toast.success(isBusiness ? 'Als Geschaeftsreise markiert' : 'Befreiung aufgehoben')
   }
 
 
-  // --- CSV Export ---
+  // --- CSV Export (AC-3: enhanced with OTA/self columns) ---
   function exportCSV() {
-    const range = getDateRange(timeRange)
+    const range = parsePeriod(period)
     const headers = [
-      'Objekt', 'Gast', 'Kanal', 'Check-in', 'Check-out', 'Nächte',
-      'Umsatz (ohne City Tax)', 'Steuersatz', 'Steuerbetrag', 'Befreiungsgrund',
+      'Objekt', 'Gast', 'Kanal', 'Check-in', 'Check-out', 'N\u00E4chte',
+      'Umsatz (ohne City Tax)', 'Steuersatz', 'Steuerbetrag',
+      'Selbst abzuf\u00FChren (EUR)', 'Von OTA abgef\u00FChrt (EUR)',
+      'Befreiungsgrund',
     ]
-    const rows = taxData.map((d) => [
-      d.booking.properties?.name ?? '–',
-      [d.booking.guest_firstname, d.booking.guest_lastname].filter(Boolean).join(' '),
-      d.booking.channel,
-      d.booking.check_in,
-      d.booking.check_out,
-      d.booking.nights ?? 0,
-      getAccommodationGrossWithoutCityTax(d.booking).toFixed(2),
-      formatRate(d.config),
-      d.tax.taxAmount.toFixed(2),
-      d.tax.isExempt ? d.tax.exemptReason ?? 'Befreit' : '',
-    ])
+    const rows = taxData.map((d) => {
+      const taxAmount = d.tax.taxAmount
+      const isExempt = d.tax.isExempt
+      const remittedByOta = d.tax.remittedByOta
+      const otaName = d.tax.remittedByOtaName ?? 'OTA'
+
+      // Compute per-row values
+      let selfAmount = '0,00'
+      let otaAmount = '0,00'
+
+      if (!isExempt && !remittedByOta) {
+        selfAmount = taxAmount.toFixed(2).replace('.', ',')
+      } else if (remittedByOta) {
+        otaAmount = `${taxAmount.toFixed(2).replace('.', ',')} (${otaName})`
+      }
+
+      return [
+        d.booking.properties?.name ?? '\u2013',
+        [d.booking.guest_firstname, d.booking.guest_lastname].filter(Boolean).join(' '),
+        d.booking.channel,
+        d.booking.check_in,
+        d.booking.check_out,
+        d.booking.nights ?? 0,
+        getAccommodationGrossWithoutCityTax(d.booking).toFixed(2).replace('.', ','),
+        formatRate(d.config),
+        taxAmount.toFixed(2).replace('.', ','),
+        selfAmount,
+        otaAmount,
+        isExempt ? d.tax.exemptReason ?? 'Befreit' : '',
+      ]
+    })
 
     // Summary per property
-    const summarySection: (string | number)[][] = [[], ['Beherbergungssteuer-Übersicht'], ['Zeitraum', range.label]]
+    const summarySection: (string | number)[][] = [[], ['Beherbergungssteuer-\u00DCbersicht'], ['Zeitraum', range.label]]
     for (const group of groupedByProperty) {
       const s = computeSummary(group.items)
       const config = group.property
@@ -361,26 +481,26 @@ export default function SteuerPage() {
       summarySection.push(
         [],
         ['Objekt', group.property?.name ?? 'Unbekannt'],
-        ['Stadt', config?.city ?? '–'],
+        ['Stadt', config?.city ?? '\u2013'],
         ['Steuersatz', formatRate(config)],
-        ['1. Entgeltliche Übernachtungen', s.totalNights],
-        ['2. abzgl. Von OTA abgeführt', `${s.otaRemittedNights} Nächte / ${s.otaRemittedRevenue.toFixed(2)} EUR`],
-        ['3. Umsätze verbleibend', s.selfRemitRevenue.toFixed(2)],
-        ['4. abzgl. steuerbefreite Übernachtungen', `${s.businessNights} Nächte / ${s.businessRevenue.toFixed(2)} EUR`],
-        ['5. Verbleibende Übernachtungen', s.remainingNights],
-        ['6. Steuerpflichtige Umsätze', s.taxableRevenue.toFixed(2)],
-        ['7. Selbst abzuführen', s.selfRemitTax.toFixed(2)],
+        ['1. Entgeltliche \u00DCbernachtungen', s.totalNights],
+        ['2. abzgl. Von OTA abgef\u00FChrt', `${s.otaRemittedNights} N\u00E4chte / ${s.otaRemittedRevenue.toFixed(2)} EUR`],
+        ['3. Ums\u00E4tze verbleibend', s.selfRemitRevenue.toFixed(2)],
+        ['4. abzgl. steuerbefreite \u00DCbernachtungen', `${s.businessNights} N\u00E4chte / ${s.businessRevenue.toFixed(2)} EUR`],
+        ['5. Verbleibende \u00DCbernachtungen', s.remainingNights],
+        ['6. Steuerpflichtige Ums\u00E4tze', s.taxableRevenue.toFixed(2)],
+        ['7. Selbst abzuf\u00FChren', s.selfRemitTax.toFixed(2)],
       )
     }
     summarySection.push(
       [],
-      ['GESAMT selbst abzuführen', totalSummary.selfRemitTax.toFixed(2)],
-      ['GESAMT von OTA abgeführt', totalSummary.otaRemittedTax.toFixed(2)],
-      ['GESAMT Steueraufkommen', totalSummary.totalTax.toFixed(2)],
+      ['GESAMT Steuerbetrag', totalSummary.totalTax.toFixed(2)],
+      ['GESAMT selbst abzuf\u00FChren', totalSummary.selfRemitTax.toFixed(2)],
+      ['GESAMT von OTA abgef\u00FChrt', totalSummary.otaRemittedTax.toFixed(2)],
     )
 
     const csv = [...[headers], ...rows, ...summarySection]
-      .map((r) => r.map((c) => `"${c}"`).join(';'))
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';'))
       .join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -391,7 +511,10 @@ export default function SteuerPage() {
     URL.revokeObjectURL(url)
   }
 
-  const range = getDateRange(timeRange)
+  const range = parsePeriod(period)
+
+  // Find the label for the currently selected period
+  const currentPeriodLabel = periodOptions.find((o) => o.value === period)?.label ?? range.label
 
   return (
     <div className="space-y-6">
@@ -402,25 +525,45 @@ export default function SteuerPage() {
           {/* City filter */}
           <Select value={selectedCity} onValueChange={setSelectedCity}>
             <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Alle Städte" />
+              <SelectValue placeholder="Alle St\u00E4dte" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Alle Städte</SelectItem>
+              <SelectItem value="all">Alle St\u00E4dte</SelectItem>
               {allCities.map((city) => (
                 <SelectItem key={city} value={city}>{city}</SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {/* Time range */}
-          <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue />
+          {/* Period selector (AC-2: month names, quarters, years) */}
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[220px]" aria-label="Zeitraum ausw\u00E4hlen">
+              <SelectValue>{currentPeriodLabel}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="this_month">Dieser Monat</SelectItem>
-              <SelectItem value="last_month">Letzter Monat</SelectItem>
-              <SelectItem value="this_quarter">Dieses Quartal</SelectItem>
-              <SelectItem value="this_year">Dieses Jahr</SelectItem>
+              <SelectGroup>
+                <SelectLabel>Einzelne Monate</SelectLabel>
+                {periodOptions
+                  .filter((o) => o.group === 'month')
+                  .map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel>Quartale</SelectLabel>
+                {periodOptions
+                  .filter((o) => o.group === 'quarter')
+                  .map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+              </SelectGroup>
+              <SelectGroup>
+                <SelectLabel>Jahre</SelectLabel>
+                {periodOptions
+                  .filter((o) => o.group === 'year')
+                  .map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={exportCSV}>
@@ -451,7 +594,7 @@ export default function SteuerPage() {
           {selectedTags.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setSelectedTags([])}>
               <X className="h-3 w-3 mr-1" />
-              Zurücksetzen
+              Zur\u00FCcksetzen
             </Button>
           )}
         </div>
@@ -481,21 +624,21 @@ export default function SteuerPage() {
           settings={settings}
         />
       ) : (
-        // Grouped view: Gesamtübersicht → per city → per property
+        // Grouped view: Gesamtübersicht -> per city -> per property
         <>
-          {/* Gesamtübersicht – 4 KPI Cards */}
+          {/* Gesamtübersicht - 4 KPI Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <Card className="border-2 border-emerald-200 bg-emerald-50/50">
               <CardContent className="pt-6 text-center">
                 <p className="text-2xl font-bold tabular-nums text-emerald-700">{formatEur(totalSummary.selfRemitTax)}</p>
-                <p className="text-xs text-muted-foreground mt-1">Selbst abzuführen</p>
+                <p className="text-xs text-muted-foreground mt-1">Selbst abzuf\u00FChren</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6 text-center">
                 <p className="text-2xl font-bold tabular-nums">{formatEur(totalSummary.otaRemittedTax)}</p>
                 <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-                  Von OTA abgeführt
+                  Von OTA abgef\u00FChrt
                   <Badge variant="outline" className="border-rose-300 text-rose-600 text-[10px] px-1 py-0">OTA</Badge>
                 </p>
               </CardContent>
@@ -503,7 +646,7 @@ export default function SteuerPage() {
             <Card>
               <CardContent className="pt-6 text-center">
                 <p className="text-2xl font-bold tabular-nums">{totalSummary.businessNights}</p>
-                <p className="text-xs text-muted-foreground mt-1">Steuerbefreite Nächte</p>
+                <p className="text-xs text-muted-foreground mt-1">Steuerbefreite N\u00E4chte</p>
               </CardContent>
             </Card>
             <Card>
@@ -524,7 +667,7 @@ export default function SteuerPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold">{cityGroup.city}</h3>
                     <span className="text-sm text-muted-foreground">
-                      · {formatRate(cityGroup.config)} · {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
+                      \u00B7 {formatRate(cityGroup.config)} \u00B7 {formatModelLabel(cityGroup.config?.model ?? 'gross_percentage')}
                     </span>
                   </div>
                   {(cityGroup.city.toLowerCase() === 'dresden' || cityGroup.city.toLowerCase() === 'chemnitz') && (
@@ -542,7 +685,7 @@ export default function SteuerPage() {
                 <Card className="border-dashed">
                   <CardHeader className="pb-2 pt-4">
                     <p className="text-xs text-muted-foreground">
-                      {cityGroup.properties.length} Objekt{cityGroup.properties.length !== 1 ? 'e' : ''} · {citySummary.bookingCount} Buchungen
+                      {cityGroup.properties.length} Objekt{cityGroup.properties.length !== 1 ? 'e' : ''} \u00B7 {citySummary.bookingCount} Buchungen
                     </p>
                   </CardHeader>
                   <CardContent className="pb-4">
@@ -561,7 +704,7 @@ export default function SteuerPage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground py-8 text-center">
-              Keine Buchungen im gewählten Zeitraum
+              Keine Buchungen im gew\u00E4hlten Zeitraum
             </p>
           </CardContent>
         </Card>
@@ -575,7 +718,7 @@ export default function SteuerPage() {
               return (
                 <Card key={cityGroup.city}>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Buchungen – {cityGroup.city}</CardTitle>
+                    <CardTitle className="text-base">Buchungen \u2013 {cityGroup.city}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <BookingTable
@@ -615,14 +758,14 @@ export default function SteuerPage() {
 function DetailSummary({ summary, config }: { summary: ReturnType<typeof computeSummary>; config: TaxConfig | null | undefined }) {
   return (
     <div className="space-y-1">
-      <SummaryLine label="1. Anzahl entgeltlicher Übernachtungen insgesamt" value={`${summary.totalNights} Nächte`} />
-      <SummaryLine label="2. abzgl. von OTA abgeführt" value={`– ${summary.otaRemittedNights} Nächte / ${formatEur(summary.otaRemittedRevenue)}`} className="text-rose-600" />
-      <SummaryLine label="3. Umsätze aus verbleibenden Übernachtungen" value={formatEur(summary.selfRemitRevenue)} />
-      <SummaryLine label="4. abzgl. beherbergungssteuerbefreite Übernachtungen" value={`– ${summary.businessNights} Nächte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
-      <SummaryLine label="5. verbleibende Anzahl entgeltlicher Übernachtungen" value={`${summary.remainingNights} Nächte`} />
-      <SummaryLine label="6. verbleibende steuerpflichtige Umsätze" value={formatEur(summary.taxableRevenue)} />
+      <SummaryLine label="1. Anzahl entgeltlicher \u00DCbernachtungen insgesamt" value={`${summary.totalNights} N\u00E4chte`} />
+      <SummaryLine label="2. abzgl. von OTA abgef\u00FChrt" value={`\u2013 ${summary.otaRemittedNights} N\u00E4chte / ${formatEur(summary.otaRemittedRevenue)}`} className="text-rose-600" />
+      <SummaryLine label="3. Ums\u00E4tze aus verbleibenden \u00DCbernachtungen" value={formatEur(summary.selfRemitRevenue)} />
+      <SummaryLine label="4. abzgl. beherbergungssteuerbefreite \u00DCbernachtungen" value={`\u2013 ${summary.businessNights} N\u00E4chte / ${formatEur(summary.businessRevenue)}`} className="text-blue-600" />
+      <SummaryLine label="5. verbleibende Anzahl entgeltlicher \u00DCbernachtungen" value={`${summary.remainingNights} N\u00E4chte`} />
+      <SummaryLine label="6. verbleibende steuerpflichtige Ums\u00E4tze" value={formatEur(summary.taxableRevenue)} />
       <div className="flex justify-between py-3 bg-emerald-50 rounded px-2 mt-2">
-        <span className="text-sm font-bold">7. Selbst abzuführen ({formatRate(config)})</span>
+        <span className="text-sm font-bold">7. Selbst abzuf\u00FChren ({formatRate(config)})</span>
         <span className="text-lg font-bold tabular-nums text-emerald-700">{formatEur(summary.selfRemitTax)}</span>
       </div>
     </div>
@@ -657,11 +800,11 @@ function SingleCitySummary({
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base">
-              {city} – {range.label}
+              {city} \u2013 {range.label}
             </CardTitle>
             {config && (
               <p className="text-sm text-muted-foreground">
-                {formatRate(config)} · {formatModelLabel(config.model)}
+                {formatRate(config)} \u00B7 {formatModelLabel(config.model)}
               </p>
             )}
           </div>
@@ -713,26 +856,26 @@ function BookingTable({
             <TableHead>Gast</TableHead>
             <TableHead>Kanal</TableHead>
             <TableHead>Zeitraum</TableHead>
-            <TableHead className="text-center">Nächte</TableHead>
+            <TableHead className="text-center">N\u00E4chte</TableHead>
             <TableHead className="text-right">Umsatz</TableHead>
             <TableHead className="text-right">Steuer</TableHead>
             <TableHead className="text-center">Befreit</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map(({ booking, tax }) => (
-            <TableRow key={booking.id} className={tax.isExempt ? 'opacity-60' : ''}>
+          {items.map(({ booking, tax }, idx) => (
+            <TableRow key={`${booking.id}-${booking.check_in}-${idx}`} className={tax.isExempt ? 'opacity-60' : ''}>
               {showProperty && (
                 <TableCell className="text-sm text-muted-foreground">
-                  {booking.properties?.name ?? '–'}
+                  {booking.properties?.name ?? '\u2013'}
                 </TableCell>
               )}
               <TableCell className="font-medium">
-                {[booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ') || '–'}
+                {[booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ') || '\u2013'}
               </TableCell>
               <TableCell className="text-muted-foreground">{booking.channel}</TableCell>
               <TableCell>
-                {format(new Date(booking.check_in + 'T00:00:00'), 'dd.MM.', { locale: de })} –{' '}
+                {format(new Date(booking.check_in + 'T00:00:00'), 'dd.MM.', { locale: de })} \u2013{' '}
                 {format(new Date(booking.check_out + 'T00:00:00'), 'dd.MM.yy', { locale: de })}
               </TableCell>
               <TableCell className="text-center">{booking.nights ?? 0}</TableCell>
@@ -740,7 +883,7 @@ function BookingTable({
               <TableCell className="text-right">
                 {tax.remittedByOta ? (
                   <Badge variant="outline" className="border-rose-300 text-rose-600">
-                    {tax.remittedByOtaName ?? 'OTA'} führt ab
+                    {tax.remittedByOtaName ?? 'OTA'} f\u00FChrt ab
                   </Badge>
                 ) : tax.isExempt ? (
                   <Badge variant="outline" className="border-blue-300 text-blue-600">
