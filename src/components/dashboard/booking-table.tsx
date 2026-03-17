@@ -2,7 +2,7 @@
 
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { ArrowUpDown, ArrowUp, ArrowDown, FileText, ClipboardList } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, FileText, ClipboardList, CreditCard } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -135,6 +135,24 @@ export function BookingTable({
                 <TableCell className="text-center">
                   <TooltipProvider>
                     <div className="flex items-center justify-center gap-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CreditCard className={`h-4 w-4 ${
+                            booking.payment_status === 'paid'
+                              ? 'text-emerald-600'
+                              : booking.payment_status === 'pending'
+                                ? 'text-amber-500'
+                                : 'text-muted-foreground/30'
+                          }`} />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {booking.payment_status === 'paid'
+                            ? 'Bezahlt'
+                            : booking.payment_status === 'pending'
+                              ? 'Zahlung ausstehend'
+                              : 'Kein Zahlungsstatus'}
+                        </TooltipContent>
+                      </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <FileText className={`h-4 w-4 ${invoiceBookingIds.has(booking.id) ? 'text-emerald-600' : 'text-muted-foreground/30'}`} />
