@@ -6,10 +6,13 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info, Mail, Copy, Check } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
+import { DunningPDF, type DunningPDFData } from '@/lib/pdf/dunning'
+import { type DunningType, type DunningData, DUNNING_LABELS, getDunningText, generateDunningEmailHtml } from '@/lib/dunning-templates'
+import { copyHtmlToClipboard } from '@/lib/email-template'
 import type { BookingWithProperty, Settings, CityTaxRule } from '@/lib/types'
 import {
   getCleaningFee,
@@ -153,6 +156,11 @@ function RechnungenContent() {
   const [bulkGenTo, setBulkGenTo] = useState('')
   const [bulkGenerating, setBulkGenerating] = useState(false)
   const [syncingGuest, setSyncingGuest] = useState(false)
+  const [dunningDialogOpen, setDunningDialogOpen] = useState(false)
+  const [dunningInvoice, setDunningInvoice] = useState<InvoiceRow | null>(null)
+  const [dunningType, setDunningType] = useState<DunningType>('reminder')
+  const [dunningCopied, setDunningCopied] = useState(false)
+  const [dunningDownloading, setDunningDownloading] = useState(false)
   const { toast } = useToast()
 
   // Filter state
@@ -1061,6 +1069,96 @@ function RechnungenContent() {
     }
   }
 
+  function buildDunningData(inv: InvoiceRow): DunningData {
+    const gs = (inv.guest_snapshot ?? {}) as Record<string, string>
+    const ls = (inv.landlord_snapshot ?? {}) as Record<string, string>
+    const guestName = [gs.firstname, gs.lastname].filter(Boolean).join(' ')
+    const booking = inv.booking_id ? bookings.find((b) => b.id === inv.booking_id) : null
+    const siteUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    const payLink = booking ? `${siteUrl}/pay/${booking.id}` : ''
+
+    return {
+      salutation: guestName ? `Sehr geehrte(r) ${guestName}` : 'Sehr geehrte Damen und Herren',
+      invoiceNumber: inv.invoice_number,
+      invoiceDate: inv.issued_date ? format(new Date(inv.issued_date + 'T00:00:00'), 'dd.MM.yyyy') : '',
+      dueDate: inv.due_date ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy') : '',
+      totalAmount: formatEur(inv.total_gross),
+      openAmount: formatEur(inv.total_gross),
+      companyName: ls.name ?? '',
+      iban: ls.bank_iban || undefined,
+      bic: ls.bank_bic || undefined,
+      bankName: ls.bank_name || undefined,
+      paymentLink: payLink || undefined,
+      guestEmail: (booking?.guest_email as string) ?? undefined,
+      propertyName: booking?.properties?.name ?? undefined,
+    }
+  }
+
+  function buildDunningPdfData(inv: InvoiceRow, type: DunningType): DunningPDFData {
+    const gs = (inv.guest_snapshot ?? {}) as Record<string, string>
+    const ls = (inv.landlord_snapshot ?? {}) as Record<string, string>
+    const guestName = [gs.firstname, gs.lastname].filter(Boolean).join(' ')
+    const booking = inv.booking_id ? bookings.find((b) => b.id === inv.booking_id) : null
+    const siteUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    const payLink = booking ? `${siteUrl}/pay/${booking.id}` : ''
+
+    return {
+      type,
+      guestName,
+      guestStreet: gs.street || undefined,
+      guestZipCity: gs.street ? [gs.zip, gs.city].filter(Boolean).join(' ') || undefined : undefined,
+      guestCountry: gs.street ? (gs.country || undefined) : undefined,
+      invoiceNumber: inv.invoice_number,
+      invoiceDate: inv.issued_date ? format(new Date(inv.issued_date + 'T00:00:00'), 'dd.MM.yyyy') : '',
+      dueDate: inv.due_date ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy') : '',
+      totalAmount: formatEur(inv.total_gross),
+      openAmount: formatEur(inv.total_gross),
+      documentDate: format(new Date(), 'dd.MM.yyyy'),
+      landlordName: ls.name ?? '',
+      landlordStreet: ls.street ?? '',
+      landlordZipCity: [ls.zip, ls.city].filter(Boolean).join(' '),
+      landlordCountry: ls.country ?? 'Deutschland',
+      taxNumber: ls.tax_number || undefined,
+      vatId: ls.vat_id || undefined,
+      companyRegister: ls.company_register || undefined,
+      managingDirector: ls.managing_director || undefined,
+      bankName: ls.bank_name || undefined,
+      bankIban: ls.bank_iban || undefined,
+      bankBic: ls.bank_bic || undefined,
+      logoUrl: ls.logo_url || undefined,
+      paymentLink: payLink || undefined,
+    }
+  }
+
+  async function handleCopyDunningEmail() {
+    if (!dunningInvoice) return
+    const data = buildDunningData(dunningInvoice)
+    const html = generateDunningEmailHtml(dunningType, data)
+    await copyHtmlToClipboard(html)
+    setDunningCopied(true)
+    setTimeout(() => setDunningCopied(false), 2000)
+    toast({ title: 'E-Mail-Text kopiert', description: 'Kann jetzt in Gmail/Outlook eingefügt werden.' })
+  }
+
+  async function handleDownloadDunningPdf() {
+    if (!dunningInvoice) return
+    setDunningDownloading(true)
+    try {
+      const pdfData = buildDunningPdfData(dunningInvoice, dunningType)
+      const blob = await pdf(<DunningPDF data={pdfData} />).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${DUNNING_LABELS[dunningType]}_${dunningInvoice.invoice_number}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } finally {
+      setDunningDownloading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {splitting && (
@@ -1572,6 +1670,7 @@ function RechnungenContent() {
                             size="sm"
                             disabled={downloading === inv.id}
                             onClick={() => handleDownloadPDF(inv)}
+                            title="Rechnung herunterladen"
                           >
                             {downloading === inv.id
                               ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -1580,8 +1679,22 @@ function RechnungenContent() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => {
+                              setDunningInvoice(inv)
+                              setDunningType('reminder')
+                              setDunningCopied(false)
+                              setDunningDialogOpen(true)
+                            }}
+                            title="Mahnung / Erinnerung"
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             className="text-destructive hover:text-destructive"
                             onClick={() => setDeletingInvoiceId(inv.id)}
+                            title="Löschen"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -1614,6 +1727,67 @@ function RechnungenContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dunning Dialog */}
+      <Dialog open={dunningDialogOpen} onOpenChange={setDunningDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Zahlungserinnerung / Mahnung</DialogTitle>
+          </DialogHeader>
+          {dunningInvoice && (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-4">
+                <div className="space-y-1 flex-1">
+                  <Label>Vorlage</Label>
+                  <Select value={dunningType} onValueChange={(v) => { setDunningType(v as DunningType); setDunningCopied(false) }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="reminder">Zahlungserinnerung</SelectItem>
+                      <SelectItem value="dunning1">1. Mahnung</SelectItem>
+                      <SelectItem value="dunning2">2. Mahnung (mit Inkasso-Hinweis)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="text-sm text-muted-foreground pt-5">
+                  Rechnung {dunningInvoice.invoice_number} – {formatEur(dunningInvoice.total_gross)}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Textvorschau</Label>
+                <Textarea
+                  readOnly
+                  rows={14}
+                  className="font-mono text-xs resize-none"
+                  value={getDunningText(dunningType, buildDunningData(dunningInvoice))}
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleCopyDunningEmail} variant="outline">
+                  {dunningCopied
+                    ? <><Check className="mr-2 h-4 w-4 text-green-600" />Kopiert!</>
+                    : <><Copy className="mr-2 h-4 w-4" />E-Mail-Text kopieren</>}
+                </Button>
+                <Button onClick={handleDownloadDunningPdf} disabled={dunningDownloading}>
+                  {dunningDownloading
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : <Download className="mr-2 h-4 w-4" />}
+                  PDF herunterladen
+                </Button>
+              </div>
+
+              {buildDunningData(dunningInvoice).guestEmail && (
+                <p className="text-xs text-muted-foreground">
+                  Gast-E-Mail: {buildDunningData(dunningInvoice).guestEmail}
+                </p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
