@@ -154,10 +154,10 @@ export function generateBookingEmailHtml({
                 <tr>
                   <td class="px" style="padding:8px 22px 10px 22px;font-family:Arial,Helvetica,sans-serif;color:#163040;line-height:1.75;">
                     <div style="font-size:14px;font-weight:900;color:#3C5A6B;margin:0 0 10px 0;">
-                      Online bezahlen
+                      Zahlung
                     </div>
                     <div style="font-size:14px;margin:0 0 14px 0;">
-                      Im Anhang finden Sie Ihre Rechnung als PDF. Sie k\u00f6nnen Ihre Zahlung bequem \u00fcber folgenden Link vornehmen:
+                      Im Anhang finden Sie Ihre Rechnung als PDF. Den Rechnungsbetrag k\u00f6nnen Sie entweder per \u00dcberweisung auf das in der Rechnung angegebene Konto begleichen oder bequem \u00fcber folgenden Zahlungslink:
                     </div>
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
                       <tr>
