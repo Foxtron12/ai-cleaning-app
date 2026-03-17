@@ -228,6 +228,36 @@ export class SmoobuClient {
     return this.fetch<SmoobuReservation>(`/reservations/${id}`)
   }
 
+  /** Update guest data on an existing reservation in Smoobu */
+  async updateReservation(id: number, params: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    street?: string
+    city?: string
+    postalCode?: string
+    country?: string
+  }): Promise<void> {
+    const body: Record<string, unknown> = {}
+    if (params.firstName !== undefined) body.firstName = params.firstName
+    if (params.lastName !== undefined) body.lastName = params.lastName
+    if (params.email !== undefined) body.email = params.email
+    if (params.phone !== undefined) body.phone = params.phone
+    if (params.street || params.city || params.postalCode || params.country) {
+      body.address = {
+        street: params.street ?? '',
+        city: params.city ?? '',
+        postalCode: params.postalCode ?? '',
+        country: params.country ?? '',
+      }
+    }
+    await this.fetch<unknown>(`/reservations/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
+  }
+
   /** Cancel a reservation in Smoobu */
   async cancelReservation(id: number): Promise<void> {
     await this.fetch<unknown>(`/reservations/${id}`, { method: 'DELETE' })

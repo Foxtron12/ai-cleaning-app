@@ -747,6 +747,24 @@ function RechnungenContent() {
       if (saved) {
         setInvoices((prev) => [saved as InvoiceRow, ...prev])
 
+        // Sync guest address back to booking + Smoobu (non-blocking)
+        if (selectedBookingId && (guestStreet || guestCity || guestZip || guestCountry)) {
+          const nameParts = guestName.split(' ')
+          fetch('/api/bookings/update-guest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bookingId: selectedBookingId,
+              guestFirstname: nameParts[0] ?? '',
+              guestLastname: nameParts.slice(1).join(' ') ?? '',
+              guestStreet,
+              guestZip,
+              guestCity,
+              guestCountry,
+            }),
+          }).catch(() => { /* non-blocking */ })
+        }
+
         // Trigger Make.com webhook (non-blocking)
         if (settings.make_invoice_webhook_url) {
           fetch('/api/make/send-invoice', {
