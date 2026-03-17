@@ -196,7 +196,8 @@ function RechnungenContent() {
             tax_number, vat_id, finanzamt, is_kleinunternehmer,
             bank_iban, bank_bic, bank_name,
             company_register, managing_director, invoice_thank_you_text,
-            invoice_prefix, invoice_next_number, invoice_payment_days
+            invoice_prefix, invoice_next_number, invoice_payment_days,
+            make_invoice_webhook_url
           `).limit(1).single(),
           supabase.from('city_tax_rules').select('*').order('city'),
           supabase.from('properties').select('id, name').order('name'),
@@ -745,6 +746,22 @@ function RechnungenContent() {
 
       if (saved) {
         setInvoices((prev) => [saved as InvoiceRow, ...prev])
+
+        // Trigger Make.com webhook (non-blocking)
+        if (settings.make_invoice_webhook_url) {
+          fetch('/api/make/send-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invoiceId: saved.id }),
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.success) {
+                toast({ title: 'An Make.com gesendet', description: `${invoiceNumber} → ${data.guestEmail || 'Webhook ausgelöst'}` })
+              }
+            })
+            .catch(() => { /* non-blocking */ })
+        }
       }
 
       setDialogOpen(false)

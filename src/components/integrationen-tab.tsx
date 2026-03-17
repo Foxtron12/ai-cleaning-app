@@ -14,7 +14,9 @@ import {
   Plug,
   Loader2,
   CreditCard,
+  Zap,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,6 +71,12 @@ export function IntegrationenTab() {
   const [stripeDeleting, setStripeDeleting] = useState(false)
   const [stripeFeedback, setStripeFeedback] = useState<FeedbackMessage>(null)
 
+  // Make.com form state
+  const [makeWebhookUrl, setMakeWebhookUrl] = useState('')
+  const [makeSaving, setMakeSaving] = useState(false)
+  const [makeFeedback, setMakeFeedback] = useState<FeedbackMessage>(null)
+  const [makeLoaded, setMakeLoaded] = useState(false)
+
   const smoobu = integrations.find((i) => i.provider === 'smoobu')
   const stripeIntegration = integrations.find((i) => i.provider === 'stripe')
 
@@ -83,6 +91,21 @@ export function IntegrationenTab() {
       setError('Integrationen konnten nicht geladen werden.')
     } finally {
       setLoading(false)
+    }
+    // Load Make.com webhook URL from settings
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: settingsData } = await supabase
+          .from('settings')
+          .select('make_invoice_webhook_url')
+          .eq('user_id', user.id)
+          .single()
+        setMakeWebhookUrl(settingsData?.make_invoice_webhook_url ?? '')
+        setMakeLoaded(true)
+      }
+    } catch {
+      // Non-blocking
     }
   }, [])
 
@@ -232,6 +255,36 @@ export function IntegrationenTab() {
       setStripeFeedback({ success: false, message: 'Verbindungsfehler' })
     } finally {
       setStripeDeleting(false)
+    }
+  }
+
+  async function handleSaveMakeWebhook() {
+    setMakeSaving(true)
+    setMakeFeedback(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setMakeFeedback({ success: false, message: 'Nicht authentifiziert' })
+        return
+      }
+      const { error: updateError } = await supabase
+        .from('settings')
+        .update({ make_invoice_webhook_url: makeWebhookUrl.trim() || null })
+        .eq('user_id', user.id)
+      if (updateError) {
+        setMakeFeedback({ success: false, message: 'Speichern fehlgeschlagen' })
+      } else {
+        setMakeFeedback({
+          success: true,
+          message: makeWebhookUrl.trim()
+            ? 'Webhook-URL gespeichert. Neue Rechnungen werden automatisch an Make.com gesendet.'
+            : 'Webhook-URL entfernt. Automatischer Versand deaktiviert.',
+        })
+      }
+    } catch {
+      setMakeFeedback({ success: false, message: 'Verbindungsfehler' })
+    } finally {
+      setMakeSaving(false)
     }
   }
 
@@ -547,6 +600,63 @@ export function IntegrationenTab() {
                 <XCircle className="h-4 w-4 shrink-0" />
               )}
               {stripeFeedback.message}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Make.com Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                <Zap className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base">Make.com</CardTitle>
+                <CardDescription>Automatischer Rechnungsversand per E-Mail</CardDescription>
+              </div>
+            </div>
+            <Badge variant={makeLoaded && makeWebhookUrl ? 'default' : 'secondary'}
+              className={makeLoaded && makeWebhookUrl ? 'bg-green-600' : ''}>
+              {makeLoaded && makeWebhookUrl ? 'Aktiv' : 'Nicht konfiguriert'}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Webhook-URL</Label>
+            <div className="flex gap-2">
+              <Input
+                value={makeWebhookUrl}
+                onChange={(e) => setMakeWebhookUrl(e.target.value)}
+                placeholder="https://hook.eu2.make.com/..."
+                className="font-mono text-xs"
+              />
+              <Button onClick={handleSaveMakeWebhook} disabled={makeSaving}>
+                {makeSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {makeSaving ? 'Speichert...' : 'Speichern'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Erstelle in Make.com ein Szenario mit dem Trigger &quot;Custom Webhook&quot; und trage die URL hier ein.
+              Bei jeder neuen Rechnung werden automatisch alle Rechnungsdaten (Gast, Beträge, Positionen) an Make.com gesendet.
+            </p>
+          </div>
+
+          {makeFeedback && (
+            <div
+              className={`flex items-center gap-2 text-sm p-3 rounded-md ${
+                makeFeedback.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}
+            >
+              {makeFeedback.success ? (
+                <CheckCircle className="h-4 w-4 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 shrink-0" />
+              )}
+              {makeFeedback.message}
             </div>
           )}
         </CardContent>

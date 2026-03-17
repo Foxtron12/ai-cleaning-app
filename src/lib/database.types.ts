@@ -665,6 +665,7 @@ export type Database = {
           landlord_street: string | null
           landlord_website: string | null
           landlord_zip: string | null
+          make_invoice_webhook_url: string | null
           managing_director: string | null
           personenkonto_chemnitz: string | null
           smoobu_api_key: string | null
@@ -698,6 +699,7 @@ export type Database = {
           landlord_street?: string | null
           landlord_website?: string | null
           landlord_zip?: string | null
+          make_invoice_webhook_url?: string | null
           managing_director?: string | null
           personenkonto_chemnitz?: string | null
           smoobu_api_key?: string | null
@@ -731,6 +733,7 @@ export type Database = {
           landlord_street?: string | null
           landlord_website?: string | null
           landlord_zip?: string | null
+          make_invoice_webhook_url?: string | null
           managing_director?: string | null
           personenkonto_chemnitz?: string | null
           smoobu_api_key?: string | null
