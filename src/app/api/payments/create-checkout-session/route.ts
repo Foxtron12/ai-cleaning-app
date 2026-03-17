@@ -90,7 +90,7 @@ export async function POST() {
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
-      payment_method_types: ["card", "sepa_debit"],
+
       line_items: [
         {
           price: priceId,
