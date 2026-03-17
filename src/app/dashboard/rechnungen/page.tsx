@@ -152,6 +152,7 @@ function RechnungenContent() {
   const [bulkGenFrom, setBulkGenFrom] = useState('')
   const [bulkGenTo, setBulkGenTo] = useState('')
   const [bulkGenerating, setBulkGenerating] = useState(false)
+  const [syncingGuest, setSyncingGuest] = useState(false)
   const { toast } = useToast()
 
   // Filter state
@@ -345,6 +346,60 @@ function RechnungenContent() {
     }
 
     setLineItems(items)
+
+    // Auto-sync guest address from Smoobu when booking has an external_id
+    if (booking.external_id && !booking.guest_street) {
+      syncGuestFromSmoobu(booking.id)
+    }
+  }
+
+  /** Fetch latest guest data from Smoobu and update form fields + local booking state */
+  async function syncGuestFromSmoobu(bookingId: string) {
+    setSyncingGuest(true)
+    try {
+      const res = await fetch('/api/smoobu/sync-guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId }),
+      })
+      const data = await res.json()
+      if (data.success && data.guest) {
+        // Update form fields
+        if (data.guest.street) setGuestStreet(data.guest.street)
+        if (data.guest.zip) setGuestZip(data.guest.zip)
+        if (data.guest.city) setGuestCity(data.guest.city)
+        if (data.guest.country) setGuestCountry(data.guest.country)
+        if (data.guest.name) setGuestName(data.guest.name)
+
+        // Update local bookings state so re-opening won't re-fetch
+        setBookings((prev) =>
+          prev.map((b) =>
+            b.id === bookingId
+              ? {
+                  ...b,
+                  guest_street: data.guest.street ?? b.guest_street,
+                  guest_city: data.guest.city ?? b.guest_city,
+                  guest_zip: data.guest.zip ?? b.guest_zip,
+                  guest_country: data.guest.country ?? b.guest_country,
+                  guest_firstname: data.guest.name?.split(' ')[0] ?? b.guest_firstname,
+                  guest_lastname: data.guest.name?.split(' ').slice(1).join(' ') ?? b.guest_lastname,
+                }
+              : b
+          )
+        )
+
+        if (data.fieldsUpdated > 0) {
+          toast({
+            title: 'Gastadresse synchronisiert',
+            description: `${data.fieldsUpdated} Feld(er) aus Smoobu aktualisiert.`,
+          })
+        }
+      }
+    } catch {
+      // Non-blocking: form still works with empty address
+    } finally {
+      setSyncingGuest(false)
+    }
   }
 
   async function createSplitInvoices(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
@@ -1090,6 +1145,9 @@ function RechnungenContent() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Empfänger (Gast)</Label>
+                  {syncingGuest && (
+                    <p className="text-xs text-muted-foreground animate-pulse">Adresse wird aus Smoobu geladen…</p>
+                  )}
                   <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Name" />
                   <Input
                     value={guestStreet}
