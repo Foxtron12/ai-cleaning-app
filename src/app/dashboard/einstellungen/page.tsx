@@ -548,10 +548,15 @@ export default function EinstellungenPage() {
                       <Label>Zahlungsziel (Tage)</Label>
                       <Input
                         type="number"
-                        min={1}
+                        min={0}
                         value={settings.invoice_payment_days ?? 14}
                         onChange={(e) => updateField('invoice_payment_days', Number(e.target.value))}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        {(settings.invoice_payment_days ?? 14) === 0
+                          ? 'Rechnungsbetrag ist sofort fällig (ab Rechnungsdatum)'
+                          : `Fällig ${settings.invoice_payment_days ?? 14} Tage nach Rechnungsdatum`}
+                      </p>
                     </div>
                   </div>
                   <div className="space-y-2">

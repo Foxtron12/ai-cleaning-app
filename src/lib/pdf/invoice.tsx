@@ -398,8 +398,9 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
         {openBalance > 0 && data.dueDate && (
           <View style={{ marginTop: 10, padding: 8, backgroundColor: '#f8f8f8', borderRadius: 3 }}>
             <Text style={{ fontSize: 9, color: '#333', lineHeight: 1.5 }}>
-              Bitte überweisen Sie den offenen Betrag von {formatEur(openBalance)} bis zum{' '}
-              {data.dueDate} auf das untenstehende Konto
+              {data.paymentDays === 0
+                ? `Der offene Betrag von ${formatEur(openBalance)} ist sofort fällig. Bitte überweisen Sie den Betrag auf das untenstehende Konto`
+                : `Bitte überweisen Sie den offenen Betrag von ${formatEur(openBalance)} bis zum ${data.dueDate} auf das untenstehende Konto`}
               {data.bankIban ? ` (IBAN: ${data.bankIban})` : ''}
               {'. '}Alternativ können Sie den Zahlungslink in der zugehörigen E-Mail nutzen.
             </Text>
