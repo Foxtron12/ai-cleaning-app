@@ -165,6 +165,8 @@ export function CreateBookingWizard({
   const [lastEditedPriceField, setLastEditedPriceField] = useState<'total' | 'perNight'>('total')
   const [cleaningFee, setCleaningFee] = useState(0)
   const [accommodationTax, setAccommodationTax] = useState(0)
+  const [totalPriceInput, setTotalPriceInput] = useState<string>('')
+  const [totalPriceEditing, setTotalPriceEditing] = useState(false)
   // BUG-7: track whether Smoobu provided cleaning fee
 
   // Step 3 state
@@ -234,6 +236,8 @@ export function CreateBookingWizard({
       setLastEditedPriceField('total')
       setCleaningFee(0)
       setAccommodationTax(0)
+      setTotalPriceInput('')
+      setTotalPriceEditing(false)
       form.reset()
     }
   }, [open, form])
@@ -750,28 +754,28 @@ export function CreateBookingWizard({
                       type="number"
                       step="0.01"
                       min={0}
-                      value={totalPrice}
+                      value={totalPriceEditing ? totalPriceInput : totalPrice}
+                      onFocus={() => {
+                        setTotalPriceEditing(true)
+                        setTotalPriceInput(String(totalPrice))
+                      }}
                       onChange={(e) => {
-                        const desiredTotal = parseFloat(e.target.value) || 0
-                        // Back-calculate accommodation price from desired total
+                        setTotalPriceInput(e.target.value)
+                      }}
+                      onBlur={() => {
+                        const desiredTotal = parseFloat(totalPriceInput) || 0
                         const prop = selectedProperty
                         const taxRate = prop?.accommodation_tax_rate
                         const taxModel = prop?.accommodation_tax_model
 
                         let newAccommodation: number
                         if (taxRate == null || taxModel == null || taxRate === 0) {
-                          // No tax: total = accommodation + cleaning
                           newAccommodation = desiredTotal - cleaningFee
                         } else if (taxModel === 'gross_percentage') {
-                          // tax = (accommodation + cleaning) * rate/100
-                          // total = (accommodation + cleaning) * (1 + rate/100)
                           newAccommodation = desiredTotal / (1 + taxRate / 100) - cleaningFee
                         } else if (taxModel === 'net_percentage') {
-                          // tax = accommodation * rate/100
-                          // total = accommodation * (1 + rate/100) + cleaning
                           newAccommodation = (desiredTotal - cleaningFee) / (1 + taxRate / 100)
                         } else {
-                          // per_person_per_night / per_room_per_night: tax is fixed
                           newAccommodation = desiredTotal - cleaningFee - accommodationTax
                         }
 
@@ -780,6 +784,12 @@ export function CreateBookingWizard({
                         setLastEditedPriceField('total')
                         if (nights > 0) {
                           setPricePerNight(Math.round((newAccommodation / nights) * 100) / 100)
+                        }
+                        setTotalPriceEditing(false)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          (e.target as HTMLInputElement).blur()
                         }
                       }}
                     />
