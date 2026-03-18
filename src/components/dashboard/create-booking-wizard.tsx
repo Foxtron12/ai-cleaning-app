@@ -741,9 +741,48 @@ export function CreateBookingWizard({
 
                   <Separator />
 
-                  <div className="flex justify-between font-semibold">
-                    <span>Rechnungsbetrag</span>
-                    <span>{formatCurrency(totalPrice)}</span>
+                  <div className="space-y-1">
+                    <Label htmlFor="total-price" className="text-xs font-semibold">
+                      Rechnungsbetrag (Gesamtbetrag)
+                    </Label>
+                    <Input
+                      id="total-price"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={totalPrice}
+                      onChange={(e) => {
+                        const desiredTotal = parseFloat(e.target.value) || 0
+                        // Back-calculate accommodation price from desired total
+                        const prop = selectedProperty
+                        const taxRate = prop?.accommodation_tax_rate
+                        const taxModel = prop?.accommodation_tax_model
+
+                        let newAccommodation: number
+                        if (taxRate == null || taxModel == null || taxRate === 0) {
+                          // No tax: total = accommodation + cleaning
+                          newAccommodation = desiredTotal - cleaningFee
+                        } else if (taxModel === 'gross_percentage') {
+                          // tax = (accommodation + cleaning) * rate/100
+                          // total = (accommodation + cleaning) * (1 + rate/100)
+                          newAccommodation = desiredTotal / (1 + taxRate / 100) - cleaningFee
+                        } else if (taxModel === 'net_percentage') {
+                          // tax = accommodation * rate/100
+                          // total = accommodation * (1 + rate/100) + cleaning
+                          newAccommodation = (desiredTotal - cleaningFee) / (1 + taxRate / 100)
+                        } else {
+                          // per_person_per_night / per_room_per_night: tax is fixed
+                          newAccommodation = desiredTotal - cleaningFee - accommodationTax
+                        }
+
+                        newAccommodation = Math.max(0, Math.round(newAccommodation * 100) / 100)
+                        setAccommodationPrice(newAccommodation)
+                        setLastEditedPriceField('total')
+                        if (nights > 0) {
+                          setPricePerNight(Math.round((newAccommodation / nights) * 100) / 100)
+                        }
+                      }}
+                    />
                   </div>
                 </div>
               </div>
