@@ -279,12 +279,17 @@ function RechnungenContent() {
     setNotes('')
     setNotesFooter('')
     setPaymentScheduleEnabled(false)
-    const name = [booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ')
+
+    // Use company data as invoice recipient if set
+    const isCompany = booking.invoice_recipient === 'company'
+    const name = isCompany && booking.company_name
+      ? booking.company_name
+      : [booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ')
     setGuestName(name)
-    setGuestStreet(booking.guest_street ?? '')
-    setGuestZip(booking.guest_zip ?? '')
-    setGuestCity(booking.guest_city ?? '')
-    setGuestCountry(booking.guest_country ?? '')
+    setGuestStreet(isCompany && booking.company_street ? booking.company_street : (booking.guest_street ?? ''))
+    setGuestZip(isCompany && booking.company_zip ? booking.company_zip : (booking.guest_zip ?? ''))
+    setGuestCity(isCompany && booking.company_city ? booking.company_city : (booking.guest_city ?? ''))
+    setGuestCountry(isCompany && booking.company_country ? booking.company_country : (booking.guest_country ?? ''))
     setServicePeriodStart(booking.check_in)
     setServicePeriodEnd(booking.check_out)
 
@@ -498,6 +503,14 @@ function RechnungenContent() {
       booking_reference: booking.external_id?.toString() ?? '',
       guest_count: String((booking.adults ?? 0) + (booking.children ?? 0)),
       payment_channel: booking.channel ?? '',
+      // Company / invoice recipient
+      invoice_recipient: booking.invoice_recipient ?? 'guest',
+      company_name: booking.company_name ?? '',
+      company_street: booking.company_street ?? '',
+      company_zip: booking.company_zip ?? '',
+      company_city: booking.company_city ?? '',
+      company_country: booking.company_country ?? '',
+      company_vat_id: booking.company_vat_id ?? '',
     }
 
     const inserts = segments.map((seg) => {
@@ -680,16 +693,25 @@ function RechnungenContent() {
         logo_url: settings.landlord_logo_url ?? '',
       }
 
+      const isCompanyInvoice = selectedBooking?.invoice_recipient === 'company'
       const guestSnapshotData = {
-        firstname: guestName.split(' ')[0] ?? '',
-        lastname: guestName.split(' ').slice(1).join(' ') ?? '',
-        street: guestStreet,
-        zip: guestZip,
-        city: guestCity,
-        country: guestCountry,
+        firstname: selectedBooking?.guest_firstname ?? guestName.split(' ')[0] ?? '',
+        lastname: selectedBooking?.guest_lastname ?? guestName.split(' ').slice(1).join(' ') ?? '',
+        street: isCompanyInvoice ? (selectedBooking?.guest_street ?? '') : guestStreet,
+        zip: isCompanyInvoice ? (selectedBooking?.guest_zip ?? '') : guestZip,
+        city: isCompanyInvoice ? (selectedBooking?.guest_city ?? '') : guestCity,
+        country: isCompanyInvoice ? (selectedBooking?.guest_country ?? '') : guestCountry,
         booking_reference: selectedBooking?.external_id?.toString() ?? '',
         guest_count: selectedBooking ? String((selectedBooking.adults ?? 0) + (selectedBooking.children ?? 0)) : '',
         payment_channel: selectedBooking?.channel ?? '',
+        // Company / invoice recipient
+        invoice_recipient: selectedBooking?.invoice_recipient ?? 'guest',
+        company_name: selectedBooking?.company_name ?? '',
+        company_street: selectedBooking?.company_street ?? '',
+        company_zip: selectedBooking?.company_zip ?? '',
+        company_city: selectedBooking?.company_city ?? '',
+        company_country: selectedBooking?.company_country ?? '',
+        company_vat_id: selectedBooking?.company_vat_id ?? '',
       }
 
       // Compute payment schedule if enabled
