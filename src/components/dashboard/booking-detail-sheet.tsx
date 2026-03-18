@@ -408,11 +408,11 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
     const uploadPromises = Array.from(files).map(async (file) => {
       // Client-side validation
       if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-        toast.error(`"${file.name}" hat ein ungueltiges Format. Erlaubt: PDF, JPG, PNG.`)
+        toast.error(`"${file.name}" hat ein ungültiges Format. Erlaubt: PDF, JPG, PNG.`)
         return
       }
       if (file.size > MAX_FILE_SIZE) {
-        toast.error(`"${file.name}" ist zu gross. Maximal 10 MB erlaubt.`)
+        toast.error(`"${file.name}" ist zu groß. Maximal 10 MB erlaubt.`)
         return
       }
       if (file.size === 0) {
@@ -967,7 +967,7 @@ export function BookingDetailSheet({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Strasse + Hausnummer</Label>
+            <Label className="text-xs">Straße + Hausnummer</Label>
             <Input value={editStreet} onChange={(e) => setEditStreet(e.target.value)} placeholder="Musterstr. 1" />
           </div>
           <div className="grid grid-cols-3 gap-3">

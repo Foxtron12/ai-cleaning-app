@@ -92,6 +92,12 @@ export type Database = {
           children: number | null
           cleaning_fee: number | null
           commission_amount: number | null
+          company_city: string | null
+          company_country: string | null
+          company_name: string | null
+          company_street: string | null
+          company_vat_id: string | null
+          company_zip: string | null
           created_at: string | null
           currency: string | null
           external_id: number | null
@@ -109,6 +115,7 @@ export type Database = {
           guest_zip: string | null
           host_note: string | null
           id: string
+          invoice_recipient: string | null
           nights: number | null
           prepayment: number | null
           price_details: string | null
@@ -135,6 +142,12 @@ export type Database = {
           children?: number | null
           cleaning_fee?: number | null
           commission_amount?: number | null
+          company_city?: string | null
+          company_country?: string | null
+          company_name?: string | null
+          company_street?: string | null
+          company_vat_id?: string | null
+          company_zip?: string | null
           created_at?: string | null
           currency?: string | null
           external_id?: number | null
@@ -152,6 +165,7 @@ export type Database = {
           guest_zip?: string | null
           host_note?: string | null
           id?: string
+          invoice_recipient?: string | null
           nights?: number | null
           prepayment?: number | null
           price_details?: string | null
@@ -178,6 +192,12 @@ export type Database = {
           children?: number | null
           cleaning_fee?: number | null
           commission_amount?: number | null
+          company_city?: string | null
+          company_country?: string | null
+          company_name?: string | null
+          company_street?: string | null
+          company_vat_id?: string | null
+          company_zip?: string | null
           created_at?: string | null
           currency?: string | null
           external_id?: number | null
@@ -195,6 +215,7 @@ export type Database = {
           guest_zip?: string | null
           host_note?: string | null
           id?: string
+          invoice_recipient?: string | null
           nights?: number | null
           prepayment?: number | null
           price_details?: string | null

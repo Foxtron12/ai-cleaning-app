@@ -13,7 +13,7 @@ import { getServerUser } from '@/lib/supabase-server'
  */
 
 const requestSchema = z.object({
-  invoiceId: z.string().uuid('Ungueltige Rechnungs-ID'),
+  invoiceId: z.string().uuid('Ungültige Rechnungs-ID'),
 })
 
 export async function POST(request: NextRequest) {

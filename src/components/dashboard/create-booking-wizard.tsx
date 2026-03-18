@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/form'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 
 import { supabase } from '@/lib/supabase'
 import { generateBookingEmailHtml, copyHtmlToClipboard } from '@/lib/email-template'
@@ -63,9 +64,9 @@ interface RatesResult {
 const guestFormSchema = z.object({
   guestFirstname: z.string().min(1, 'Vorname ist erforderlich'),
   guestLastname: z.string().min(1, 'Nachname ist erforderlich'),
-  guestEmail: z.string().email('Ungueltige E-Mail-Adresse'),
-  guestPhone: z.string().min(1, 'Telefonnummer ist erforderlich'),
-  guestStreet: z.string().min(1, 'Strasse ist erforderlich'),
+  guestEmail: z.string().email('Ungültige E-Mail-Adresse'),
+  guestPhone: z.string().optional(),
+  guestStreet: z.string().min(1, 'Straße ist erforderlich'),
   guestZip: z.string().min(1, 'PLZ ist erforderlich').regex(/^\d+$/, { message: 'PLZ darf nur Ziffern enthalten' }),
   guestCity: z.string().min(1, 'Ort ist erforderlich'),
   guestCountry: z.string().min(1, 'Land ist erforderlich'),
@@ -73,6 +74,13 @@ const guestFormSchema = z.object({
   guestBirthdate: z.string().optional(),
   guestIdNumber: z.string().optional(),
   guestNote: z.string().optional(),
+  invoiceRecipient: z.enum(['guest', 'company']),
+  companyName: z.string().optional(),
+  companyStreet: z.string().optional(),
+  companyZip: z.string().optional(),
+  companyCity: z.string().optional(),
+  companyCountry: z.string().optional(),
+  companyVatId: z.string().optional(),
 })
 
 type GuestFormData = z.infer<typeof guestFormSchema>
@@ -196,6 +204,13 @@ export function CreateBookingWizard({
       guestBirthdate: '',
       guestIdNumber: '',
       guestNote: '',
+      invoiceRecipient: 'guest' as const,
+      companyName: '',
+      companyStreet: '',
+      companyZip: '',
+      companyCity: '',
+      companyCountry: 'DE',
+      companyVatId: '',
     },
   })
 
@@ -383,6 +398,13 @@ export function CreateBookingWizard({
           adults,
           children,
           ...guestData,
+          companyName: guestData.companyName,
+          companyStreet: guestData.companyStreet,
+          companyZip: guestData.companyZip,
+          companyCity: guestData.companyCity,
+          companyCountry: guestData.companyCountry,
+          companyVatId: guestData.companyVatId,
+          invoiceRecipient: guestData.invoiceRecipient,
           accommodationPrice,
           cleaningFee,
           accommodationTax,
@@ -562,7 +584,7 @@ export function CreateBookingWizard({
 
             {nights > 0 && (
               <p className="text-sm text-muted-foreground">
-                {nights} Naechte
+                {nights} Nächte
               </p>
             )}
 
@@ -651,7 +673,7 @@ export function CreateBookingWizard({
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <Label htmlFor="acc-price" className="text-xs text-muted-foreground">
-                      Uebernachtungskosten gesamt ({nights} Naechte)
+                      Übernachtungskosten gesamt ({nights} Nächte)
                     </Label>
                     <Input
                       id="acc-price"
@@ -695,7 +717,7 @@ export function CreateBookingWizard({
 
                   <div className="space-y-1">
                     <Label htmlFor="cleaning-fee" className="text-xs text-muted-foreground">
-                      Reinigungsgebuehr
+                      Reinigungsgebühr
                     </Label>
                     <Input
                       id="cleaning-fee"
@@ -863,7 +885,7 @@ export function CreateBookingWizard({
                   name="guestPhone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Telefon *</FormLabel>
+                      <FormLabel>Telefon</FormLabel>
                       <FormControl>
                         <Input {...field} type="tel" placeholder="+49 123 456789" />
                       </FormControl>
@@ -878,7 +900,7 @@ export function CreateBookingWizard({
                 name="guestStreet"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Strasse + Hausnummer *</FormLabel>
+                    <FormLabel>Straße + Hausnummer *</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="Musterstr. 1" />
                     </FormControl>
@@ -990,6 +1012,104 @@ export function CreateBookingWizard({
                 )}
               />
 
+              <Separator className="my-4" />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="companyInvoice"
+                  checked={form.watch('invoiceRecipient') === 'company'}
+                  onCheckedChange={(checked) => {
+                    form.setValue('invoiceRecipient', checked ? 'company' : 'guest')
+                  }}
+                />
+                <Label htmlFor="companyInvoice" className="text-sm font-medium cursor-pointer">
+                  Firma als Rechnungsempfänger
+                </Label>
+              </div>
+              {form.watch('invoiceRecipient') === 'company' && (
+                <div className="space-y-3 mt-3 p-3 border rounded-lg bg-muted/30">
+                  <FormField
+                    control={form.control}
+                    name="companyName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Firmenname *</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Musterfirma GmbH" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="companyStreet"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Straße + Hausnummer</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Musterstraße 1" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    <FormField
+                      control={form.control}
+                      name="companyZip"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>PLZ</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="01234" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="companyCity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ort</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Dresden" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="companyCountry"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Land</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="DE" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="companyVatId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>USt-ID</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="DE123456789" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+
               {/* Navigation */}
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setStep(0)}>
@@ -1018,9 +1138,9 @@ export function CreateBookingWizard({
               <SummaryRow label="Objekt" value={selectedProperty?.name ?? '–'} />
               <SummaryRow label="Check-in" value={checkIn ? formatDate(checkIn) : '–'} />
               <SummaryRow label="Check-out" value={checkOut ? formatDate(checkOut) : '–'} />
-              <SummaryRow label="Naechte" value={String(nights)} />
+              <SummaryRow label="Nächte" value={String(nights)} />
               <SummaryRow
-                label="Gaeste"
+                label="Gäste"
                 value={`${adults} Erw.${children > 0 ? ` + ${children} Kinder` : ''}`}
               />
             </div>
@@ -1032,17 +1152,23 @@ export function CreateBookingWizard({
                 value={`${form.getValues('guestFirstname')} ${form.getValues('guestLastname')}`}
               />
               <SummaryRow label="E-Mail" value={form.getValues('guestEmail')} />
-              <SummaryRow label="Telefon" value={form.getValues('guestPhone')} />
+              <SummaryRow label="Telefon" value={form.getValues('guestPhone') ?? ''} />
               <SummaryRow
                 label="Adresse"
                 value={`${form.getValues('guestStreet')}, ${form.getValues('guestZip')} ${form.getValues('guestCity')}, ${form.getValues('guestCountry')}`}
               />
+              {form.getValues('invoiceRecipient') === 'company' && (
+                <>
+                  <SummaryRow label="Rechnungsempfänger" value="Firma" />
+                  <SummaryRow label="Firma" value={form.getValues('companyName') || ''} />
+                </>
+              )}
             </div>
 
             <div className="rounded-lg border p-4 space-y-3">
               <h4 className="font-semibold text-sm">Preise</h4>
-              <SummaryRow label="Uebernachtungskosten" value={formatCurrency(accommodationPrice)} />
-              <SummaryRow label="Reinigungsgebuehr" value={formatCurrency(cleaningFee)} />
+              <SummaryRow label="Übernachtungskosten" value={formatCurrency(accommodationPrice)} />
+              <SummaryRow label="Reinigungsgebühr" value={formatCurrency(cleaningFee)} />
               <SummaryRow
                 label={getTaxLabel(selectedProperty)}
                 value={formatCurrency(accommodationTax)}
@@ -1097,7 +1223,7 @@ export function CreateBookingWizard({
             <div>
               <h3 className="text-lg font-semibold">Buchung erfolgreich erstellt</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Die Buchung wurde an Smoobu uebermittelt und gespeichert.
+                Die Buchung wurde an Smoobu übermittelt und gespeichert.
               </p>
             </div>
 
@@ -1140,7 +1266,7 @@ export function CreateBookingWizard({
                   <div className="flex items-center justify-between">
                     <Label className="text-sm font-semibold flex items-center gap-2">
                       <Mail className="h-4 w-4" />
-                      E-Mail-Text fuer den Gast
+                      E-Mail-Text für den Gast
                     </Label>
                     <Button
                       variant="outline"

@@ -22,7 +22,7 @@ import { decrypt, encrypt } from '@/lib/encryption'
  */
 
 const requestSchema = z.object({
-  bookingId: z.string().uuid('Ungueltige Buchungs-ID'),
+  bookingId: z.string().uuid('Ungültige Buchungs-ID'),
 })
 
 export async function POST(request: NextRequest) {

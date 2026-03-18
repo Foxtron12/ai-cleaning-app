@@ -22,7 +22,7 @@ export async function DELETE(
     const parsed = paramsSchema.safeParse(resolvedParams)
     if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Ungueltige Dokument-ID', details: parsed.error.issues },
+        { error: 'Ungültige Dokument-ID', details: parsed.error.issues },
         { status: 400 }
       )
     }

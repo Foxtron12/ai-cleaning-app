@@ -42,7 +42,7 @@ export function generateBookingEmailHtml({
   const nights = calcNights(checkIn, checkOut)
 
   return `<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
-  Vielen Dank f\u00fcr Ihre Buchung \u2013 ${propertyName}
+  Vielen Dank für Ihre Buchung – ${propertyName}
 </div>
 <center style="width:100%;background:#E7EFF4;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#E7EFF4;">
@@ -69,7 +69,7 @@ export function generateBookingEmailHtml({
                                   NORA STAYS
                                 </div>
                                 <div style="font-size:22px;font-weight:900;line-height:1.15;margin-top:4px;">
-                                  Buchungsbest\u00e4tigung
+                                  Buchungsbestätigung
                                 </div>
                               </td>
                             </tr>
@@ -100,7 +100,7 @@ export function generateBookingEmailHtml({
                       Guten Tag ${guestFirstname} ${guestLastname},
                     </div>
                     <div style="font-size:14px;margin:0 0 14px 0;">
-                      vielen Dank f\u00fcr Ihre Buchung der Unterkunft <strong>${propertyName}</strong> \u2013 wir freuen uns sehr \u00fcber Ihre Reservierung!
+                      vielen Dank für Ihre Buchung der Unterkunft <strong>${propertyName}</strong> – wir freuen uns sehr über Ihre Reservierung!
                     </div>
                   </td>
                 </tr>
@@ -129,12 +129,12 @@ export function generateBookingEmailHtml({
                                 <div style="font-size:14px;">
                                   <strong>Anreise:</strong> ${arrivalDate}<br>
                                   <strong>Abreise:</strong> ${departureDate}<br>
-                                  <strong>N\u00e4chte:</strong> ${nights}
+                                  <strong>Nächte:</strong> ${nights}
                                 </div>
                               </td>
                               <td valign="top" style="width:50%;padding:0;">
                                 <div style="font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:#3C5A6B;font-weight:900;margin-bottom:6px;">
-                                  G\u00e4ste
+                                  Gäste
                                 </div>
                                 <div style="font-size:14px;">
                                   ${adults} Person(en)
@@ -157,7 +157,7 @@ export function generateBookingEmailHtml({
                       Zahlung
                     </div>
                     <div style="font-size:14px;margin:0 0 14px 0;">
-                      Im Anhang finden Sie Ihre Rechnung als PDF. Den Rechnungsbetrag k\u00f6nnen Sie entweder per \u00dcberweisung auf das in der Rechnung angegebene Konto begleichen oder bequem \u00fcber folgenden Zahlungslink:
+                      Im Anhang finden Sie Ihre Rechnung als PDF. Den Rechnungsbetrag können Sie entweder per Überweisung auf das in der Rechnung angegebene Konto begleichen oder bequem über folgenden Zahlungslink:
                     </div>
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
                       <tr>
@@ -180,15 +180,15 @@ export function generateBookingEmailHtml({
                       Stornobedingungen
                     </div>
                     <div style="font-size:13px;color:#4A6B7C;line-height:1.7;">
-                      Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise m\u00f6glich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollst\u00e4ndige R\u00fcckerstattung auf die urspr\u00fcnglich verwendete Zahlungsmethode \u2013 in der Regel innerhalb von 7 Werktagen.
+                      Eine kostenfreie Stornierung ist bis 3 Tage vor Anreise möglich. Bei einer Stornierung innerhalb dieser Frist erfolgt die vollständige Rückerstattung auf die ursprünglich verwendete Zahlungsmethode – in der Regel innerhalb von 7 Werktagen.
                     </div>
                     <div style="height:14px;line-height:14px;font-size:1px;">&nbsp;</div>
                     <div style="font-size:14px;">
-                      Bei Fragen stehen wir Ihnen jederzeit gerne zur Verf\u00fcgung.
+                      Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.
                     </div>
                     <div style="height:10px;line-height:10px;font-size:1px;">&nbsp;</div>
                     <div style="font-size:14px;">
-                      Herzliche Gr\u00fc\u00dfe<br>
+                      Herzliche Grüße<br>
                       <strong>Ihr NORA Stays Team</strong>
                     </div>
                   </td>

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Ungueltige Parameter', details: parsed.error.issues },
+        { error: 'Ungültige Parameter', details: parsed.error.issues },
         { status: 400 }
       )
     }

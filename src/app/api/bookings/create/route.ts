@@ -20,7 +20,7 @@ const createBookingSchema = z.object({
   guestFirstname: z.string().min(1),
   guestLastname: z.string().min(1),
   guestEmail: z.string().email(),
-  guestPhone: z.string().min(1),
+  guestPhone: z.string().optional(),
   guestStreet: z.string().min(1),
   guestZip: z.string().min(1),
   guestCity: z.string().min(1),
@@ -33,6 +33,14 @@ const createBookingSchema = z.object({
   accommodationPrice: z.number().min(0),
   cleaningFee: z.number().min(0),
   accommodationTax: z.number().min(0),
+  // Company / Invoice recipient
+  invoiceRecipient: z.enum(['guest', 'company']).default('guest'),
+  companyName: z.string().optional(),
+  companyStreet: z.string().optional(),
+  companyZip: z.string().optional(),
+  companyCity: z.string().optional(),
+  companyCountry: z.string().optional(),
+  companyVatId: z.string().optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -47,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Ungueltige Daten', details: parsed.error.issues },
+        { error: 'Ungültige Daten', details: parsed.error.issues },
         { status: 400 }
       )
     }
@@ -91,7 +99,7 @@ export async function POST(request: NextRequest) {
         firstName: data.guestFirstname,
         lastName: data.guestLastname,
         email: data.guestEmail,
-        phone: data.guestPhone,
+        phone: data.guestPhone ?? '',
         adults: data.adults,
         children: data.children,
         price: totalPrice,
@@ -105,7 +113,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Smoobu-Fehler'
       return NextResponse.json(
-        { error: `Buchung konnte nicht an Smoobu uebermittelt werden: ${message}` },
+        { error: `Buchung konnte nicht an Smoobu übermittelt werden: ${message}` },
         { status: 502 }
       )
     }
@@ -138,13 +146,20 @@ export async function POST(request: NextRequest) {
         guest_firstname: data.guestFirstname,
         guest_lastname: data.guestLastname,
         guest_email: data.guestEmail,
-        guest_phone: data.guestPhone,
+        guest_phone: data.guestPhone ?? null,
         guest_street: data.guestStreet,
         guest_city: data.guestCity,
         guest_zip: data.guestZip,
         guest_country: data.guestCountry,
         guest_nationality: data.guestNationality ?? null,
         guest_note: data.guestNote ?? null,
+        company_name: data.companyName ?? null,
+        company_street: data.companyStreet ?? null,
+        company_zip: data.companyZip ?? null,
+        company_city: data.companyCity ?? null,
+        company_country: data.companyCountry ?? null,
+        company_vat_id: data.companyVatId ?? null,
+        invoice_recipient: data.invoiceRecipient ?? 'guest',
         synced_at: new Date().toISOString(),
         user_id: user.id,
       })

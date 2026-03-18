@@ -1035,11 +1035,21 @@ function RechnungenContent() {
       phone: ls.phone || undefined,
       email: ls.email || undefined,
       website: ls.website || undefined,
-      guestName: [gs.firstname, gs.lastname].filter(Boolean).join(' '),
-      guestAddress: guestAddr,
-      guestStreet: gs.street || undefined,
-      guestZipCity: gs.street ? [gs.zip, gs.city].filter(Boolean).join(' ') || undefined : undefined,
-      guestCountry: gs.street ? (gs.country || undefined) : undefined,
+      guestName: gs.invoice_recipient === 'company' && gs.company_name
+        ? gs.company_name
+        : [gs.firstname, gs.lastname].filter(Boolean).join(' '),
+      guestAddress: gs.invoice_recipient === 'company' && gs.company_street
+        ? [gs.company_street, [gs.company_zip, gs.company_city].filter(Boolean).join(' '), gs.company_country].filter(Boolean).join(', ')
+        : guestAddr,
+      guestStreet: gs.invoice_recipient === 'company' && gs.company_street
+        ? gs.company_street
+        : (gs.street || undefined),
+      guestZipCity: gs.invoice_recipient === 'company' && gs.company_city
+        ? [gs.company_zip, gs.company_city].filter(Boolean).join(' ') || undefined
+        : ([gs.zip, gs.city].filter(Boolean).join(' ') || undefined),
+      guestCountry: gs.invoice_recipient === 'company'
+        ? (gs.company_country || undefined)
+        : (gs.country || undefined),
       bookingReference: (gs as Record<string, string>).booking_reference || booking?.external_id?.toString() || undefined,
       guestCount: (gs as Record<string, string>).guest_count
         ? Number((gs as Record<string, string>).guest_count)
@@ -1104,10 +1114,18 @@ function RechnungenContent() {
 
     return {
       type,
-      guestName,
-      guestStreet: gs.street || undefined,
-      guestZipCity: gs.street ? [gs.zip, gs.city].filter(Boolean).join(' ') || undefined : undefined,
-      guestCountry: gs.street ? (gs.country || undefined) : undefined,
+      guestName: gs.invoice_recipient === 'company' && gs.company_name
+        ? gs.company_name
+        : guestName,
+      guestStreet: gs.invoice_recipient === 'company' && gs.company_street
+        ? gs.company_street
+        : (gs.street || undefined),
+      guestZipCity: gs.invoice_recipient === 'company' && gs.company_city
+        ? [gs.company_zip, gs.company_city].filter(Boolean).join(' ') || undefined
+        : ([gs.zip, gs.city].filter(Boolean).join(' ') || undefined),
+      guestCountry: gs.invoice_recipient === 'company'
+        ? (gs.company_country || undefined)
+        : (gs.country || undefined),
       invoiceNumber: inv.invoice_number,
       invoiceDate: inv.issued_date ? format(new Date(inv.issued_date + 'T00:00:00'), 'dd.MM.yyyy') : '',
       dueDate: inv.due_date ? format(new Date(inv.due_date + 'T00:00:00'), 'dd.MM.yyyy') : '',

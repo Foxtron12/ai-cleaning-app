@@ -239,6 +239,14 @@ export async function autoGenerateInvoices(
       booking_reference: booking.external_id?.toString() ?? '',
       guest_count: guestCount > 0 ? String(guestCount) : '',
       payment_channel: booking.channel ?? '',
+      // Company / invoice recipient
+      invoice_recipient: booking.invoice_recipient ?? 'guest',
+      company_name: booking.company_name ?? '',
+      company_street: booking.company_street ?? '',
+      company_zip: booking.company_zip ?? '',
+      company_city: booking.company_city ?? '',
+      company_country: booking.company_country ?? '',
+      company_vat_id: booking.company_vat_id ?? '',
     }
 
     return {

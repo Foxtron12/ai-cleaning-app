@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const metaParsed = uploadMetaSchema.safeParse({ booking_id: bookingId })
     if (!metaParsed.success) {
       return NextResponse.json(
-        { error: 'Ungueltige booking_id', details: metaParsed.error.issues },
+        { error: 'Ungültige booking_id', details: metaParsed.error.issues },
         { status: 400 }
       )
     }
