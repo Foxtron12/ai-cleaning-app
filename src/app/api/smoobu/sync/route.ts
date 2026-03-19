@@ -203,9 +203,23 @@ export async function POST(request: NextRequest) {
 
       if (existing) {
         const { external_id: _, trip_purpose: _tripPurpose, ...updateData } = bookingData
+
+        // Check if this booking was created as a direct booking via our wizard (channel_id=0)
+        const { data: existingBooking } = await supabase
+          .from('bookings')
+          .select('channel_id, cleaning_fee')
+          .eq('id', existing.id)
+          .single()
+        const isWizardDirectBooking = existingBooking?.channel_id === 0
+
         // Preserve manually set trip_purpose – never overwrite on sync
-        // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
-        if ((updateData.cleaning_fee ?? 0) === 0) {
+        // For wizard-created direct bookings, preserve the cleaning_fee and channel_id
+        // set by the user (even if 0€), since Smoobu doesn't reliably store these
+        if (isWizardDirectBooking) {
+          updateData.cleaning_fee = existingBooking.cleaning_fee
+          updateData.channel_id = 0
+        } else if ((updateData.cleaning_fee ?? 0) === 0) {
+          // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
           const fallback = propertyCleaningFees.get(propertyId)
           if (fallback != null && fallback > 0) {
             updateData.cleaning_fee = fallback
