@@ -209,7 +209,7 @@ export class SmoobuClient {
       country: params.country ?? '',
       address: {
         street: params.street ?? '',
-        city: params.city ?? '',
+        location: params.city ?? '',
         postalCode: params.postalCode ?? '',
         country: params.country ?? '',
       },
@@ -247,7 +247,7 @@ export class SmoobuClient {
     if (params.street || params.city || params.postalCode || params.country) {
       body.address = {
         street: params.street ?? '',
-        city: params.city ?? '',
+        location: params.city ?? '',
         postalCode: params.postalCode ?? '',
         country: params.country ?? '',
       }

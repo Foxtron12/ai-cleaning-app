@@ -211,6 +211,14 @@ export async function POST(request: NextRequest) {
             updateData.cleaning_fee = fallback
           }
         }
+        // Never overwrite existing guest address fields with null from Smoobu
+        // (user may have entered address manually via the app)
+        const addressFields = ['guest_street', 'guest_city', 'guest_zip', 'guest_country', 'guest_nationality'] as const
+        for (const field of addressFields) {
+          if (updateData[field] === null || updateData[field] === undefined) {
+            delete (updateData as Record<string, unknown>)[field]
+          }
+        }
         await supabase
           .from('bookings')
           .update({ ...updateData, updated_at: new Date().toISOString() })
