@@ -118,6 +118,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 1b. Sync guest address to Smoobu reservation (createReservation doesn't persist address reliably)
+    try {
+      await client.updateReservation(smoobuResult.id, {
+        firstName: data.guestFirstname,
+        lastName: data.guestLastname,
+        email: data.guestEmail,
+        phone: data.guestPhone ?? '',
+        street: data.guestStreet,
+        city: data.guestCity,
+        postalCode: data.guestZip,
+        country: data.guestCountry,
+      })
+    } catch {
+      // Non-blocking: address sync failure shouldn't prevent booking creation
+      console.warn('Failed to sync guest address to Smoobu reservation', smoobuResult.id)
+    }
+
     // 2. Save in Supabase
     const status = calculateBookingStatus(data.checkIn, data.checkOut)
 
