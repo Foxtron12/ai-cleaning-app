@@ -175,7 +175,8 @@ export function CreateBookingWizard({
   const [accommodationTax, setAccommodationTax] = useState(0)
   const [totalPriceInput, setTotalPriceInput] = useState<string>('')
   const [totalPriceEditing, setTotalPriceEditing] = useState(false)
-  // BUG-7: track whether Smoobu provided cleaning fee
+  // BUG-7: track whether user manually edited cleaning fee
+  const [cleaningFeeManuallySet, setCleaningFeeManuallySet] = useState(false)
 
   // Step 3 state
   const [submitting, setSubmitting] = useState(false)
@@ -246,6 +247,7 @@ export function CreateBookingWizard({
       setAdults(1)
       setChildren(0)
       setPromoCode('')
+      setCleaningFeeManuallySet(false)
       setAccommodationPrice(0)
       setPricePerNight(0)
       setLastEditedPriceField('total')
@@ -359,16 +361,19 @@ export function CreateBookingWizard({
         setPricePerNight(currentNights > 0 ? Math.round((data.price / currentNights) * 100) / 100 : 0)
         setLastEditedPriceField('total')
         // Use Smoobu cleaning fee if provided, otherwise fall back to property default
-        const smoobuCleaningFee = data.cleaningFee
-        const propertyDefault = selectedProperty?.default_cleaning_fee != null
-          ? parseFloat(String(selectedProperty.default_cleaning_fee))
-          : null
-        if (smoobuCleaningFee !== null && smoobuCleaningFee > 0) {
-          setCleaningFee(smoobuCleaningFee)
-        } else if (propertyDefault !== null && propertyDefault > 0) {
-          setCleaningFee(propertyDefault)
-        } else {
-          setCleaningFee(0)
+        // But never overwrite if user has manually edited the field
+        if (!cleaningFeeManuallySet) {
+          const smoobuCleaningFee = data.cleaningFee
+          const propertyDefault = selectedProperty?.default_cleaning_fee != null
+            ? parseFloat(String(selectedProperty.default_cleaning_fee))
+            : null
+          if (smoobuCleaningFee !== null && smoobuCleaningFee > 0) {
+            setCleaningFee(smoobuCleaningFee)
+          } else if (propertyDefault !== null && propertyDefault > 0) {
+            setCleaningFee(propertyDefault)
+          } else {
+            setCleaningFee(0)
+          }
         }
       }
     } catch {
@@ -725,7 +730,7 @@ export function CreateBookingWizard({
                       step="0.01"
                       min={0}
                       value={cleaningFee}
-                      onChange={(e) => setCleaningFee(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => { setCleaningFee(parseFloat(e.target.value) || 0); setCleaningFeeManuallySet(true) }}
                       placeholder={String(ratesResult.cleaningFee ?? 0)}
                     />
                   </div>
