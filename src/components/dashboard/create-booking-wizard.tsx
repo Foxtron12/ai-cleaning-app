@@ -465,7 +465,7 @@ export function CreateBookingWizard({
     ratesResult?.available &&
     accommodationPrice > 0
 
-  const stepLabels = ['Buchungsdetails', 'Gastdaten', 'Bestaetigung']
+  const stepLabels = ['Buchungsdetails', 'Gastdaten', 'Bestätigung']
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -496,7 +496,7 @@ export function CreateBookingWizard({
               ) : (
                 <Select value={selectedPropertyId} onValueChange={setSelectedPropertyId}>
                   <SelectTrigger id="property">
-                    <SelectValue placeholder="Objekt waehlen" />
+                    <SelectValue placeholder="Objekt wählen" />
                   </SelectTrigger>
                   <SelectContent>
                     {properties.map((p) => (
@@ -639,7 +639,7 @@ export function CreateBookingWizard({
               ) : (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Verfuegbarkeit & Preise pruefen
+                  Verfügbarkeit & Preise prüfen
                 </>
               )}
             </Button>
@@ -657,7 +657,7 @@ export function CreateBookingWizard({
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Zeitraum nicht verfuegbar. Bitte waehlen Sie andere Daten.
+                  Zeitraum nicht verfügbar. Bitte wählen Sie andere Daten.
                 </AlertDescription>
               </Alert>
             )}
@@ -667,7 +667,7 @@ export function CreateBookingWizard({
               <div className="space-y-3 rounded-lg border p-4">
                 <div className="flex items-center justify-between">
                   <h4 className="font-semibold text-sm">Preisaufstellung</h4>
-                  <Badge variant="secondary">Verfuegbar</Badge>
+                  <Badge variant="secondary">Verfügbar</Badge>
                 </div>
 
                 <div className="space-y-3">
@@ -962,7 +962,7 @@ export function CreateBookingWizard({
                   name="guestNationality"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nationalitaet</FormLabel>
+                      <FormLabel>Nationalität</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="DE" />
                       </FormControl>
@@ -1005,7 +1005,7 @@ export function CreateBookingWizard({
                   <FormItem>
                     <FormLabel>Notiz</FormLabel>
                     <FormControl>
-                      <Textarea {...field} placeholder="Besondere Wuensche..." rows={2} />
+                      <Textarea {...field} placeholder="Besondere Wünsche..." rows={2} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1114,7 +1114,7 @@ export function CreateBookingWizard({
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setStep(0)}>
                   <ChevronLeft className="mr-2 h-4 w-4" />
-                  Zurueck
+                  Zurück
                 </Button>
                 <Button
                   onClick={async () => {
@@ -1195,7 +1195,7 @@ export function CreateBookingWizard({
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(1)}>
                 <ChevronLeft className="mr-2 h-4 w-4" />
-                Zurueck
+                Zurück
               </Button>
               <Button onClick={handleSubmit} disabled={submitting}>
                 {submitting ? (
