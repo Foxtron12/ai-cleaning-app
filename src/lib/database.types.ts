@@ -40,34 +40,34 @@ export type Database = {
       }
       booking_documents: {
         Row: {
-          id: string
           booking_id: string
-          user_id: string
+          created_at: string
           file_name: string
           file_size: number
+          id: string
           mime_type: string
           storage_path: string
-          created_at: string
+          user_id: string
         }
         Insert: {
-          id?: string
           booking_id: string
-          user_id: string
+          created_at?: string
           file_name: string
           file_size: number
+          id?: string
           mime_type: string
           storage_path: string
-          created_at?: string
+          user_id: string
         }
         Update: {
-          id?: string
           booking_id?: string
-          user_id?: string
+          created_at?: string
           file_name?: string
           file_size?: number
+          id?: string
           mime_type?: string
           storage_path?: string
-          created_at?: string
+          user_id?: string
         }
         Relationships: [
           {
@@ -117,11 +117,11 @@ export type Database = {
           id: string
           invoice_recipient: string | null
           nights: number | null
+          payment_status: string | null
           prepayment: number | null
           price_details: string | null
           property_id: string | null
           security_deposit: number | null
-          payment_status: string | null
           status: string
           stripe_checkout_session_id: string | null
           stripe_payment_link: string | null
@@ -167,11 +167,11 @@ export type Database = {
           id?: string
           invoice_recipient?: string | null
           nights?: number | null
+          payment_status?: string | null
           prepayment?: number | null
           price_details?: string | null
           property_id?: string | null
           security_deposit?: number | null
-          payment_status?: string | null
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_link?: string | null
@@ -217,11 +217,11 @@ export type Database = {
           id?: string
           invoice_recipient?: string | null
           nights?: number | null
+          payment_status?: string | null
           prepayment?: number | null
           price_details?: string | null
           property_id?: string | null
           security_deposit?: number | null
-          payment_status?: string | null
           status?: string
           stripe_checkout_session_id?: string | null
           stripe_payment_link?: string | null
@@ -333,6 +333,7 @@ export type Database = {
           guest_snapshot: Json
           id: string
           invoice_number: string
+          invoice_type: string
           is_kleinunternehmer: boolean | null
           issued_date: string | null
           landlord_snapshot: Json
@@ -366,6 +367,7 @@ export type Database = {
           guest_snapshot?: Json
           id?: string
           invoice_number: string
+          invoice_type?: string
           is_kleinunternehmer?: boolean | null
           issued_date?: string | null
           landlord_snapshot?: Json
@@ -399,6 +401,7 @@ export type Database = {
           guest_snapshot?: Json
           id?: string
           invoice_number?: string
+          invoice_type?: string
           is_kleinunternehmer?: boolean | null
           issued_date?: string | null
           landlord_snapshot?: Json
@@ -669,6 +672,7 @@ export type Database = {
           company_register: string | null
           created_at: string | null
           finanzamt: string | null
+          gutschrift_next_number: number
           id: string
           invoice_next_number: number | null
           invoice_payment_days: number | null
@@ -691,6 +695,7 @@ export type Database = {
           personenkonto_chemnitz: string | null
           smoobu_api_key: string | null
           smoobu_last_sync: string | null
+          storno_next_number: number
           tax_number: string | null
           updated_at: string | null
           user_id: string | null
@@ -703,6 +708,7 @@ export type Database = {
           company_register?: string | null
           created_at?: string | null
           finanzamt?: string | null
+          gutschrift_next_number?: number
           id?: string
           invoice_next_number?: number | null
           invoice_payment_days?: number | null
@@ -725,6 +731,7 @@ export type Database = {
           personenkonto_chemnitz?: string | null
           smoobu_api_key?: string | null
           smoobu_last_sync?: string | null
+          storno_next_number?: number
           tax_number?: string | null
           updated_at?: string | null
           user_id?: string | null
@@ -737,6 +744,7 @@ export type Database = {
           company_register?: string | null
           created_at?: string | null
           finanzamt?: string | null
+          gutschrift_next_number?: number
           id?: string
           invoice_next_number?: number | null
           invoice_payment_days?: number | null
@@ -759,6 +767,7 @@ export type Database = {
           personenkonto_chemnitz?: string | null
           smoobu_api_key?: string | null
           smoobu_last_sync?: string | null
+          storno_next_number?: number
           tax_number?: string | null
           updated_at?: string | null
           user_id?: string | null

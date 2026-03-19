@@ -32,6 +32,7 @@ Eine Multi-Tenant SaaS-Plattform für Ferienvermieter: jeder Nutzer hat sein eig
 | P1 | Meldeschein-Verbesserungen (Alle löschen, strengere Pflichtfelder) | Planned | PROJ-15 |
 | P1 | BhSt UI & Export-Verbesserungen (Zeitraum-Auswahl, Excel-Export) | Planned | PROJ-16 |
 | P1 | Buchungs-Dokumenten-Upload (BhSt-Befreiungsbelege) | Planned | PROJ-17 |
+| P1 | Stornorechnung & Gutschrift | Planned | PROJ-18 |
 
 ## Success Metrics
 - Zeitersparnis: Meldeschein in < 30 Sekunden statt 5 Minuten

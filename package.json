@@ -48,6 +48,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.71.1",
     "recharts": "^2.15.4",
+    "retell-sdk": "^5.9.0",
     "sonner": "^2.0.7",
     "stripe": "^20.4.1",
     "tailwind-merge": "^2.2.0",

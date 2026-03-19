@@ -6,7 +6,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info, Mail, Copy, Check } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info, Mail, Copy, Check, RotateCcw, CreditCard } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -74,6 +74,8 @@ interface PaymentScheduleEntry {
   amount: number
 }
 
+type InvoiceType = 'invoice' | 'storno' | 'credit_note'
+
 interface InvoiceRow {
   id: string
   invoice_number: string
@@ -95,6 +97,8 @@ interface InvoiceRow {
   notes: string | null
   notes_footer: string | null
   payment_schedule: PaymentScheduleEntry[] | null
+  invoice_type?: InvoiceType
+  cancelled_invoice_id?: string | null
   landlord_snapshot: Record<string, string>
   guest_snapshot: Record<string, string>
   line_items: Array<{
@@ -112,7 +116,7 @@ interface PropertyInfo {
   name: string
 }
 
-const INVOICE_SELECT = 'id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, property_id, is_kleinunternehmer, service_period_start, service_period_end, notes, notes_footer, payment_schedule, landlord_snapshot, guest_snapshot, line_items'
+const INVOICE_SELECT = 'id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, property_id, is_kleinunternehmer, service_period_start, service_period_end, notes, notes_footer, payment_schedule, invoice_type, cancelled_invoice_id, landlord_snapshot, guest_snapshot, line_items'
 
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value)
@@ -123,6 +127,20 @@ const STATUS_LABELS: Record<string, string> = {
   created: 'Erstellt',
   paid: 'Bezahlt',
   cancelled: 'Storniert',
+}
+
+const TYPE_LABELS: Record<InvoiceType, string> = {
+  invoice: 'Rechnung',
+  storno: 'Storno',
+  credit_note: 'Gutschrift',
+}
+
+/** Derive invoice type from invoice_type field or number prefix (ST- / GS- / RE-) */
+function getInvoiceType(inv: InvoiceRow): InvoiceType {
+  if (inv.invoice_type) return inv.invoice_type
+  if (inv.invoice_number.startsWith('ST-')) return 'storno'
+  if (inv.invoice_number.startsWith('GS-')) return 'credit_note'
+  return 'invoice'
 }
 
 
@@ -161,12 +179,22 @@ function RechnungenContent() {
   const [dunningType, setDunningType] = useState<DunningType>('reminder')
   const [dunningCopied, setDunningCopied] = useState(false)
   const [dunningDownloading, setDunningDownloading] = useState(false)
+  // Storno & Gutschrift state
+  const [stornoInvoice, setStornoInvoice] = useState<InvoiceRow | null>(null)
+  const [stornoLoading, setStornoLoading] = useState(false)
+  const [gutschriftInvoice, setGutschriftInvoice] = useState<InvoiceRow | null>(null)
+  const [gutschriftLoading, setGutschriftLoading] = useState(false)
+  const [gutschriftType, setGutschriftType] = useState<'simple' | 'shortened'>('simple')
+  const [gutschriftPositions, setGutschriftPositions] = useState<Array<{ description: string; amount: number; vatRate: number }>>([{ description: '', amount: 0, vatRate: 7 }])
+  const [gutschriftReason, setGutschriftReason] = useState('')
+  const [gutschriftNewNights, setGutschriftNewNights] = useState<number>(1)
   const { toast } = useToast()
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('')
   const [propertyFilter, setPropertyFilter] = useState('all')
   const [periodFilter, setPeriodFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | InvoiceType>('all')
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState('')
@@ -915,6 +943,8 @@ function RechnungenContent() {
     }
     // Property filter
     if (propertyFilter !== 'all' && inv.property_id !== propertyFilter) return false
+    // Document type filter
+    if (typeFilter !== 'all' && getInvoiceType(inv) !== typeFilter) return false
     // Period filter
     const range = getPeriodRange(periodFilter)
     if (range && inv.issued_date) {
@@ -982,6 +1012,121 @@ function RechnungenContent() {
     setInvoices((prev) => prev.filter((inv) => inv.id !== invoiceId))
     setDeletingInvoiceId(null)
     toast({ title: 'Rechnung gelöscht' })
+  }
+
+  /** Handle storno creation via API */
+  async function handleCreateStorno() {
+    if (!stornoInvoice) return
+    setStornoLoading(true)
+    try {
+      const res = await fetch(`/api/rechnungen/${stornoInvoice.id}/storno`, { method: 'POST' })
+      const result = await res.json()
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: result.error ?? 'Storno fehlgeschlagen', variant: 'destructive' })
+        return
+      }
+      toast({ title: 'Stornorechnung erstellt', description: result.stornoNumber ?? 'Storno erfolgreich' })
+      // Refresh invoices list
+      const { data: refreshed } = await supabase
+        .from('invoices')
+        .select(INVOICE_SELECT)
+        .order('created_at', { ascending: false })
+      if (refreshed) setInvoices(refreshed as unknown as InvoiceRow[])
+      setStornoInvoice(null)
+    } finally {
+      setStornoLoading(false)
+    }
+  }
+
+  /** Handle gutschrift creation via API */
+  async function handleCreateGutschrift() {
+    if (!gutschriftInvoice) return
+
+    // Validate: total must not exceed original invoice amount
+    const totalGutschrift = gutschriftPositions.reduce((s, p) => s + p.amount, 0)
+    // Find existing credit notes for this invoice
+    const existingCredits = invoices
+      .filter((inv) => inv.cancelled_invoice_id === gutschriftInvoice.id && getInvoiceType(inv) === 'credit_note')
+      .reduce((s, inv) => s + Math.abs(inv.total_gross), 0)
+    const maxAmount = gutschriftInvoice.total_gross - existingCredits
+    if (totalGutschrift > maxAmount) {
+      toast({
+        title: 'Betrag zu hoch',
+        description: `Maximaler Gutschriftsbetrag: ${formatEur(maxAmount)}`,
+        variant: 'destructive',
+      })
+      return
+    }
+    if (totalGutschrift <= 0) {
+      toast({ title: 'Ungültiger Betrag', description: 'Der Gutschriftsbetrag muss positiv sein.', variant: 'destructive' })
+      return
+    }
+
+    setGutschriftLoading(true)
+    try {
+      const body: Record<string, unknown> = {
+        type: gutschriftType,
+        positions: gutschriftPositions.filter((p) => p.amount > 0),
+        reason: gutschriftReason.trim() || null,
+      }
+      if (gutschriftType === 'shortened') {
+        body.newNights = gutschriftNewNights
+      }
+
+      const res = await fetch(`/api/rechnungen/${gutschriftInvoice.id}/gutschrift`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        toast({ title: 'Fehler', description: result.error ?? 'Gutschrift fehlgeschlagen', variant: 'destructive' })
+        return
+      }
+      toast({ title: 'Gutschrift erstellt', description: result.gutschriftNumber ?? 'Gutschrift erfolgreich' })
+      // Refresh invoices list
+      const { data: refreshed } = await supabase
+        .from('invoices')
+        .select(INVOICE_SELECT)
+        .order('created_at', { ascending: false })
+      if (refreshed) setInvoices(refreshed as unknown as InvoiceRow[])
+      setGutschriftInvoice(null)
+      // Reset form
+      setGutschriftPositions([{ description: '', amount: 0, vatRate: 7 }])
+      setGutschriftReason('')
+      setGutschriftType('simple')
+      setGutschriftNewNights(1)
+    } finally {
+      setGutschriftLoading(false)
+    }
+  }
+
+  /** Check if an invoice can be storniert */
+  function canStorno(inv: InvoiceRow): boolean {
+    const type = getInvoiceType(inv)
+    if (type !== 'invoice') return false
+    if (inv.status !== 'created' && inv.status !== 'paid') return false
+    // Check if already has a storno
+    const hasStorno = invoices.some(
+      (other) => other.cancelled_invoice_id === inv.id && getInvoiceType(other) === 'storno'
+    )
+    return !hasStorno
+  }
+
+  /** Check if a gutschrift can be created for this invoice */
+  function canGutschrift(inv: InvoiceRow): boolean {
+    const type = getInvoiceType(inv)
+    if (type !== 'invoice') return false
+    if (inv.status !== 'created' && inv.status !== 'paid') return false
+    return true
+  }
+
+  /** Get remaining amount available for credit notes */
+  function getRemainingCreditAmount(inv: InvoiceRow): number {
+    const existingCredits = invoices
+      .filter((other) => other.cancelled_invoice_id === inv.id && getInvoiceType(other) === 'credit_note')
+      .reduce((s, other) => s + Math.abs(other.total_gross), 0)
+    return Math.max(0, inv.total_gross - existingCredits)
   }
 
   /** Build PDF data from an InvoiceRow (shared between single + bulk download) */
@@ -1098,6 +1243,39 @@ function RechnungenContent() {
       notes: inv.notes || undefined,
       notesFooter: inv.notes_footer || undefined,
       paymentSchedule: (inv.payment_schedule as PaymentScheduleEntry[] | null) || undefined,
+      // Storno / Gutschrift PDF overrides
+      ...(() => {
+        const invType = getInvoiceType(inv)
+        if (invType === 'storno') {
+          const originalInv = inv.cancelled_invoice_id
+            ? invoices.find((o) => o.id === inv.cancelled_invoice_id)
+            : null
+          const originalDate = originalInv?.issued_date
+            ? format(new Date(originalInv.issued_date + 'T00:00:00'), 'dd.MM.yyyy')
+            : ''
+          return {
+            documentTitle: 'Stornorechnung',
+            referenceText: originalInv
+              ? `Storno zu Rechnung ${originalInv.invoice_number} vom ${originalDate}`
+              : undefined,
+          }
+        }
+        if (invType === 'credit_note') {
+          const originalInv = inv.cancelled_invoice_id
+            ? invoices.find((o) => o.id === inv.cancelled_invoice_id)
+            : null
+          const originalDate = originalInv?.issued_date
+            ? format(new Date(originalInv.issued_date + 'T00:00:00'), 'dd.MM.yyyy')
+            : ''
+          return {
+            documentTitle: 'Gutschrift',
+            referenceText: originalInv
+              ? `Gutschrift zu Rechnung ${originalInv.invoice_number} vom ${originalDate}`
+              : undefined,
+          }
+        }
+        return {}
+      })(),
     }
   }
 
@@ -1628,6 +1806,17 @@ function RechnungenContent() {
             <SelectItem value="last_year">Letztes Jahr</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as 'all' | InvoiceType)}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Alle Dokumenttypen" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Alle Dokumenttypen</SelectItem>
+            <SelectItem value="invoice">Rechnungen</SelectItem>
+            <SelectItem value="storno">Stornorechnungen</SelectItem>
+            <SelectItem value="credit_note">Gutschriften</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Invoice archive */}
@@ -1659,6 +1848,7 @@ function RechnungenContent() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nummer</TableHead>
+                    <TableHead>Typ</TableHead>
                     <TableHead>Gast</TableHead>
                     <TableHead>Datum</TableHead>
                     <TableHead className="text-right">Betrag</TableHead>
@@ -1667,10 +1857,25 @@ function RechnungenContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredInvoices.map((inv) => (
-                    <TableRow key={inv.id}>
+                  {filteredInvoices.map((inv) => {
+                    const invType = getInvoiceType(inv)
+                    return (
+                    <TableRow key={inv.id} className={inv.status === 'cancelled' ? 'opacity-60' : ''}>
                       <TableCell className="font-medium font-mono text-sm">
-                        {inv.invoice_number}
+                        {inv.status === 'cancelled' ? (
+                          <span className="line-through">{inv.invoice_number}</span>
+                        ) : (
+                          inv.invoice_number
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {invType === 'storno' ? (
+                          <Badge variant="destructive">Storno</Badge>
+                        ) : invType === 'credit_note' ? (
+                          <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Gutschrift</Badge>
+                        ) : (
+                          <Badge variant="secondary">Rechnung</Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         {inv.guest_snapshot?.firstname} {inv.guest_snapshot?.lastname}
@@ -1686,6 +1891,8 @@ function RechnungenContent() {
                       <TableCell>
                         {inv.status === 'cancelled' ? (
                           <Badge variant="destructive">{STATUS_LABELS[inv.status]}</Badge>
+                        ) : invType !== 'invoice' ? (
+                          <Badge variant="outline">{STATUS_LABELS[inv.status] ?? inv.status}</Badge>
                         ) : (
                           <Select
                             value={inv.status}
@@ -1710,38 +1917,73 @@ function RechnungenContent() {
                             size="sm"
                             disabled={downloading === inv.id}
                             onClick={() => handleDownloadPDF(inv)}
-                            title="Rechnung herunterladen"
+                            title="PDF herunterladen"
                           >
                             {downloading === inv.id
                               ? <Loader2 className="h-4 w-4 animate-spin" />
                               : <Download className="h-4 w-4" />}
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setDunningInvoice(inv)
-                              setDunningType('reminder')
-                              setDunningCopied(false)
-                              setDunningDialogOpen(true)
-                            }}
-                            title="Mahnung / Erinnerung"
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDeletingInvoiceId(inv.id)}
-                            title="Löschen"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {invType === 'invoice' && inv.status !== 'cancelled' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setDunningInvoice(inv)
+                                  setDunningType('reminder')
+                                  setDunningCopied(false)
+                                  setDunningDialogOpen(true)
+                                }}
+                                title="Mahnung / Erinnerung"
+                              >
+                                <Mail className="h-4 w-4" />
+                              </Button>
+                              {canStorno(inv) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setStornoInvoice(inv)}
+                                  title="Storno erstellen"
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <RotateCcw className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canGutschrift(inv) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setGutschriftInvoice(inv)
+                                    setGutschriftPositions([{ description: '', amount: 0, vatRate: 7 }])
+                                    setGutschriftReason('')
+                                    setGutschriftType('simple')
+                                    setGutschriftNewNights(1)
+                                  }}
+                                  title="Gutschrift erstellen"
+                                  className="text-orange-600 hover:text-orange-700"
+                                >
+                                  <CreditCard className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </>
+                          )}
+                          {invType === 'invoice' && inv.status === 'draft' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeletingInvoiceId(inv.id)}
+                              title="Löschen"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -1826,6 +2068,252 @@ function RechnungenContent() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Storno Confirmation Dialog */}
+      <AlertDialog open={!!stornoInvoice} onOpenChange={(open) => { if (!open) setStornoInvoice(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rechnung stornieren?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {stornoInvoice && (
+                <>
+                  Möchten Sie Rechnung <span className="font-semibold">{stornoInvoice.invoice_number}</span> vollständig stornieren?
+                  <br /><br />
+                  Es wird eine Stornorechnung mit negativen Beträgen erstellt. Die Originalrechnung erhält den Status &quot;Storniert&quot; und der Buchungsbetrag wird auf 0 gesetzt. Diese Aktion kann nicht rückgängig gemacht werden.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={stornoLoading}>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={stornoLoading}
+              onClick={(e) => {
+                e.preventDefault()
+                handleCreateStorno()
+              }}
+            >
+              {stornoLoading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird erstellt...</>
+              ) : (
+                'Storno erstellen'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Gutschrift Dialog */}
+      <Dialog open={!!gutschriftInvoice} onOpenChange={(open) => { if (!open) { setGutschriftInvoice(null); setGutschriftPositions([{ description: '', amount: 0, vatRate: 7 }]); setGutschriftReason(''); setGutschriftType('simple'); setGutschriftNewNights(1) } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Gutschrift erstellen</DialogTitle>
+          </DialogHeader>
+          {gutschriftInvoice && (() => {
+            const remaining = getRemainingCreditAmount(gutschriftInvoice)
+            const currentTotal = gutschriftPositions.reduce((s, p) => s + p.amount, 0)
+            const booking = gutschriftInvoice.booking_id
+              ? bookings.find((b) => b.id === gutschriftInvoice.booking_id)
+              : null
+            const currentNights = booking?.nights ?? 0
+
+            return (
+              <div className="space-y-4 py-2">
+                {/* Reference info */}
+                <div className="rounded-md border p-3 bg-muted/50 text-sm space-y-1">
+                  <p>
+                    Gutschrift zu Rechnung <span className="font-semibold font-mono">{gutschriftInvoice.invoice_number}</span>
+                    {gutschriftInvoice.issued_date && (
+                      <> vom {format(new Date(gutschriftInvoice.issued_date + 'T00:00:00'), 'dd.MM.yyyy')}</>
+                    )}
+                  </p>
+                  <p>Rechnungsbetrag: <span className="font-semibold">{formatEur(gutschriftInvoice.total_gross)}</span></p>
+                  {remaining < gutschriftInvoice.total_gross && (
+                    <p className="text-orange-600">
+                      Bereits erstattet: {formatEur(gutschriftInvoice.total_gross - remaining)} — Verbleibend: <span className="font-semibold">{formatEur(remaining)}</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Type selection */}
+                <div className="space-y-2">
+                  <Label>Art der Gutschrift</Label>
+                  <Select value={gutschriftType} onValueChange={(v) => setGutschriftType(v as 'simple' | 'shortened')}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="simple">Einfache Erstattung</SelectItem>
+                      <SelectItem value="shortened">Aufenthaltsverkürzung</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {gutschriftType === 'simple'
+                      ? 'Teilerstattung ohne Änderung der Beherbergungssteuer (z.B. Mangel, Kulanz).'
+                      : 'Der Aufenthalt wird verkürzt. Buchungsbetrag und Beherbergungssteuer werden neu berechnet.'}
+                  </p>
+                </div>
+
+                {/* Shortened stay: new nights input */}
+                {gutschriftType === 'shortened' && booking && (
+                  <div className="space-y-2">
+                    <Label>Neue Nächteanzahl</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={currentNights - 1}
+                        value={gutschriftNewNights}
+                        onChange={(e) => setGutschriftNewNights(Math.max(1, Number(e.target.value)))}
+                        className="w-24"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        von aktuell {currentNights} Nächten
+                      </span>
+                    </div>
+                    {gutschriftNewNights >= currentNights && (
+                      <p className="text-xs text-destructive">
+                        Die neue Nächteanzahl muss kleiner als die aktuelle sein ({currentNights}). Für eine vollständige Stornierung verwenden Sie bitte die Storno-Funktion.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Positions */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Positionen (Erstattungsbeträge)</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGutschriftPositions((prev) => [...prev, { description: '', amount: 0, vatRate: 7 }])}
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      Position
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {gutschriftPositions.map((pos, i) => (
+                      <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-5">
+                          {i === 0 && <Label className="text-xs">Beschreibung</Label>}
+                          <Input
+                            value={pos.description}
+                            onChange={(e) => {
+                              const updated = [...gutschriftPositions]
+                              updated[i] = { ...updated[i], description: e.target.value }
+                              setGutschriftPositions(updated)
+                            }}
+                            placeholder="z.B. Teilerstattung Wasserschaden"
+                          />
+                        </div>
+                        <div className="col-span-3">
+                          {i === 0 && <Label className="text-xs">Bruttobetrag</Label>}
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            value={pos.amount || ''}
+                            onChange={(e) => {
+                              const updated = [...gutschriftPositions]
+                              updated[i] = { ...updated[i], amount: Number(e.target.value) }
+                              setGutschriftPositions(updated)
+                            }}
+                            placeholder="0,00"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          {i === 0 && <Label className="text-xs">USt%</Label>}
+                          <Select
+                            value={String(pos.vatRate)}
+                            onValueChange={(v) => {
+                              const updated = [...gutschriftPositions]
+                              updated[i] = { ...updated[i], vatRate: Number(v) }
+                              setGutschriftPositions(updated)
+                            }}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">0%</SelectItem>
+                              <SelectItem value="7">7%</SelectItem>
+                              <SelectItem value="19">19%</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-2">
+                          {gutschriftPositions.length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setGutschriftPositions((prev) => prev.filter((_, idx) => idx !== i))}
+                            >
+                              <Ban className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Reason / Info */}
+                <div className="space-y-2">
+                  <Label>Grund / Info (optional)</Label>
+                  <Textarea
+                    value={gutschriftReason}
+                    onChange={(e) => setGutschriftReason(e.target.value)}
+                    placeholder="z.B. Erstattung wegen defekter Heizung am 15.03.2026"
+                    rows={2}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Wird als Notiz auf der Gutschrift angezeigt.
+                  </p>
+                </div>
+
+                {/* Summary */}
+                <div className="rounded-md border p-3 space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>Gutschriftsbetrag:</span>
+                    <span className="font-semibold">{formatEur(currentTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Maximaler Erstattungsbetrag:</span>
+                    <span>{formatEur(remaining)}</span>
+                  </div>
+                  {currentTotal > remaining && (
+                    <p className="text-xs text-destructive mt-1">
+                      Der Gutschriftsbetrag übersteigt den maximalen Erstattungsbetrag.
+                    </p>
+                  )}
+                </div>
+
+                {/* Submit */}
+                <Button
+                  className="w-full"
+                  disabled={
+                    gutschriftLoading ||
+                    currentTotal <= 0 ||
+                    currentTotal > remaining ||
+                    gutschriftPositions.every((p) => !p.description && p.amount === 0) ||
+                    (gutschriftType === 'shortened' && gutschriftNewNights >= currentNights)
+                  }
+                  onClick={handleCreateGutschrift}
+                >
+                  {gutschriftLoading ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird erstellt...</>
+                  ) : (
+                    <><CreditCard className="mr-2 h-4 w-4" />Gutschrift erstellen</>
+                  )}
+                </Button>
+              </div>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>

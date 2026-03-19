@@ -246,6 +246,9 @@ export interface InvoicePDFData {
   companyRegister?: string
   managingDirector?: string
   thankYouText?: string
+  // Storno / Gutschrift overrides
+  documentTitle?: string // e.g. "Stornorechnung", "Gutschrift" – defaults to "Rechnung"
+  referenceText?: string // e.g. "Storno zu Rechnung RE-2026-005 vom 01.03.2026"
 }
 
 export function InvoicePDF({ data }: { data: InvoicePDFData }) {
@@ -345,9 +348,18 @@ export function InvoicePDF({ data }: { data: InvoicePDFData }) {
         </View>
 
         {/* Title */}
-        <Text style={styles.title}>Rechnung</Text>
+        <Text style={styles.title}>{data.documentTitle ?? 'Rechnung'}</Text>
+        {data.referenceText ? (
+          <Text style={{ fontSize: 9, color: '#555', marginBottom: 6 }}>
+            {data.referenceText}
+          </Text>
+        ) : null}
         <Text style={styles.introText}>
-          für Ihren Aufenthalt erlauben wir uns folgende Punkte in Rechnung zu stellen:
+          {data.documentTitle === 'Stornorechnung'
+            ? 'Hiermit stornieren wir die oben genannte Rechnung vollständig:'
+            : data.documentTitle === 'Gutschrift'
+              ? 'Hiermit erstatten wir Ihnen folgenden Betrag:'
+              : 'für Ihren Aufenthalt erlauben wir uns folgende Punkte in Rechnung zu stellen:'}
         </Text>
 
         {/* Notes / Anschreiben */}
