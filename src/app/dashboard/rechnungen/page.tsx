@@ -323,7 +323,8 @@ function RechnungenContent() {
 
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-    const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
+    // In the manual invoice wizard, use the booking's actual cleaning_fee (no fallback)
+    const cleaningFee = booking.cleaning_fee ?? 0
     const isKlein = s?.is_kleinunternehmer ?? false
 
     // Calculate accommodation tax using city_tax_rules
