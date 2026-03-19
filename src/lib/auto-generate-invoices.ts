@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database, Json } from './database.types'
 import type { BookingWithProperty, Settings, CityTaxRule } from './types'
 import {
-  getCleaningFee,
   getAccommodationGrossWithoutCityTax,
 } from './calculators/booking-price'
 import {
@@ -137,7 +136,8 @@ export async function autoGenerateInvoices(
 
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-    const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
+    // Use booking's actual cleaning_fee (no fallback) for invoices
+    const cleaningFee = booking.cleaning_fee ?? 0
     const accommodationGross = grossWithoutTax - cleaningFee
     const accommodationPerNight = nights > 0 ? accommodationGross / nights : 0
 

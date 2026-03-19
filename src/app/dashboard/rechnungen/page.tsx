@@ -15,7 +15,6 @@ import { type DunningType, type DunningData, DUNNING_LABELS, getDunningText, gen
 import { copyHtmlToClipboard } from '@/lib/email-template'
 import type { BookingWithProperty, Settings, CityTaxRule } from '@/lib/types'
 import {
-  getCleaningFee,
   getAccommodationGrossWithoutCityTax,
 } from '@/lib/calculators/booking-price'
 import {
@@ -504,7 +503,8 @@ function RechnungenContent() {
 
     const taxConfig = booking.properties ? getTaxConfigForProperty(booking.properties, effectiveRules) : null
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-    const cleaningFee = getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined)
+    // Use booking's actual cleaning_fee (no fallback) – same as manual wizard
+    const cleaningFee = booking.cleaning_fee ?? 0
     const accommodationGross = grossWithoutTax - cleaningFee
 
     // Calculate BHSt once for the full booking, then split proportionally per segment.
