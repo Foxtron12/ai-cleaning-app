@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -175,6 +175,7 @@ export function CreateBookingWizard({
   const [accommodationTax, setAccommodationTax] = useState(0)
   const [totalPriceInput, setTotalPriceInput] = useState<string>('')
   const [totalPriceEditing, setTotalPriceEditing] = useState(false)
+  const desiredTotalRef = useRef<number | null>(null)
   // BUG-7: track whether user manually edited cleaning fee
   const [cleaningFeeManuallySet, setCleaningFeeManuallySet] = useState(false)
 
@@ -255,6 +256,7 @@ export function CreateBookingWizard({
       setAccommodationTax(0)
       setTotalPriceInput('')
       setTotalPriceEditing(false)
+      desiredTotalRef.current = null
       form.reset()
     }
   }, [open, form])
@@ -288,7 +290,19 @@ export function CreateBookingWizard({
       tax = taxRate * nights
     }
 
-    setAccommodationTax(Math.round(tax * 100) / 100)
+    let roundedTax = Math.round(tax * 100) / 100
+
+    // When the user entered a desired total, absorb rounding differences in the tax
+    // so that the Gesamtbetrag stays exactly what was entered
+    if (desiredTotalRef.current != null) {
+      const computedTotal = accommodationPrice + cleaningFee + roundedTax
+      const diff = Math.round((desiredTotalRef.current - computedTotal) * 100) / 100
+      if (Math.abs(diff) <= 0.02) {
+        roundedTax = Math.round((roundedTax + diff) * 100) / 100
+      }
+    }
+
+    setAccommodationTax(roundedTax)
   }, [accommodationPrice, cleaningFee, selectedPropertyId, properties, adults, checkIn, checkOut])
 
   const selectedProperty = properties.find((p) => p.id === selectedPropertyId)
@@ -688,6 +702,7 @@ export function CreateBookingWizard({
                       value={accommodationPrice}
                       onChange={(e) => {
                         const total = parseFloat(e.target.value) || 0
+                        desiredTotalRef.current = null
                         setAccommodationPrice(total)
                         setLastEditedPriceField('total')
                         if (nights > 0) {
@@ -710,6 +725,7 @@ export function CreateBookingWizard({
                       value={pricePerNight}
                       onChange={(e) => {
                         const perNight = parseFloat(e.target.value) || 0
+                        desiredTotalRef.current = null
                         setPricePerNight(perNight)
                         setLastEditedPriceField('perNight')
                         if (nights > 0) {
@@ -730,7 +746,7 @@ export function CreateBookingWizard({
                       step="0.01"
                       min={0}
                       value={cleaningFee}
-                      onChange={(e) => { setCleaningFee(parseFloat(e.target.value) || 0); setCleaningFeeManuallySet(true) }}
+                      onChange={(e) => { desiredTotalRef.current = null; setCleaningFee(parseFloat(e.target.value) || 0); setCleaningFeeManuallySet(true) }}
                       placeholder={String(ratesResult.cleaningFee ?? 0)}
                     />
                   </div>
@@ -807,6 +823,7 @@ export function CreateBookingWizard({
                         }
 
                         newAccommodation = Math.max(0, Math.round(newAccommodation * 100) / 100)
+                        desiredTotalRef.current = desiredTotal
                         setAccommodationPrice(newAccommodation)
                         setLastEditedPriceField('total')
                         if (nights > 0) {
