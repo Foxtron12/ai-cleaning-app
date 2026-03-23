@@ -43,7 +43,15 @@ interface VordruckDialogProps {
   settings: Settings | null
 }
 
-interface DresdenFormData {
+interface BhStOperatorOverride {
+  operatorName?: string
+  operatorStreet?: string
+  operatorZip?: string
+  operatorCity?: string
+  kassenzeichen?: string
+}
+
+interface DresdenFormData extends BhStOperatorOverride {
   city: 'dresden'
   year: number
   rhythm: DresdenRhythm
@@ -58,7 +66,7 @@ interface DresdenFormData {
   taxAmountG: number
 }
 
-interface ChemnitzFormData {
+interface ChemnitzFormData extends BhStOperatorOverride {
   city: 'chemnitz'
   year: number
   months: number[]
@@ -312,6 +320,20 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
     setDownloadSuccess(false)
 
     try {
+      // Build operator override from property-level bhst_ fields
+      // Use override if at least one property has bhst_name set
+      const overrideProps = cityProperties.filter((p) => p.bhst_name)
+      const overrideSource = overrideProps.length > 0 ? overrideProps[0] : null
+      const operatorOverride: BhStOperatorOverride = overrideSource
+        ? {
+            operatorName: overrideSource.bhst_name || undefined,
+            operatorStreet: overrideSource.bhst_street || undefined,
+            operatorZip: overrideSource.bhst_zip || undefined,
+            operatorCity: overrideSource.bhst_city || undefined,
+            kassenzeichen: overrideSource.bhst_kassenzeichen || undefined,
+          }
+        : {}
+
       let payload: DresdenFormData | ChemnitzFormData
 
       if (isDresden) {
@@ -328,6 +350,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
           exemptRevenueE: aggregated.exemptRevenue,
           taxableRevenueF: aggregated.taxableRevenue,
           taxAmountG: aggregated.selfRemitTax,
+          ...operatorOverride,
         }
       } else {
         payload = {
@@ -344,6 +367,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
           taxableRevenue: aggregated.chemnitzTaxableRevenue,
           fivePercent: aggregated.fivePercent,
           actualTax: aggregated.selfRemitTax,
+          ...operatorOverride,
         }
       }
 
@@ -618,7 +642,13 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
               <div className="flex justify-between pb-2 border-b">
                 <span className="text-muted-foreground">Betreiber</span>
                 <span className="font-medium text-right">
-                  {settings?.landlord_name || <span className="text-destructive">fehlt</span>}
+                  {(() => {
+                    const overrideProp = cityProperties.find((p) => p.bhst_name)
+                    if (overrideProp?.bhst_name) {
+                      return <><span>{overrideProp.bhst_name}</span> <Badge variant="secondary" className="text-[10px] ml-1">Override</Badge></>
+                    }
+                    return settings?.landlord_name || <span className="text-destructive">fehlt</span>
+                  })()}
                 </span>
               </div>
               <div className="flex justify-between pb-2 border-b">
@@ -626,10 +656,15 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
                   {isDresden ? 'Kassenzeichen' : 'Personenkonto'}
                 </span>
                 <span className="font-medium">
-                  {isDresden
-                    ? (settings?.kassenzeichen_dresden || <span className="text-amber-600">nicht hinterlegt</span>)
-                    : (settings?.personenkonto_chemnitz || <span className="text-amber-600">nicht hinterlegt</span>)
-                  }
+                  {(() => {
+                    const overrideProp = cityProperties.find((p) => p.bhst_kassenzeichen)
+                    if (overrideProp?.bhst_kassenzeichen) {
+                      return <><span>{overrideProp.bhst_kassenzeichen}</span> <Badge variant="secondary" className="text-[10px] ml-1">Override</Badge></>
+                    }
+                    return isDresden
+                      ? (settings?.kassenzeichen_dresden || <span className="text-amber-600">nicht hinterlegt</span>)
+                      : (settings?.personenkonto_chemnitz || <span className="text-amber-600">nicht hinterlegt</span>)
+                  })()}
                 </span>
               </div>
 

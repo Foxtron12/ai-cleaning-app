@@ -584,6 +584,11 @@ export type Database = {
           accommodation_tax_city: string | null
           accommodation_tax_model: string | null
           accommodation_tax_rate: number | null
+          bhst_city: string | null
+          bhst_kassenzeichen: string | null
+          bhst_name: string | null
+          bhst_street: string | null
+          bhst_zip: string | null
           booking_com_commission_rate: number | null
           city: string | null
           country: string | null
@@ -606,6 +611,11 @@ export type Database = {
           accommodation_tax_city?: string | null
           accommodation_tax_model?: string | null
           accommodation_tax_rate?: number | null
+          bhst_city?: string | null
+          bhst_kassenzeichen?: string | null
+          bhst_name?: string | null
+          bhst_street?: string | null
+          bhst_zip?: string | null
           booking_com_commission_rate?: number | null
           city?: string | null
           country?: string | null
@@ -628,6 +638,11 @@ export type Database = {
           accommodation_tax_city?: string | null
           accommodation_tax_model?: string | null
           accommodation_tax_rate?: number | null
+          bhst_city?: string | null
+          bhst_kassenzeichen?: string | null
+          bhst_name?: string | null
+          bhst_street?: string | null
+          bhst_zip?: string | null
           booking_com_commission_rate?: number | null
           city?: string | null
           country?: string | null

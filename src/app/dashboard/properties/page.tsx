@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { MapPin, Save, X, Tag, ChevronsUpDown } from 'lucide-react'
+import { MapPin, Save, X, Tag, ChevronsUpDown, ChevronDown, ChevronRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import type { Property, CityTaxRule } from '@/lib/types'
 import { CITY_TAX_RULES, findCityTaxRule, formatTaxRuleDescription, mapToDbTaxModel } from '@/lib/data/city-tax-rules'
@@ -38,6 +38,11 @@ interface PropertyForm {
   ota_remits_tax: string[]
   default_cleaning_fee: string
   tags: string[]
+  bhst_name: string
+  bhst_street: string
+  bhst_zip: string
+  bhst_city: string
+  bhst_kassenzeichen: string
 }
 
 /** Simple city search/autocomplete component */
@@ -150,6 +155,7 @@ export default function PropertiesPage() {
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
   const [showTagInput, setShowTagInput] = useState<Record<string, boolean>>({})
+  const [showBhstOverride, setShowBhstOverride] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     async function fetchData() {
@@ -179,9 +185,22 @@ export default function PropertiesPage() {
           ota_remits_tax: prop.ota_remits_tax ?? [],
           default_cleaning_fee: prop.default_cleaning_fee != null ? String(prop.default_cleaning_fee) : '',
           tags: prop.tags ?? [],
+          bhst_name: prop.bhst_name ?? '',
+          bhst_street: prop.bhst_street ?? '',
+          bhst_zip: prop.bhst_zip ?? '',
+          bhst_city: prop.bhst_city ?? '',
+          bhst_kassenzeichen: prop.bhst_kassenzeichen ?? '',
         }
       }
       setForms(initialForms)
+      // Auto-expand BhSt override section if data exists
+      const initialBhstOverride: Record<string, boolean> = {}
+      for (const prop of props) {
+        if (prop.bhst_name || prop.bhst_street || prop.bhst_kassenzeichen) {
+          initialBhstOverride[prop.id] = true
+        }
+      }
+      setShowBhstOverride(initialBhstOverride)
       setLoading(false)
     }
     fetchData()
@@ -279,6 +298,11 @@ export default function PropertiesPage() {
         ota_remits_tax: form.tax_enabled && form.ota_remits_tax.length > 0 ? form.ota_remits_tax : [],
         default_cleaning_fee: form.default_cleaning_fee ? parseFloat(form.default_cleaning_fee) : null,
         tags: form.tags.length > 0 ? form.tags : null,
+        bhst_name: form.bhst_name || null,
+        bhst_street: form.bhst_street || null,
+        bhst_zip: form.bhst_zip || null,
+        bhst_city: form.bhst_city || null,
+        bhst_kassenzeichen: form.bhst_kassenzeichen || null,
         updated_at: new Date().toISOString(),
       }
 
@@ -519,6 +543,77 @@ export default function PropertiesPage() {
                           <p className="text-xs text-muted-foreground">
                             Buchungen dieser Portale werden aus deiner Steuermeldung herausgerechnet.
                           </p>
+                        </div>
+
+                        {/* BhSt Override */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                            onClick={() => setShowBhstOverride((prev) => ({ ...prev, [prop.id]: !prev[prop.id] }))}
+                          >
+                            {showBhstOverride[prop.id] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                            Abweichende BhSt-Betreiberdaten
+                            {(form.bhst_name || form.bhst_street || form.bhst_kassenzeichen) && (
+                              <Badge variant="secondary" className="text-[10px] px-1 py-0">aktiv</Badge>
+                            )}
+                          </button>
+                          {showBhstOverride[prop.id] && (
+                            <div className="space-y-3 mt-3 pl-1 border-l-2 border-muted ml-1.5">
+                              <p className="text-xs text-muted-foreground pl-3">
+                                Falls dieses Objekt im BhSt-Vordruck unter einem anderen Namen/Adresse laufen soll. Leere Felder fallen auf die globalen Einstellungen zurück.
+                              </p>
+                              <div className="space-y-2 pl-3">
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs">Betreibername</Label>
+                                  <Input
+                                    value={form.bhst_name}
+                                    onChange={(e) => updateForm(prop.id, 'bhst_name', e.target.value)}
+                                    className="h-8 text-sm"
+                                    placeholder="z.B. Mustermann GbR"
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs">Straße + Hausnummer</Label>
+                                  <Input
+                                    value={form.bhst_street}
+                                    onChange={(e) => updateForm(prop.id, 'bhst_street', e.target.value)}
+                                    className="h-8 text-sm"
+                                    placeholder="z.B. Musterstraße 12"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs">PLZ</Label>
+                                    <Input
+                                      value={form.bhst_zip}
+                                      onChange={(e) => updateForm(prop.id, 'bhst_zip', e.target.value)}
+                                      className="h-8 text-sm"
+                                      placeholder="01234"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5 col-span-2">
+                                    <Label className="text-xs">Ort</Label>
+                                    <Input
+                                      value={form.bhst_city}
+                                      onChange={(e) => updateForm(prop.id, 'bhst_city', e.target.value)}
+                                      className="h-8 text-sm"
+                                      placeholder="z.B. Dresden"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label className="text-xs">Kassenzeichen / Personenkonto</Label>
+                                  <Input
+                                    value={form.bhst_kassenzeichen}
+                                    onChange={(e) => updateForm(prop.id, 'bhst_kassenzeichen', e.target.value)}
+                                    className="h-8 text-sm"
+                                    placeholder="z.B. 12345678"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

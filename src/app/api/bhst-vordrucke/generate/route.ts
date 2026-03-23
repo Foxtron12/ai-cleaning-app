@@ -7,7 +7,16 @@ import path from 'path'
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
-const dresdenSchema = z.object({
+// Optional per-property operator override (falls BhSt unter anderem Namen läuft)
+const operatorOverrideSchema = z.object({
+  operatorName: z.string().optional(),
+  operatorStreet: z.string().optional(),
+  operatorZip: z.string().optional(),
+  operatorCity: z.string().optional(),
+  kassenzeichen: z.string().optional(),
+})
+
+const dresdenSchema = operatorOverrideSchema.extend({
   city: z.literal('dresden'),
   year: z.number().int().min(2020).max(2099),
   rhythm: z.enum(['monthly', 'quarterly', 'half-yearly']),
@@ -23,7 +32,7 @@ const dresdenSchema = z.object({
   taxAmountG: z.number().min(0), // eingezogene Beherbergungssteuer
 })
 
-const chemnitzSchema = z.object({
+const chemnitzSchema = operatorOverrideSchema.extend({
   city: z.literal('chemnitz'),
   year: z.number().int().min(2020).max(2099),
   // Array of months (1-12) selected
@@ -144,6 +153,14 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Resolve operator data: property-level override → global settings fallback
+    const operator = {
+      name: data.operatorName || settings.landlord_name || '',
+      street: data.operatorStreet || settings.landlord_street || '',
+      zip: data.operatorZip || settings.landlord_zip || '',
+      city: data.operatorCity || settings.landlord_city || '',
+    }
+
     if (data.city === 'dresden') {
       // ── Dresden – fill form fields directly ──
       const form = pdfDoc.getForm()
@@ -165,9 +182,10 @@ export async function POST(request: NextRequest) {
         form.removeField(cb)
       }
 
-      // Kassenzeichen
-      if (settings.kassenzeichen_dresden) {
-        setField('Kassenzeichen', settings.kassenzeichen_dresden)
+      // Kassenzeichen (override → global fallback)
+      const kassenzeichen = data.kassenzeichen || settings.kassenzeichen_dresden
+      if (kassenzeichen) {
+        setField('Kassenzeichen', kassenzeichen)
       }
 
       // Type checkbox
@@ -189,16 +207,15 @@ export async function POST(request: NextRequest) {
         checkBox(`${data.period} Halbjahr`, page1)
       }
 
-      // Betreiber fields (Page 1)
+      // Betreiber fields (Page 1) – uses resolved operator data
       // Split street into name + house number (e.g. "Musterstraße 12" → "Musterstraße", "12")
-      const street = settings.landlord_street || ''
-      const streetMatch = street.match(/^(.+?)\s+(\d+\s*\w?)$/)
-      setField('NameFirma', settings.landlord_name || '')
+      const streetMatch = operator.street.match(/^(.+?)\s+(\d+\s*\w?)$/)
+      setField('NameFirma', operator.name)
       setField('VornameFirmenzusatz', '') // bewusst leer
-      setField('Straße', streetMatch ? streetMatch[1] : street)
+      setField('Straße', streetMatch ? streetMatch[1] : operator.street)
       setField('Hausnummer', streetMatch ? streetMatch[2] : '')
-      setField('PLZ', settings.landlord_zip || '')
-      setField('Ort', settings.landlord_city || '')
+      setField('PLZ', operator.zip)
+      setField('Ort', operator.city)
       // 'Telefon freiwillige Angabe' – bewusst leer gelassen
 
       // Page 2 – Tax values (right-aligned)
@@ -237,9 +254,10 @@ export async function POST(request: NextRequest) {
         field.setText(value)
       }
 
-      // Personenkonto
-      if (settings.personenkonto_chemnitz) {
-        setField('PK', settings.personenkonto_chemnitz)
+      // Personenkonto (override → global fallback)
+      const personenkonto = data.kassenzeichen || settings.personenkonto_chemnitz
+      if (personenkonto) {
+        setField('PK', personenkonto)
       }
 
       // Anmeldung / Korrektur (RadioGroup '1': widget 0 = Anmeldung, widget 1 = Korrektur)
@@ -265,11 +283,11 @@ export async function POST(request: NextRequest) {
         try { form.removeField(form.getCheckBox(String(m))) } catch { /* already removed */ }
       }
 
-      // Betreiber Zeilen 1-5
-      setField('B_1', settings.landlord_name || '')
-      setField('B_2', settings.managing_director || '')
-      setField('B_3', settings.landlord_street || '')
-      const plzOrt = [settings.landlord_zip, settings.landlord_city].filter(Boolean).join(' ')
+      // Betreiber Zeilen 1-5 – uses resolved operator data
+      setField('B_1', operator.name)
+      setField('B_2', data.operatorName ? '' : (settings.managing_director || ''))
+      setField('B_3', operator.street)
+      const plzOrt = [operator.zip, operator.city].filter(Boolean).join(' ')
       setField('B_4', plzOrt)
       // B_5 (Telefon/E-Mail) – freiwillige Angabe, explizit leeren
       setField('B_5', '')
