@@ -338,7 +338,9 @@ function RechnungenContent() {
     const taxResult = taxConfig
       ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
-    const cityTax = taxResult?.taxAmount ?? 0
+    const cityTax = booking.accommodation_tax_amount != null
+      ? booking.accommodation_tax_amount
+      : (taxResult?.taxAmount ?? 0)
     const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 
     // Calculate accommodation price (gross without tax minus cleaning)
@@ -516,7 +518,9 @@ function RechnungenContent() {
     const fullTaxResult = taxConfig
       ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
-    const fullTaxAmount = fullTaxResult?.taxAmount ?? 0
+    const fullTaxAmount = booking.accommodation_tax_amount != null
+      ? booking.accommodation_tax_amount
+      : (fullTaxResult?.taxAmount ?? 0)
     const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 
     const landlordSnapshot = {

@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
         amount_host_payout: totalPrice,
         commission_amount: 0,
         cleaning_fee: data.cleaningFee,
+        accommodation_tax_amount: data.accommodationTax,
         extra_fees: 0,
         security_deposit: 0,
         currency: 'EUR',

@@ -81,6 +81,7 @@ export type Database = {
       }
       bookings: {
         Row: {
+          accommodation_tax_amount: number | null
           adults: number | null
           amount_gross: number | null
           amount_host_payout: number | null
@@ -131,6 +132,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          accommodation_tax_amount?: number | null
           adults?: number | null
           amount_gross?: number | null
           amount_host_payout?: number | null
@@ -181,6 +183,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          accommodation_tax_amount?: number | null
           adults?: number | null
           amount_gross?: number | null
           amount_host_payout?: number | null
@@ -322,6 +325,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      message_templates: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          body: string
+          language: string
+          is_default: boolean
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          body: string
+          language?: string
+          is_default?: boolean
+          sort_order?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          body?: string
+          language?: string
+          is_default?: boolean
+          sort_order?: number
+          created_at?: string
+        }
+        Relationships: []
       }
       integrations: {
         Row: {
