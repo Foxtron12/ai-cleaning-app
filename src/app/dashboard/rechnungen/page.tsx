@@ -645,20 +645,23 @@ function RechnungenContent() {
       const isKlein = settings?.is_kleinunternehmer ?? false
 
       if (field === 'unitPriceGross') {
-        // Reverse-calculate net from gross
+        // Reverse-calculate net from gross, anchor total to gross to avoid rounding drift
         const grossPrice = Number(value)
         const vatRate = Number(item.vatRate)
         item.unitPrice = isKlein || vatRate === 0
           ? grossPrice
           : Math.round((grossPrice / (1 + vatRate / 100)) * 100) / 100
+        const grossTotal = Math.round(Number(item.quantity) * grossPrice * 100) / 100
+        const netTotal = Math.round(Number(item.quantity) * Number(item.unitPrice) * 100) / 100
+        item.vatAmount = isKlein ? 0 : Math.round((grossTotal - netTotal) * 100) / 100
+        item.total = grossTotal
       } else {
         ;(item as Record<string, unknown>)[field] = value
-      }
-
-      if (['quantity', 'unitPrice', 'unitPriceGross', 'vatRate'].includes(field)) {
-        const netTotal = Number(item.quantity) * Number(item.unitPrice)
-        item.vatAmount = isKlein ? 0 : Math.round(netTotal * (Number(item.vatRate) / 100) * 100) / 100
-        item.total = Math.round((netTotal + item.vatAmount) * 100) / 100
+        if (['quantity', 'unitPrice', 'vatRate'].includes(field)) {
+          const netTotal = Number(item.quantity) * Number(item.unitPrice)
+          item.vatAmount = isKlein ? 0 : Math.round(netTotal * (Number(item.vatRate) / 100) * 100) / 100
+          item.total = Math.round((netTotal + item.vatAmount) * 100) / 100
+        }
       }
       updated[index] = item
       return updated
