@@ -211,6 +211,7 @@ export async function POST(request: NextRequest) {
           .eq('id', existing.id)
           .single()
         const isWizardDirectBooking = existingBooking?.channel_id === 0
+        const isDirectChannel = updateData.channel === 'Direct'
 
         // Preserve manually set trip_purpose – never overwrite on sync
         // For wizard-created direct bookings, preserve the cleaning_fee and channel_id
@@ -218,6 +219,9 @@ export async function POST(request: NextRequest) {
         if (isWizardDirectBooking) {
           updateData.cleaning_fee = existingBooking.cleaning_fee
           updateData.channel_id = 0
+        } else if (isDirectChannel) {
+          // Direct bookings from Smoobu: use what Smoobu returns as-is (no fallback)
+          // The user explicitly controls pricing for direct bookings
         } else if ((updateData.cleaning_fee ?? 0) === 0) {
           // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
           const fallback = propertyCleaningFees.get(propertyId)
@@ -243,8 +247,9 @@ export async function POST(request: NextRequest) {
           .eq('id', existing.id)
         updated++
       } else {
-        // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
-        if ((bookingData.cleaning_fee ?? 0) === 0) {
+        // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
+        // Direct bookings: use what Smoobu returns as-is (user controls pricing)
+        if ((bookingData.cleaning_fee ?? 0) === 0 && bookingData.channel !== 'Direct') {
           const fallback = propertyCleaningFees.get(propertyId)
           if (fallback != null && fallback > 0) {
             bookingData.cleaning_fee = fallback

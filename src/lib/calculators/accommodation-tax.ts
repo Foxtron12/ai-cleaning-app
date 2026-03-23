@@ -33,12 +33,12 @@ export interface TaxResult {
 
 /**
  * Get the effective cleaning fee for a booking.
- * For direct bookings (channel_id = 0) the stored value is always used as-is
- * (the user explicitly set it in the wizard, even if 0).
+ * For direct bookings (channel_id = 0 OR channel = 'Direct') the stored value
+ * is always used as-is (the user explicitly set it, even if 0).
  * For OTA bookings, falls back to the property default when no fee is recorded.
  */
 export function getCleaningFee(booking: Booking, defaultFee = DEFAULT_CLEANING_FEE): number {
-  if (booking.channel_id === 0) {
+  if (booking.channel_id === 0 || booking.channel === 'Direct') {
     return booking.cleaning_fee ?? 0
   }
   return (booking.cleaning_fee ?? 0) > 0 ? (booking.cleaning_fee ?? 0) : defaultFee
