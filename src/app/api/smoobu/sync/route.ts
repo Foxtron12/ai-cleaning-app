@@ -207,18 +207,21 @@ export async function POST(request: NextRequest) {
         // Check if this booking was created as a direct booking via our wizard (channel_id=0)
         const { data: existingBooking } = await supabase
           .from('bookings')
-          .select('channel_id, cleaning_fee, payment_status')
+          .select('channel_id, cleaning_fee, payment_status, accommodation_tax_amount')
           .eq('id', existing.id)
           .single()
         const isWizardDirectBooking = existingBooking?.channel_id === 0
         const isDirectChannel = updateData.channel === 'Direct'
 
         // Preserve manually set trip_purpose – never overwrite on sync
-        // For wizard-created direct bookings, preserve the cleaning_fee and channel_id
-        // set by the user (even if 0€), since Smoobu doesn't reliably store these
+        // For wizard-created direct bookings, preserve the cleaning_fee, accommodation_tax_amount,
+        // and channel_id set by the user (even if 0€), since Smoobu doesn't reliably store these
         if (isWizardDirectBooking) {
           updateData.cleaning_fee = existingBooking.cleaning_fee
           updateData.channel_id = 0
+          if (existingBooking.accommodation_tax_amount != null) {
+            updateData.accommodation_tax_amount = existingBooking.accommodation_tax_amount
+          }
         } else if (isDirectChannel) {
           // Direct bookings from Smoobu: use what Smoobu returns as-is (no fallback)
           // The user explicitly controls pricing for direct bookings

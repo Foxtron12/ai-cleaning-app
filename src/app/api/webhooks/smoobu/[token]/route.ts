@@ -193,17 +193,31 @@ export async function POST(
       .single()
 
     if (existing) {
-      const { external_id: _, ...updateData } = bookingData
-      // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
-      if ((updateData.cleaning_fee ?? 0) === 0 && property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
-        updateData.cleaning_fee = property.default_cleaning_fee
-      }
-      // Never overwrite an existing payment_status (manual, Stripe paid, etc.)
+      const { external_id: _, trip_purpose: _tripPurpose, ...updateData } = bookingData
+
+      // Check if this booking was created via our wizard (channel_id=0)
       const { data: existingBooking } = await supabase
         .from('bookings')
-        .select('payment_status')
+        .select('channel_id, cleaning_fee, payment_status, accommodation_tax_amount')
         .eq('id', existing.id)
         .single()
+      const isWizardDirectBooking = existingBooking?.channel_id === 0
+
+      // For wizard-created direct bookings, preserve cleaning_fee, accommodation_tax_amount,
+      // and channel_id set by the user (even if 0€), since Smoobu doesn't reliably store these
+      if (isWizardDirectBooking) {
+        updateData.cleaning_fee = existingBooking.cleaning_fee
+        updateData.channel_id = 0
+        if (existingBooking.accommodation_tax_amount != null) {
+          updateData.accommodation_tax_amount = existingBooking.accommodation_tax_amount
+        }
+      } else if ((updateData.cleaning_fee ?? 0) === 0 && updateData.channel !== 'Direct') {
+        // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
+        if (property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
+          updateData.cleaning_fee = property.default_cleaning_fee
+        }
+      }
+      // Never overwrite an existing payment_status (manual, Stripe paid, etc.)
       if (existingBooking?.payment_status) {
         delete (updateData as Record<string, unknown>).payment_status
       }
@@ -212,9 +226,12 @@ export async function POST(
         .update({ ...updateData, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
     } else {
-      // When Smoobu returns cleaning_fee=0, use the property's default_cleaning_fee
-      if ((bookingData.cleaning_fee ?? 0) === 0 && property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
-        bookingData.cleaning_fee = property.default_cleaning_fee
+      // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
+      // Direct bookings: use what Smoobu returns as-is (user controls pricing)
+      if ((bookingData.cleaning_fee ?? 0) === 0 && bookingData.channel !== 'Direct') {
+        if (property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
+          bookingData.cleaning_fee = property.default_cleaning_fee
+        }
       }
       await supabase
         .from('bookings')
