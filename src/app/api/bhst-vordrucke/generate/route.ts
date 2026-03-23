@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerUser } from '@/lib/supabase-server'
 import { z } from 'zod'
-import { PDFDocument, rgb, StandardFonts, TextAlignment } from 'pdf-lib'
+import { PDFDocument, PDFTextField, rgb, StandardFonts, TextAlignment } from 'pdf-lib'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
     // Ensure all text fields have a /DA entry (some PDF editors don't set it)
     const form0 = pdfDoc.getForm()
     for (const f of form0.getFields()) {
-      if (f.constructor.name === 'PDFTextField' && !f.acroField.getDefaultAppearance()) {
+      if (f instanceof PDFTextField && !f.acroField.getDefaultAppearance()) {
         f.acroField.setDefaultAppearance('/Helv 10 Tf 0 g')
       }
     }
