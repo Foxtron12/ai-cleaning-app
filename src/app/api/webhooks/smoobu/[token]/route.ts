@@ -198,6 +198,15 @@ export async function POST(
       if ((updateData.cleaning_fee ?? 0) === 0 && property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
         updateData.cleaning_fee = property.default_cleaning_fee
       }
+      // Never overwrite an existing payment_status (manual, Stripe paid, etc.)
+      const { data: existingBooking } = await supabase
+        .from('bookings')
+        .select('payment_status')
+        .eq('id', existing.id)
+        .single()
+      if (existingBooking?.payment_status) {
+        delete (updateData as Record<string, unknown>).payment_status
+      }
       await supabase
         .from('bookings')
         .update({ ...updateData, updated_at: new Date().toISOString() })

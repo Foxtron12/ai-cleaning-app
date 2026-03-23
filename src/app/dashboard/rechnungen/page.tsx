@@ -6,7 +6,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info, Mail, Copy, Check, RotateCcw, CreditCard } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info, Mail, Copy, Check, RotateCcw, CreditCard, ArrowUpDown } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -194,6 +194,10 @@ function RechnungenContent() {
   const [propertyFilter, setPropertyFilter] = useState('all')
   const [periodFilter, setPeriodFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState<'all' | InvoiceType>('all')
+
+  // Sort state
+  const [sortField, setSortField] = useState<'number' | 'type' | 'guest' | 'date' | 'amount' | 'status'>('date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState('')
@@ -952,7 +956,37 @@ function RechnungenContent() {
       if (inv.issued_date < range.from || inv.issued_date > range.to) return false
     }
     return true
+  }).sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    switch (sortField) {
+      case 'number':
+        return dir * a.invoice_number.localeCompare(b.invoice_number, 'de', { numeric: true })
+      case 'type':
+        return dir * getInvoiceType(a).localeCompare(getInvoiceType(b))
+      case 'guest': {
+        const nameA = `${a.guest_snapshot?.firstname ?? ''} ${a.guest_snapshot?.lastname ?? ''}`.trim()
+        const nameB = `${b.guest_snapshot?.firstname ?? ''} ${b.guest_snapshot?.lastname ?? ''}`.trim()
+        return dir * nameA.localeCompare(nameB, 'de')
+      }
+      case 'date':
+        return dir * (a.issued_date ?? '').localeCompare(b.issued_date ?? '')
+      case 'amount':
+        return dir * (a.total_gross - b.total_gross)
+      case 'status':
+        return dir * (a.status ?? '').localeCompare(b.status ?? '')
+      default:
+        return 0
+    }
   })
+
+  function toggleSort(field: typeof sortField) {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
 
   /** Bulk download filtered invoices as ZIP */
   async function handleBulkDownload() {
@@ -1848,12 +1882,24 @@ function RechnungenContent() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nummer</TableHead>
-                    <TableHead>Typ</TableHead>
-                    <TableHead>Gast</TableHead>
-                    <TableHead>Datum</TableHead>
-                    <TableHead className="text-right">Betrag</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('number')}>
+                      <span className="inline-flex items-center gap-1">Nummer <ArrowUpDown className={`h-3 w-3 ${sortField === 'number' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('type')}>
+                      <span className="inline-flex items-center gap-1">Typ <ArrowUpDown className={`h-3 w-3 ${sortField === 'type' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('guest')}>
+                      <span className="inline-flex items-center gap-1">Gast <ArrowUpDown className={`h-3 w-3 ${sortField === 'guest' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('date')}>
+                      <span className="inline-flex items-center gap-1">Datum <ArrowUpDown className={`h-3 w-3 ${sortField === 'date' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
+                    <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('amount')}>
+                      <span className="inline-flex items-center gap-1 justify-end w-full">Betrag <ArrowUpDown className={`h-3 w-3 ${sortField === 'amount' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('status')}>
+                      <span className="inline-flex items-center gap-1">Status <ArrowUpDown className={`h-3 w-3 ${sortField === 'status' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
                     <TableHead className="text-right">Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>

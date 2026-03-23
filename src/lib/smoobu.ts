@@ -461,6 +461,9 @@ export function mapSmoobuReservation(
   const parsedCleaningFee = extractCleaningFeeFromDetails(parsedDetails)
   const cleaningFee = apiCleaningFee > 0 ? apiCleaningFee : (parsedCleaningFee ?? 0)
 
+  // OTA channels (Airbnb, Booking.com) handle payment on-platform → mark as paid
+  const isPlatformPaid = channel === 'Airbnb' || channel === 'Booking.com'
+
   return {
     external_id: reservation.id,
     property_id: propertyId,
@@ -490,6 +493,7 @@ export function mapSmoobuReservation(
     prepayment: reservation.prepayment ?? 0,
     balance: reservation.balance ?? 0,
     price_details: priceDetailsRaw,
+    payment_status: isPlatformPaid ? 'paid' : null,
     status: 'upcoming', // Will be recalculated
     trip_purpose: 'unknown',
     guest_note: reservation.notice ?? null,

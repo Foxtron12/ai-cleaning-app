@@ -138,7 +138,7 @@ export function BookingTable({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <CreditCard className={`h-4 w-4 ${
-                            booking.payment_status === 'paid'
+                            booking.payment_status === 'paid' || booking.payment_status === 'manual'
                               ? 'text-emerald-600'
                               : booking.payment_status === 'pending'
                                 ? 'text-amber-500'
@@ -148,9 +148,11 @@ export function BookingTable({
                         <TooltipContent>
                           {booking.payment_status === 'paid'
                             ? 'Bezahlt'
-                            : booking.payment_status === 'pending'
-                              ? 'Zahlung ausstehend'
-                              : 'Kein Zahlungsstatus'}
+                            : booking.payment_status === 'manual'
+                              ? 'Manuell bezahlt'
+                              : booking.payment_status === 'pending'
+                                ? 'Zahlung ausstehend'
+                                : 'Kein Zahlungsstatus'}
                         </TooltipContent>
                       </Tooltip>
                       <Tooltip>

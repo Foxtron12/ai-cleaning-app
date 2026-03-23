@@ -75,7 +75,7 @@ function PaymentStatusBadge({ status }: { status: string | null }) {
     },
     manual: {
       label: 'Manuell bezahlt',
-      variant: 'secondary',
+      variant: 'default',
       icon: <CircleDollarSign className="h-3 w-3 mr-1" />,
     },
   }

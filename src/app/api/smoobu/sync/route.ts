@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
         // Check if this booking was created as a direct booking via our wizard (channel_id=0)
         const { data: existingBooking } = await supabase
           .from('bookings')
-          .select('channel_id, cleaning_fee')
+          .select('channel_id, cleaning_fee, payment_status')
           .eq('id', existing.id)
           .single()
         const isWizardDirectBooking = existingBooking?.channel_id === 0
@@ -224,6 +224,10 @@ export async function POST(request: NextRequest) {
           if (fallback != null && fallback > 0) {
             updateData.cleaning_fee = fallback
           }
+        }
+        // Never overwrite an existing payment_status (manual, Stripe paid, etc.)
+        if (existingBooking?.payment_status) {
+          delete (updateData as Record<string, unknown>).payment_status
         }
         // Never overwrite existing guest address fields with null from Smoobu
         // (user may have entered address manually via the app)
