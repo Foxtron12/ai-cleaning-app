@@ -33,9 +33,11 @@
 | PROJ-17 | Buchungs-Dokumenten-Upload (BhSt-Befreiungsbelege, Supabase Storage) | In Review | [PROJ-17-buchungs-dokumenten-upload.md](PROJ-17-buchungs-dokumenten-upload.md) | 2026-03-15 |
 | PROJ-18 | Stornorechnung & Gutschrift | In Progress | [PROJ-18-stornorechnung-gutschrift.md](PROJ-18-stornorechnung-gutschrift.md) | 2026-03-19 |
 
+| PROJ-19 | Gäste-Registrierungsformular (Self-Service Meldeschein) | In Progress | [PROJ-19-gaeste-registrierung.md](PROJ-19-gaeste-registrierung.md) | 2026-03-23 |
+
 <!-- Add features above this line -->
 
-## Next Available ID: PROJ-19
+## Next Available ID: PROJ-20
 
 ## Build Order (Empfehlung)
 

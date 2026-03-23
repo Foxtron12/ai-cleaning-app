@@ -18,6 +18,7 @@ import { generateBookingEmailHtml, copyHtmlToClipboard } from '@/lib/email-templ
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { BookingStatusBadge } from './booking-status-badge'
+import { GuestRegistrationLinkManager } from './guest-registration-link-manager'
 import type { BookingWithProperty } from '@/lib/types'
 import { getCleaningFee } from '@/lib/calculators/booking-price'
 import { calculateAccommodationTax, getTaxConfigForProperty } from '@/lib/calculators/accommodation-tax'
@@ -840,6 +841,14 @@ export function BookingDetailSheet({
 
           {/* Dokumente / Belege */}
           <DocumentsSection bookingId={booking.id} />
+
+          <Separator />
+
+          {/* Gäste-Registrierung */}
+          <GuestRegistrationLinkManager
+            bookingId={booking.id}
+            hasExternalId={!!booking.external_id}
+          />
 
           <Separator />
 

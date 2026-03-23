@@ -282,6 +282,47 @@ export type Database = {
         }
         Relationships: []
       }
+      guest_registration_tokens: {
+        Row: {
+          booking_id: string
+          completed_at: string | null
+          created_at: string | null
+          expires_at: string
+          id: string
+          status: string
+          token: string
+          user_id: string
+        }
+        Insert: {
+          booking_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          status?: string
+          token?: string
+          user_id: string
+        }
+        Update: {
+          booking_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          status?: string
+          token?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_registration_tokens_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           api_key_encrypted: string | null
@@ -587,6 +628,7 @@ export type Database = {
           guest_lastname: string
           guest_nationality: string | null
           guest_street: string | null
+          guest_submitted: boolean | null
           guest_zip: string | null
           id: string
           property_id: string | null
@@ -612,6 +654,7 @@ export type Database = {
           guest_lastname: string
           guest_nationality?: string | null
           guest_street?: string | null
+          guest_submitted?: boolean | null
           guest_zip?: string | null
           id?: string
           property_id?: string | null
@@ -637,6 +680,7 @@ export type Database = {
           guest_lastname?: string
           guest_nationality?: string | null
           guest_street?: string | null
+          guest_submitted?: boolean | null
           guest_zip?: string | null
           id?: string
           property_id?: string | null

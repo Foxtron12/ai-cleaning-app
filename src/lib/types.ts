@@ -15,6 +15,8 @@ export type CityTaxRule = Database['public']['Tables']['city_tax_rules']['Row']
 export type CityTaxRuleInsert = Database['public']['Tables']['city_tax_rules']['Insert']
 export type Integration = Database['public']['Tables']['integrations']['Row']
 export type IntegrationInsert = Database['public']['Tables']['integrations']['Insert']
+export type GuestRegistrationToken = Database['public']['Tables']['guest_registration_tokens']['Row']
+export type GuestRegistrationTokenInsert = Database['public']['Tables']['guest_registration_tokens']['Insert']
 
 // Integration provider type
 export type IntegrationProvider = 'smoobu' | 'apaleo' | 'mews' | 'stripe'

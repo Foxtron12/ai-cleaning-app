@@ -263,6 +263,14 @@ export class SmoobuClient {
     await this.fetch<unknown>(`/reservations/${id}`, { method: 'DELETE' })
   }
 
+  /** Send a message to a guest via the OTA channel (Airbnb thread, Booking.com, email for direct) */
+  async sendMessage(reservationId: number, subject: string, messageBody: string): Promise<void> {
+    await this.fetch<unknown>(`/reservations/${reservationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ subject, messageBody }),
+    })
+  }
+
   /** Fetch a single guest's details (address, emails, phone numbers) */
   async getGuest(guestId: number): Promise<SmoobuGuest> {
     return this.fetch<SmoobuGuest>(`/guests/${guestId}`)
