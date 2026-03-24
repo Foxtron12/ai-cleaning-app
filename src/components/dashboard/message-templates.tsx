@@ -43,6 +43,7 @@ interface MessageTemplatesProps {
     checkin?: string
     checkout?: string
     registrierungslink?: string
+    buchungsid?: string
   }
   onTemplatesChange: () => void
 }

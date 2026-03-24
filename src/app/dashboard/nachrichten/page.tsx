@@ -641,6 +641,7 @@ export default function NachrichtenPage() {
                           checkin: '25.03.2026',
                           checkout: '28.03.2026',
                           registrierungslink: 'https://app.example.com/guest/register/...',
+                          buchungsid: '12345678',
                         })}
                       </div>
                     )}

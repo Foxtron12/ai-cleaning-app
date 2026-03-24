@@ -101,6 +101,7 @@ export const TEMPLATE_VARIABLES = [
   { key: '{checkin}', label: 'Check-in', description: 'Check-in Datum (TT.MM.JJJJ)' },
   { key: '{checkout}', label: 'Check-out', description: 'Check-out Datum (TT.MM.JJJJ)' },
   { key: '{registrierungslink}', label: 'Registrierungslink', description: 'Link zum Meldeschein-Formular' },
+  { key: '{buchungsid}', label: 'Buchungs-ID', description: 'Smoobu Buchungsnummer' },
 ] as const
 
 /**
@@ -114,6 +115,7 @@ export function replaceTemplateVariables(
     checkin?: string
     checkout?: string
     registrierungslink?: string
+    buchungsid?: string
   }
 ): string {
   let result = template
@@ -125,6 +127,11 @@ export function replaceTemplateVariables(
     result = result.replace(/\{registrierungslink\}/g, variables.registrierungslink)
   } else {
     result = result.replace(/\{registrierungslink\}/g, '')
+  }
+  if (variables.buchungsid) {
+    result = result.replace(/\{buchungsid\}/g, variables.buchungsid)
+  } else {
+    result = result.replace(/\{buchungsid\}/g, '')
   }
   return result
 }

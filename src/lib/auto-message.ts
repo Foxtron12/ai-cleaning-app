@@ -76,6 +76,7 @@ export async function fireAutoMessageTrigger(
       checkin: checkIn ? format(new Date(checkIn), 'dd.MM.yyyy', { locale: de }) : '',
       checkout: checkOut ? format(new Date(checkOut), 'dd.MM.yyyy', { locale: de }) : '',
       registrierungslink: registrationLink,
+      buchungsid: String(externalId),
     })
 
     let success = false

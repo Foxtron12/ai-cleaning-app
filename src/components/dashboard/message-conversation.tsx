@@ -194,6 +194,7 @@ export function MessageConversation({
     property: thread.apartment.name,
     checkin: format(new Date(thread.arrival), 'dd.MM.yyyy'),
     checkout: format(new Date(thread.departure), 'dd.MM.yyyy'),
+    buchungsid: String(thread.booking_id),
   }
 
   return (
