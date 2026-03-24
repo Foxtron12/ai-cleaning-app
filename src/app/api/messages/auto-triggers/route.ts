@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getServerUser } from '@/lib/supabase-server'
 
+const EVENT_TYPES = ['guest_checkin_completed', 'new_booking', 'days_before_checkin', 'after_checkout'] as const
+
 const upsertSchema = z.object({
-  event_type: z.literal('guest_checkin_completed'),
+  event_type: z.enum(EVENT_TYPES),
   template_id: z.string().uuid().nullable(),
   is_enabled: z.boolean(),
+  delay_minutes: z.number().int().min(0).default(0),
+  days_offset: z.number().int().min(0).default(0),
 })
 
 /**
@@ -20,9 +24,10 @@ export async function GET() {
 
   const { data: triggers } = await supabase
     .from('auto_message_triggers')
-    .select('id, event_type, template_id, is_enabled, created_at, updated_at')
+    .select('id, event_type, template_id, is_enabled, delay_minutes, days_offset, created_at, updated_at')
     .eq('user_id', user.id)
-    .limit(10)
+    .order('created_at')
+    .limit(20)
 
   return NextResponse.json({ triggers: triggers ?? [] })
 }
@@ -43,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.issues }, { status: 400 })
   }
 
-  const { event_type, template_id, is_enabled } = parsed.data
+  const { event_type, template_id, is_enabled, delay_minutes, days_offset } = parsed.data
 
   // Check if trigger already exists (upsert)
   const { data: existing } = await supabase
@@ -59,6 +64,8 @@ export async function POST(request: NextRequest) {
       .update({
         template_id,
         is_enabled,
+        delay_minutes,
+        days_offset,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
@@ -78,6 +85,8 @@ export async function POST(request: NextRequest) {
       event_type,
       template_id,
       is_enabled,
+      delay_minutes,
+      days_offset,
     })
     .select()
     .single()

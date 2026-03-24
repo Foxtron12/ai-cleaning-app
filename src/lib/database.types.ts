@@ -333,6 +333,8 @@ export type Database = {
           event_type: string
           template_id: string | null
           is_enabled: boolean
+          delay_minutes: number
+          days_offset: number
           created_at: string
           updated_at: string
         }
@@ -342,6 +344,8 @@ export type Database = {
           event_type: string
           template_id?: string | null
           is_enabled?: boolean
+          delay_minutes?: number
+          days_offset?: number
           created_at?: string
           updated_at?: string
         }
@@ -351,6 +355,8 @@ export type Database = {
           event_type?: string
           template_id?: string | null
           is_enabled?: boolean
+          delay_minutes?: number
+          days_offset?: number
           created_at?: string
           updated_at?: string
         }

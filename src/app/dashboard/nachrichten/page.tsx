@@ -1,12 +1,17 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { MessageSquare, AlertTriangle, Settings, Zap } from 'lucide-react'
+import { MessageSquare, AlertTriangle, Settings, Zap, FileText, Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
   SelectContent,
@@ -15,15 +20,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { MessageThreadList } from '@/components/dashboard/message-thread-list'
 import { MessageConversation } from '@/components/dashboard/message-conversation'
-import { DEFAULT_TEMPLATES } from '@/lib/message-template-defaults'
+import { DEFAULT_TEMPLATES, TEMPLATE_VARIABLES, replaceTemplateVariables } from '@/lib/message-template-defaults'
 import type { SmoobuThread, MessageTemplate } from '@/lib/types'
 import Link from 'next/link'
 
@@ -33,7 +41,54 @@ interface Property {
   external_id: number | null
 }
 
+interface AutoTrigger {
+  id: string
+  event_type: string
+  template_id: string | null
+  is_enabled: boolean
+  delay_minutes: number
+  days_offset: number
+}
+
+const EVENT_LABELS: Record<string, { label: string; description: string }> = {
+  guest_checkin_completed: {
+    label: 'Nach Online-Check-in',
+    description: 'Wenn der Gast das Registrierungsformular abgeschlossen hat.',
+  },
+  new_booking: {
+    label: 'Bei neuer Buchung',
+    description: 'Wenn eine neue Buchung ueber Smoobu eingeht.',
+  },
+  days_before_checkin: {
+    label: 'X Tage vor Check-in',
+    description: 'Automatisch X Tage vor dem Check-in-Datum senden.',
+  },
+  after_checkout: {
+    label: 'Nach Check-out',
+    description: 'Nach dem Abreisedatum des Gastes.',
+  },
+}
+
+const DELAY_OPTIONS = [
+  { value: 0, label: 'Sofort' },
+  { value: 60, label: '1 Stunde spaeter' },
+  { value: 180, label: '3 Stunden spaeter' },
+  { value: 1440, label: '24 Stunden spaeter' },
+]
+
+const DAYS_OFFSET_OPTIONS = [
+  { value: 1, label: '1 Tag vorher' },
+  { value: 2, label: '2 Tage vorher' },
+  { value: 3, label: '3 Tage vorher' },
+  { value: 5, label: '5 Tage vorher' },
+  { value: 7, label: '7 Tage vorher' },
+  { value: 14, label: '14 Tage vorher' },
+]
+
 export default function NachrichtenPage() {
+  // Active tab
+  const [activeTab, setActiveTab] = useState('konversationen')
+
   // Smoobu connection check
   const [smoobuConnected, setSmoobuConnected] = useState<boolean | null>(null)
 
@@ -52,14 +107,24 @@ export default function NachrichtenPage() {
   // Templates
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
 
-  // Check-in status map: Smoobu external_id → 'completed' | 'sent' | 'pending' | null
+  // Check-in status map
   const [checkinStatusMap, setCheckinStatusMap] = useState<Record<number, string>>({})
 
-  // Auto-message trigger config
-  const [autoEnabled, setAutoEnabled] = useState(false)
-  const [autoTemplateId, setAutoTemplateId] = useState<string>('none')
-  const [autoSaving, setAutoSaving] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // Auto-message triggers
+  const [triggers, setTriggers] = useState<AutoTrigger[]>([])
+  const [triggerSaving, setTriggerSaving] = useState<string | null>(null)
+
+  // Template editor
+  const [editingTemplate, setEditingTemplate] = useState<MessageTemplate | null>(null)
+  const [isNewTemplate, setIsNewTemplate] = useState(false)
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [editLanguage, setEditLanguage] = useState<'de' | 'en'>('de')
+  const [templateSaving, setTemplateSaving] = useState(false)
+
+  // Preview
+  const [previewTemplate, setPreviewTemplate] = useState<MessageTemplate | null>(null)
 
   // Mobile: show conversation view
   const [showConversation, setShowConversation] = useState(false)
@@ -72,7 +137,6 @@ export default function NachrichtenPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Check Smoobu integration
       const { data: integration } = await supabase
         .from('integrations')
         .select('id, status')
@@ -83,7 +147,6 @@ export default function NachrichtenPage() {
 
       setSmoobuConnected(!!integration)
 
-      // Load properties for filter
       const { data: props } = await supabase
         .from('properties')
         .select('id, name, external_id')
@@ -91,30 +154,12 @@ export default function NachrichtenPage() {
         .order('name')
 
       setProperties(props ?? [])
-
-      // Load templates
       await loadTemplates(user.id)
-
-      // Load auto-message trigger config
-      try {
-        const res = await fetch('/api/messages/auto-triggers')
-        if (res.ok) {
-          const data = await res.json()
-          const checkinTrigger = data.triggers?.find(
-            (t: { event_type: string }) => t.event_type === 'guest_checkin_completed'
-          )
-          if (checkinTrigger) {
-            setAutoEnabled(checkinTrigger.is_enabled)
-            setAutoTemplateId(checkinTrigger.template_id ?? 'none')
-          }
-        }
-      } catch {
-        // non-fatal
-      }
+      await loadTriggers()
     }
 
     init()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load templates
   const loadTemplates = useCallback(async (userId?: string) => {
@@ -134,7 +179,6 @@ export default function NachrichtenPage() {
     if (existingTemplates && existingTemplates.length > 0) {
       setTemplates(existingTemplates as MessageTemplate[])
     } else {
-      // Seed default templates
       const inserts = DEFAULT_TEMPLATES.map((t) => ({
         user_id: uid!,
         name: t.name,
@@ -155,7 +199,20 @@ export default function NachrichtenPage() {
     }
   }, [])
 
-  // Load threads when Smoobu is connected and property filter changes
+  // Load triggers
+  const loadTriggers = async () => {
+    try {
+      const res = await fetch('/api/messages/auto-triggers')
+      if (res.ok) {
+        const data = await res.json()
+        setTriggers(data.triggers ?? [])
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  // Load threads
   useEffect(() => {
     if (smoobuConnected !== true) return
     loadThreads()
@@ -185,7 +242,7 @@ export default function NachrichtenPage() {
       const loadedThreads: SmoobuThread[] = data.threads ?? []
       setThreads(loadedThreads)
 
-      // Load check-in status for all threads
+      // Load check-in status
       if (loadedThreads.length > 0) {
         const externalIds = loadedThreads.map((t) => t.booking_id)
         const { data: bookings } = await supabase
@@ -221,26 +278,119 @@ export default function NachrichtenPage() {
     }
   }
 
-  const saveAutoTrigger = async (enabled: boolean, templateId: string) => {
-    setAutoSaving(true)
+  // ─── Trigger helpers ─────────────────────────────────────────────────────────
+
+  const saveTrigger = async (eventType: string, updates: Partial<AutoTrigger>) => {
+    setTriggerSaving(eventType)
     try {
+      const existing = triggers.find((t) => t.event_type === eventType)
+      const payload = {
+        event_type: eventType,
+        template_id: updates.template_id ?? existing?.template_id ?? null,
+        is_enabled: updates.is_enabled ?? existing?.is_enabled ?? false,
+        delay_minutes: updates.delay_minutes ?? existing?.delay_minutes ?? 0,
+        days_offset: updates.days_offset ?? existing?.days_offset ?? 0,
+      }
+
       const res = await fetch('/api/messages/auto-triggers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event_type: 'guest_checkin_completed',
-          template_id: templateId === 'none' ? null : templateId,
-          is_enabled: enabled,
-        }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) throw new Error('Speichern fehlgeschlagen')
-      toast({ title: 'Einstellung gespeichert' })
+      const data = await res.json()
+
+      // Update local state
+      setTriggers((prev) => {
+        const idx = prev.findIndex((t) => t.event_type === eventType)
+        if (idx >= 0) {
+          const updated = [...prev]
+          updated[idx] = data.trigger
+          return updated
+        }
+        return [...prev, data.trigger]
+      })
+
+      toast({ title: 'Gespeichert' })
     } catch {
       toast({ title: 'Fehler beim Speichern', variant: 'destructive' })
     } finally {
-      setAutoSaving(false)
+      setTriggerSaving(null)
     }
   }
+
+  // ─── Template CRUD ───────────────────────────────────────────────────────────
+
+  const openNewTemplate = () => {
+    setIsNewTemplate(true)
+    setEditingTemplate(null)
+    setEditName('')
+    setEditBody('')
+    setEditLanguage('de')
+    setTemplateDialogOpen(true)
+  }
+
+  const openEditTemplate = (t: MessageTemplate) => {
+    setIsNewTemplate(false)
+    setEditingTemplate(t)
+    setEditName(t.name)
+    setEditBody(t.body)
+    setEditLanguage(t.language)
+    setTemplateDialogOpen(true)
+  }
+
+  const saveTemplate = async () => {
+    if (!editName.trim() || !editBody.trim()) return
+    setTemplateSaving(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      if (isNewTemplate) {
+        await supabase
+          .from('message_templates')
+          .insert({
+            user_id: user.id,
+            name: editName.trim(),
+            body: editBody,
+            language: editLanguage,
+            is_default: false,
+            sort_order: templates.length + 1,
+          })
+      } else if (editingTemplate) {
+        await supabase
+          .from('message_templates')
+          .update({
+            name: editName.trim(),
+            body: editBody,
+            language: editLanguage,
+          })
+          .eq('id', editingTemplate.id)
+      }
+
+      await loadTemplates()
+      setTemplateDialogOpen(false)
+      toast({ title: isNewTemplate ? 'Vorlage erstellt' : 'Vorlage aktualisiert' })
+    } catch {
+      toast({ title: 'Fehler beim Speichern', variant: 'destructive' })
+    } finally {
+      setTemplateSaving(false)
+    }
+  }
+
+  const deleteTemplate = async (t: MessageTemplate) => {
+    if (t.is_default) {
+      toast({ title: 'Standard-Vorlagen koennen nicht geloescht werden', variant: 'destructive' })
+      return
+    }
+
+    await supabase.from('message_templates').delete().eq('id', t.id)
+    await loadTemplates()
+    toast({ title: 'Vorlage geloescht' })
+  }
+
+  // ─── Navigation ──────────────────────────────────────────────────────────────
 
   const handleSelectThread = (thread: SmoobuThread) => {
     setSelectedThread(thread)
@@ -283,7 +433,7 @@ export default function NachrichtenPage() {
     )
   }
 
-  // Filter threads by selected property (client-side, since API filter by apartment)
+  // Filter threads
   const filteredThreads = selectedPropertyId === 'all'
     ? threads
     : threads.filter((t) => {
@@ -299,145 +449,413 @@ export default function NachrichtenPage() {
           <MessageSquare className="size-5" />
           <h2 className="text-lg font-semibold">Nachrichten</h2>
         </div>
-        <div className="w-48">
-          <Select value={selectedPropertyId} onValueChange={setSelectedPropertyId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Alle Objekte" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Alle Objekte</SelectItem>
-              {properties.map((prop) => (
-                <SelectItem key={prop.id} value={prop.id}>
-                  {prop.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
-      {/* Auto-message settings */}
-      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen} className="mb-4 shrink-0">
-        <CollapsibleTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-1.5">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+        <TabsList className="shrink-0 mb-4">
+          <TabsTrigger value="konversationen" className="gap-1.5">
+            <MessageSquare className="size-3.5" />
+            Konversationen
+          </TabsTrigger>
+          <TabsTrigger value="vorlagen" className="gap-1.5">
+            <FileText className="size-3.5" />
+            Vorlagen
+          </TabsTrigger>
+          <TabsTrigger value="automatisierung" className="gap-1.5">
             <Zap className="size-3.5" />
-            Automatische Nachrichten
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2">
-          <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-checkin" className="text-sm font-medium">
-                  Nach Online-Check-in senden
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Automatisch eine Nachricht senden, wenn der Gast den Check-in abgeschlossen hat.
-                </p>
-              </div>
-              <Switch
-                id="auto-checkin"
-                checked={autoEnabled}
-                disabled={autoSaving}
-                onCheckedChange={(checked) => {
-                  setAutoEnabled(checked)
-                  saveAutoTrigger(checked, autoTemplateId)
-                }}
-              />
-            </div>
-            {autoEnabled && (
-              <div className="space-y-1.5">
-                <Label className="text-sm">Vorlage</Label>
-                <Select
-                  value={autoTemplateId}
-                  onValueChange={(v) => {
-                    setAutoTemplateId(v)
-                    saveAutoTrigger(autoEnabled, v)
-                  }}
-                  disabled={autoSaving}
-                >
-                  <SelectTrigger className="w-64">
-                    <SelectValue placeholder="Vorlage waehlen..." />
+            Automatisierung
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ─── TAB: Konversationen ──────────────────────────────────────── */}
+        <TabsContent value="konversationen" className="flex-1 min-h-0 mt-0">
+          <div className="flex flex-col h-full">
+            {/* Property filter */}
+            <div className="flex justify-end mb-3 shrink-0">
+              <div className="w-48">
+                <Select value={selectedPropertyId} onValueChange={setSelectedPropertyId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Alle Objekte" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Keine Vorlage</SelectItem>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
+                    <SelectItem value="all">Alle Objekte</SelectItem>
+                    {properties.map((prop) => (
+                      <SelectItem key={prop.id} value={prop.id}>
+                        {prop.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {autoTemplateId !== 'none' && (
-                  <div className="mt-2 p-3 bg-muted rounded text-xs whitespace-pre-wrap max-h-32 overflow-y-auto">
-                    {templates.find((t) => t.id === autoTemplateId)?.body ?? ''}
+              </div>
+            </div>
+
+            {/* Error state */}
+            {threadsError && (
+              <Alert variant="destructive" className="mb-3 shrink-0">
+                <AlertTriangle className="size-4" />
+                <AlertDescription>
+                  {threadsError}
+                  <Button variant="link" className="ml-2 p-0 h-auto" onClick={loadThreads}>
+                    Erneut versuchen
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Split view */}
+            <div className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-background">
+              <div className="flex h-full">
+                <div
+                  className={`w-full md:w-80 lg:w-96 md:border-r shrink-0 ${
+                    showConversation ? 'hidden md:block' : 'block'
+                  }`}
+                >
+                  <MessageThreadList
+                    threads={filteredThreads}
+                    isLoading={threadsLoading}
+                    selectedBookingId={selectedThread?.booking_id ?? null}
+                    onSelectThread={handleSelectThread}
+                    checkinStatusMap={checkinStatusMap}
+                  />
+                </div>
+                <div
+                  className={`flex-1 min-w-0 ${
+                    showConversation ? 'block' : 'hidden md:block'
+                  }`}
+                >
+                  {selectedThread ? (
+                    <MessageConversation
+                      thread={selectedThread}
+                      onBack={handleBack}
+                      templates={templates}
+                      onTemplatesChange={() => loadTemplates()}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-center px-4">
+                      <MessageSquare className="size-12 text-muted-foreground mb-3" />
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Waehlen Sie eine Konversation
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Klicken Sie links auf einen Thread, um die Nachrichten zu lesen.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ─── TAB: Vorlagen ────────────────────────────────────────────── */}
+        <TabsContent value="vorlagen" className="flex-1 min-h-0 mt-0 overflow-y-auto">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold">Nachrichten-Vorlagen</h3>
+                <p className="text-sm text-muted-foreground">
+                  Vorlagen fuer wiederkehrende Nachrichten an Gaeste.
+                </p>
+              </div>
+              <Button onClick={openNewTemplate} size="sm" className="gap-1.5">
+                <Plus className="size-3.5" />
+                Neue Vorlage
+              </Button>
+            </div>
+
+            {/* Variable info */}
+            <Card>
+              <CardHeader className="py-3 px-4">
+                <CardTitle className="text-sm">Verfuegbare Platzhalter</CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <div className="flex flex-wrap gap-2">
+                  {TEMPLATE_VARIABLES.map((v) => (
+                    <Badge key={v.key} variant="secondary" className="text-xs font-mono">
+                      {v.key}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Platzhalter werden beim Senden automatisch mit Buchungsdaten ersetzt.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Template list */}
+            <div className="grid gap-3">
+              {templates.map((t) => (
+                <Card key={t.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-sm">{t.name}</span>
+                          <Badge variant="outline" className="text-xs">{t.language.toUpperCase()}</Badge>
+                          {t.is_default && (
+                            <Badge variant="secondary" className="text-xs">Standard</Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                          {t.body.slice(0, 120)}{t.body.length > 120 ? '...' : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => setPreviewTemplate(previewTemplate?.id === t.id ? null : t)}
+                          title="Vorschau"
+                        >
+                          <Eye className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => openEditTemplate(t)}
+                          title="Bearbeiten"
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        {!t.is_default && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-destructive hover:text-destructive"
+                            onClick={() => deleteTemplate(t)}
+                            title="Loeschen"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {previewTemplate?.id === t.id && (
+                      <div className="mt-3 p-3 bg-muted rounded text-xs whitespace-pre-wrap border">
+                        {replaceTemplateVariables(t.body, {
+                          gastname: 'Max Mustermann',
+                          property: 'Apartment Dresden City',
+                          checkin: '25.03.2026',
+                          checkout: '28.03.2026',
+                          registrierungslink: 'https://app.example.com/guest/register/...',
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* Template edit dialog */}
+          <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {isNewTemplate ? 'Neue Vorlage erstellen' : 'Vorlage bearbeiten'}
+                </DialogTitle>
+                <DialogDescription>
+                  Platzhalter wie {'{gastname}'} werden beim Senden automatisch ersetzt.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="z.B. Willkommensnachricht"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Sprache</Label>
+                  <Select value={editLanguage} onValueChange={(v) => setEditLanguage(v as 'de' | 'en')}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="de">Deutsch</SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nachricht</Label>
+                  <Textarea
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    placeholder="Liebe/r {gastname},&#10;&#10;..."
+                    rows={8}
+                    className="font-mono text-sm"
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {TEMPLATE_VARIABLES.map((v) => (
+                      <button
+                        key={v.key}
+                        type="button"
+                        className="px-1.5 py-0.5 text-xs bg-muted rounded hover:bg-accent transition-colors font-mono"
+                        onClick={() => setEditBody((b) => b + v.key)}
+                        title={v.description}
+                      >
+                        {v.key}
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
-            )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setTemplateDialogOpen(false)}>
+                  Abbrechen
+                </Button>
+                <Button
+                  onClick={saveTemplate}
+                  disabled={templateSaving || !editName.trim() || !editBody.trim()}
+                >
+                  {templateSaving ? 'Speichern...' : 'Speichern'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
 
-      {/* Error state */}
-      {threadsError && (
-        <Alert variant="destructive" className="mb-4 shrink-0">
-          <AlertTriangle className="size-4" />
-          <AlertDescription>
-            {threadsError}
-            <Button variant="link" className="ml-2 p-0 h-auto" onClick={loadThreads}>
-              Erneut versuchen
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+        {/* ─── TAB: Automatisierung ─────────────────────────────────────── */}
+        <TabsContent value="automatisierung" className="flex-1 min-h-0 mt-0 overflow-y-auto">
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-semibold">Automatische Nachrichten</h3>
+              <p className="text-sm text-muted-foreground">
+                Nachrichten automatisch an Gaeste senden, wenn bestimmte Ereignisse eintreten.
+              </p>
+            </div>
 
-      {/* Main split view */}
-      <div className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-background">
-        {/* Desktop: side-by-side. Mobile: show one at a time */}
-        <div className="flex h-full">
-          {/* Thread list (left side) */}
-          <div
-            className={`w-full md:w-80 lg:w-96 md:border-r shrink-0 ${
-              showConversation ? 'hidden md:block' : 'block'
-            }`}
-          >
-            <MessageThreadList
-              threads={filteredThreads}
-              isLoading={threadsLoading}
-              selectedBookingId={selectedThread?.booking_id ?? null}
-              onSelectThread={handleSelectThread}
-              checkinStatusMap={checkinStatusMap}
-            />
-          </div>
+            {Object.entries(EVENT_LABELS).map(([eventType, { label, description }]) => {
+              const trigger = triggers.find((t) => t.event_type === eventType)
+              const isEnabled = trigger?.is_enabled ?? false
+              const templateId = trigger?.template_id ?? 'none'
+              const delayMinutes = trigger?.delay_minutes ?? 0
+              const daysOffset = trigger?.days_offset ?? 3
+              const isSaving = triggerSaving === eventType
 
-          {/* Conversation (right side) */}
-          <div
-            className={`flex-1 min-w-0 ${
-              showConversation ? 'block' : 'hidden md:block'
-            }`}
-          >
-            {selectedThread ? (
-              <MessageConversation
-                thread={selectedThread}
-                onBack={handleBack}
-                templates={templates}
-                onTemplatesChange={() => loadTemplates()}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                <MessageSquare className="size-12 text-muted-foreground mb-3" />
-                <p className="text-sm font-medium text-muted-foreground">
-                  Waehlen Sie eine Konversation
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Klicken Sie links auf einen Thread, um die Nachrichten zu lesen.
-                </p>
-              </div>
-            )}
+              return (
+                <Card key={eventType}>
+                  <CardContent className="p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <CardTitle className="text-sm">{label}</CardTitle>
+                        <CardDescription className="text-xs">{description}</CardDescription>
+                      </div>
+                      <Switch
+                        checked={isEnabled}
+                        disabled={isSaving}
+                        onCheckedChange={(checked) => {
+                          saveTrigger(eventType, { is_enabled: checked })
+                        }}
+                      />
+                    </div>
+
+                    {isEnabled && (
+                      <div className="space-y-3 pl-0 border-l-2 border-primary/20 ml-1 pl-4">
+                        {/* Template selection */}
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Vorlage</Label>
+                          <Select
+                            value={templateId}
+                            onValueChange={(v) => {
+                              saveTrigger(eventType, { template_id: v === 'none' ? null : v })
+                            }}
+                            disabled={isSaving}
+                          >
+                            <SelectTrigger className="w-64">
+                              <SelectValue placeholder="Vorlage waehlen..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Keine Vorlage</SelectItem>
+                              {templates.map((t) => (
+                                <SelectItem key={t.id} value={t.id}>
+                                  {t.name} ({t.language.toUpperCase()})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Delay selection (not for days_before_checkin) */}
+                        {eventType !== 'days_before_checkin' && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Zeitpunkt</Label>
+                            <Select
+                              value={String(delayMinutes)}
+                              onValueChange={(v) => {
+                                saveTrigger(eventType, { delay_minutes: parseInt(v, 10) })
+                              }}
+                              disabled={isSaving}
+                            >
+                              <SelectTrigger className="w-48">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DELAY_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={String(o.value)}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* Days offset (only for days_before_checkin) */}
+                        {eventType === 'days_before_checkin' && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Wann senden?</Label>
+                            <Select
+                              value={String(daysOffset)}
+                              onValueChange={(v) => {
+                                saveTrigger(eventType, { days_offset: parseInt(v, 10) })
+                              }}
+                              disabled={isSaving}
+                            >
+                              <SelectTrigger className="w-48">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DAYS_OFFSET_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={String(o.value)}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* Template preview */}
+                        {templateId !== 'none' && (
+                          <div className="p-3 bg-muted rounded text-xs whitespace-pre-wrap max-h-32 overflow-y-auto">
+                            {replaceTemplateVariables(
+                              templates.find((t) => t.id === templateId)?.body ?? '',
+                              {
+                                gastname: 'Max Mustermann',
+                                property: 'Apartment Dresden City',
+                                checkin: '25.03.2026',
+                                checkout: '28.03.2026',
+                                registrierungslink: 'https://app.../guest/register/...',
+                              }
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

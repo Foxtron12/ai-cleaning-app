@@ -4,6 +4,7 @@ import {
   mapSmoobuReservation,
   calculateBookingStatus,
 } from '@/lib/smoobu'
+import { fireAutoMessageTrigger } from '@/lib/auto-message'
 import type { SmoobuReservation } from '@/lib/types'
 import type { Json } from '@/lib/database.types'
 import { z } from 'zod'
@@ -160,7 +161,7 @@ export async function POST(
     // Find the property by Smoobu apartment ID (scoped to user)
     const { data: property } = await supabase
       .from('properties')
-      .select('id, default_cleaning_fee')
+      .select('id, name, default_cleaning_fee')
       .eq('external_id', reservation.apartment.id)
       .eq('user_id', userId)
       .single()
@@ -233,9 +234,27 @@ export async function POST(
           bookingData.cleaning_fee = property.default_cleaning_fee
         }
       }
-      await supabase
+      const { data: inserted } = await supabase
         .from('bookings')
         .insert({ ...bookingData, user_id: userId })
+        .select('id')
+        .single()
+
+      // Fire auto-message trigger for new bookings (non-cancelled only)
+      if (inserted && !isCancelled) {
+        const guestName = [reservation.firstname, reservation.lastname]
+          .filter(Boolean).join(' ') || reservation['guest-name'] || ''
+        await fireAutoMessageTrigger(supabase, {
+          userId,
+          bookingId: inserted.id,
+          externalId: reservation.id,
+          eventType: 'new_booking',
+          guestName,
+          propertyName: property.name,
+          checkIn: reservation.arrival,
+          checkOut: reservation.departure,
+        })
+      }
     }
 
     // Update last_synced_at on the integration
