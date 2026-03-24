@@ -292,55 +292,30 @@ export class SmoobuClient {
       (b) => !b['is-blocked-booking']
     )
 
-    // For each reservation, try to get messages to build thread preview
-    const threads: SmoobuThread[] = await Promise.all(
-      validBookings.map(async (booking) => {
-        let lastMessage: SmoobuThread['last_message'] = null
-        let unreadCount = 0
+    // Build threads from reservations without fetching messages per booking
+    // (messages are loaded on-demand when a thread is selected)
+    const threads: SmoobuThread[] = validBookings.map((booking) => {
+      const guestName = [booking.firstname, booking.lastname]
+        .filter(Boolean)
+        .join(' ') || booking['guest-name'] || 'Unbekannter Gast'
 
-        try {
-          const messages = await this.getMessages(booking.id, 1)
-          if (messages.length > 0) {
-            const latest = messages[0]
-            lastMessage = {
-              subject: latest.subject,
-              body: latest.body,
-              sent_at: latest.sent_at,
-              type: latest.type,
-            }
-          }
-        } catch {
-          // Messages endpoint may not be available for all reservations
-        }
-
-        const guestName = [booking.firstname, booking.lastname]
-          .filter(Boolean)
-          .join(' ') || booking['guest-name'] || 'Unbekannter Gast'
-
-        return {
-          booking_id: booking.id,
-          guest_name: guestName,
-          apartment: {
-            id: booking.apartment.id,
-            name: booking.apartment.name,
-          },
-          channel: booking.channel?.name ?? 'Direct',
-          last_message: lastMessage,
-          unread_count: unreadCount,
-          arrival: booking.arrival,
-          departure: booking.departure,
-        }
-      })
-    )
-
-    // Sort by last message date (newest first), bookings without messages last
-    threads.sort((a, b) => {
-      if (a.last_message && b.last_message) {
-        return new Date(b.last_message.sent_at).getTime() - new Date(a.last_message.sent_at).getTime()
+      return {
+        booking_id: booking.id,
+        guest_name: guestName,
+        apartment: {
+          id: booking.apartment.id,
+          name: booking.apartment.name,
+        },
+        channel: booking.channel?.name ?? 'Direct',
+        last_message: null,
+        unread_count: 0,
+        arrival: booking.arrival,
+        departure: booking.departure,
       }
-      if (a.last_message) return -1
-      if (b.last_message) return 1
-      // Fall back to arrival date
+    })
+
+    // Sort by arrival date (nearest check-in first)
+    threads.sort((a, b) => {
       return new Date(b.arrival).getTime() - new Date(a.arrival).getTime()
     })
 
