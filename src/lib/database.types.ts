@@ -326,6 +326,98 @@ export type Database = {
           },
         ]
       }
+      auto_message_triggers: {
+        Row: {
+          id: string
+          user_id: string
+          event_type: string
+          template_id: string | null
+          is_enabled: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          event_type: string
+          template_id?: string | null
+          is_enabled?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          event_type?: string
+          template_id?: string | null
+          is_enabled?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_message_triggers_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "message_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      auto_message_logs: {
+        Row: {
+          id: string
+          user_id: string
+          booking_id: string
+          trigger_id: string | null
+          event_type: string
+          message_subject: string | null
+          message_body: string | null
+          success: boolean
+          error: string | null
+          sent_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          booking_id: string
+          trigger_id?: string | null
+          event_type: string
+          message_subject?: string | null
+          message_body?: string | null
+          success?: boolean
+          error?: string | null
+          sent_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          booking_id?: string
+          trigger_id?: string | null
+          event_type?: string
+          message_subject?: string | null
+          message_body?: string | null
+          success?: boolean
+          error?: string | null
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_message_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auto_message_logs_trigger_id_fkey"
+            columns: ["trigger_id"]
+            isOneToOne: false
+            referencedRelation: "auto_message_triggers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_templates: {
         Row: {
           id: string

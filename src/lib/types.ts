@@ -17,6 +17,9 @@ export type Integration = Database['public']['Tables']['integrations']['Row']
 export type IntegrationInsert = Database['public']['Tables']['integrations']['Insert']
 export type GuestRegistrationToken = Database['public']['Tables']['guest_registration_tokens']['Row']
 export type GuestRegistrationTokenInsert = Database['public']['Tables']['guest_registration_tokens']['Insert']
+export type AutoMessageTrigger = Database['public']['Tables']['auto_message_triggers']['Row']
+export type AutoMessageTriggerInsert = Database['public']['Tables']['auto_message_triggers']['Insert']
+export type AutoMessageLog = Database['public']['Tables']['auto_message_logs']['Row']
 
 // Integration provider type
 export type IntegrationProvider = 'smoobu' | 'apaleo' | 'mews' | 'stripe'
@@ -177,6 +180,58 @@ export interface SmoobuReservationsResponse {
 
 export interface SmoobuApartmentsResponse {
   apartments: Record<string, SmoobuApartment>
+}
+
+// Smoobu Messaging types
+export interface SmoobuThread {
+  booking_id: number
+  guest_name: string
+  apartment: {
+    id: number
+    name: string
+  }
+  channel: string
+  last_message: {
+    subject: string
+    body: string
+    sent_at: string
+    type: 'guest' | 'host'
+  } | null
+  unread_count: number
+  arrival: string
+  departure: string
+}
+
+export interface SmoobuMessage {
+  id: number
+  subject: string
+  body: string
+  sent_at: string
+  type: 'guest' | 'host'
+}
+
+export interface SmoobuThreadsResponse {
+  threads: SmoobuThread[]
+  page: number
+  page_count: number
+}
+
+export interface SmoobuMessagesResponse {
+  messages: SmoobuMessage[]
+  page: number
+  page_count: number
+}
+
+// Message template type
+export interface MessageTemplate {
+  id: string
+  user_id: string
+  name: string
+  body: string
+  language: 'de' | 'en'
+  is_default: boolean
+  sort_order: number
+  created_at: string
 }
 
 export interface SmoobuGuest {

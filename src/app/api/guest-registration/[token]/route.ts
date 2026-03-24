@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase'
 import { SmoobuClient } from '@/lib/smoobu'
 import { decrypt } from '@/lib/encryption'
+import { replaceTemplateVariables } from '@/lib/message-template-defaults'
+import { format } from 'date-fns'
+import { de } from 'date-fns/locale'
 
 // ─── Rate limiting (same pattern as /pay/[id]) ──────────────────────────────
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
@@ -302,6 +305,78 @@ export async function POST(
       }
     } catch (err) {
       console.error('Guest registration: Smoobu sync failed (non-fatal):', err)
+    }
+  }
+
+  // ─── Auto-message trigger: send message after check-in completion ──────────
+  if (booking.external_id) {
+    try {
+      // Check if user has an enabled auto-message trigger for this event
+      const { data: trigger } = await supabase
+        .from('auto_message_triggers')
+        .select('id, template_id, is_enabled')
+        .eq('user_id', regToken.user_id)
+        .eq('event_type', 'guest_checkin_completed')
+        .eq('is_enabled', true)
+        .single()
+
+      if (trigger?.template_id) {
+        // Load the template
+        const { data: template } = await supabase
+          .from('message_templates')
+          .select('name, body')
+          .eq('id', trigger.template_id)
+          .single()
+
+        if (template) {
+          // Get Smoobu client (may already have been created above for sync)
+          const { data: integration } = await supabase
+            .from('integrations')
+            .select('api_key_encrypted')
+            .eq('user_id', regToken.user_id)
+            .eq('provider', 'smoobu')
+            .eq('status', 'connected')
+            .single()
+
+          if (integration?.api_key_encrypted) {
+            const { plaintext: apiKey } = decrypt(integration.api_key_encrypted)
+            const client = new SmoobuClient({ apiKey })
+
+            const messageBody = replaceTemplateVariables(template.body, {
+              gastname: `${data.firstname} ${data.lastname}`.trim(),
+              property: (property?.name) ?? '',
+              checkin: booking.check_in ? format(new Date(booking.check_in), 'dd.MM.yyyy', { locale: de }) : '',
+              checkout: booking.check_out ? format(new Date(booking.check_out), 'dd.MM.yyyy', { locale: de }) : '',
+            })
+
+            let success = false
+            let error: string | null = null
+            try {
+              await client.sendMessage(booking.external_id, template.name, messageBody)
+              success = true
+            } catch (sendErr) {
+              error = sendErr instanceof Error ? sendErr.message : String(sendErr)
+              console.error('Auto-message send failed (non-fatal):', sendErr)
+            }
+
+            // Log the auto-message attempt
+            await supabase
+              .from('auto_message_logs')
+              .insert({
+                user_id: regToken.user_id,
+                booking_id: regToken.booking_id,
+                trigger_id: trigger.id,
+                event_type: 'guest_checkin_completed',
+                message_subject: template.name,
+                message_body: messageBody,
+                success,
+                error,
+              })
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Auto-message trigger check failed (non-fatal):', err)
     }
   }
 

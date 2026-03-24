@@ -3,6 +3,8 @@ import type {
   SmoobuReservation,
   SmoobuReservationsResponse,
   SmoobuGuest,
+  SmoobuThread,
+  SmoobuMessage,
   BookingChannel,
   BookingInsert,
   PropertyInsert,
@@ -261,6 +263,130 @@ export class SmoobuClient {
   /** Cancel a reservation in Smoobu */
   async cancelReservation(id: number): Promise<void> {
     await this.fetch<unknown>(`/reservations/${id}`, { method: 'DELETE' })
+  }
+
+  /** Fetch message threads from Smoobu.
+   *  Smoobu doesn't have a dedicated threads endpoint, so we build threads
+   *  from recent reservations and their message counts.
+   */
+  async getThreads(params?: {
+    page?: number
+    apartmentIds?: number[]
+  }): Promise<{ threads: SmoobuThread[]; page: number; page_count: number }> {
+    // Get recent reservations (last 6 months)
+    const sixMonthsAgo = new Date()
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+    const from = sixMonthsAgo.toISOString().split('T')[0]
+    const to = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+    const reservations = await this.getReservations({
+      from,
+      to,
+      apartmentId: params?.apartmentIds?.[0],
+      page: params?.page ?? 1,
+      pageSize: 50,
+    })
+
+    // Filter out blocked bookings
+    const validBookings = reservations.bookings.filter(
+      (b) => !b['is-blocked-booking']
+    )
+
+    // For each reservation, try to get messages to build thread preview
+    const threads: SmoobuThread[] = await Promise.all(
+      validBookings.map(async (booking) => {
+        let lastMessage: SmoobuThread['last_message'] = null
+        let unreadCount = 0
+
+        try {
+          const messages = await this.getMessages(booking.id, 1)
+          if (messages.length > 0) {
+            const latest = messages[0]
+            lastMessage = {
+              subject: latest.subject,
+              body: latest.body,
+              sent_at: latest.sent_at,
+              type: latest.type,
+            }
+          }
+        } catch {
+          // Messages endpoint may not be available for all reservations
+        }
+
+        const guestName = [booking.firstname, booking.lastname]
+          .filter(Boolean)
+          .join(' ') || booking['guest-name'] || 'Unbekannter Gast'
+
+        return {
+          booking_id: booking.id,
+          guest_name: guestName,
+          apartment: {
+            id: booking.apartment.id,
+            name: booking.apartment.name,
+          },
+          channel: booking.channel?.name ?? 'Direct',
+          last_message: lastMessage,
+          unread_count: unreadCount,
+          arrival: booking.arrival,
+          departure: booking.departure,
+        }
+      })
+    )
+
+    // Sort by last message date (newest first), bookings without messages last
+    threads.sort((a, b) => {
+      if (a.last_message && b.last_message) {
+        return new Date(b.last_message.sent_at).getTime() - new Date(a.last_message.sent_at).getTime()
+      }
+      if (a.last_message) return -1
+      if (b.last_message) return 1
+      // Fall back to arrival date
+      return new Date(b.arrival).getTime() - new Date(a.arrival).getTime()
+    })
+
+    return {
+      threads,
+      page: params?.page ?? 1,
+      page_count: reservations.page_count,
+    }
+  }
+
+  /** Fetch messages for a specific reservation from Smoobu */
+  async getMessages(reservationId: number, page?: number): Promise<SmoobuMessage[]> {
+    const searchParams = new URLSearchParams()
+    if (page) searchParams.set('page', String(page))
+
+    const response = await this.fetch<{
+      messages?: Array<{
+        id?: number
+        subject?: string
+        message_body?: string
+        body?: string
+        sent_at?: string
+        created_at?: string
+        date?: string
+        type?: string
+        sender?: string
+        direction?: string
+      }>
+    }>(`/reservations/${reservationId}/messages${searchParams.toString() ? `?${searchParams}` : ''}`)
+
+    const messages = response.messages ?? []
+
+    return messages.map((msg, index) => {
+      // Determine if message is from guest or host
+      const isHost = msg.type === 'host' ||
+        msg.sender === 'host' ||
+        msg.direction === 'outgoing'
+
+      return {
+        id: msg.id ?? index,
+        subject: msg.subject ?? '',
+        body: msg.message_body ?? msg.body ?? '',
+        sent_at: msg.sent_at ?? msg.created_at ?? msg.date ?? new Date().toISOString(),
+        type: (isHost ? 'host' : 'guest') as 'guest' | 'host',
+      }
+    })
   }
 
   /** Send a message to a guest via the OTA channel (Airbnb thread, Booking.com, email for direct) */

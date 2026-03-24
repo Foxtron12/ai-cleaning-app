@@ -10,6 +10,7 @@ import {
   FileText,
   Receipt,
   Calculator,
+  MessageSquare,
   Settings,
   Building2,
   LogOut,
@@ -66,6 +67,11 @@ const navItems = [
     title: 'Beherbergungssteuer',
     href: '/dashboard/steuer',
     icon: Calculator,
+  },
+  {
+    title: 'Nachrichten',
+    href: '/dashboard/nachrichten',
+    icon: MessageSquare,
   },
 ]
 
