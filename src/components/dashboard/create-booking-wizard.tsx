@@ -557,7 +557,7 @@ export function CreateBookingWizard({
                         setCheckInOpen(false)
                         setTimeout(() => setCheckOutOpen(true), 100)
                       }}
-                      disabled={(date) => date < new Date(new Date().toDateString())}
+                      disabled={() => false}
                       autoFocus
                     />
                   </PopoverContent>
@@ -589,9 +589,8 @@ export function CreateBookingWizard({
                         setCheckOutOpen(false)
                       }}
                       disabled={(date) => {
-                        const minDate = checkIn
-                          ? new Date(new Date(checkIn + 'T00:00:00').getTime() + 86400000)
-                          : new Date(new Date().toDateString())
+                        if (!checkIn) return false
+                        const minDate = new Date(new Date(checkIn + 'T00:00:00').getTime() + 86400000)
                         return date < minDate
                       }}
                       autoFocus
