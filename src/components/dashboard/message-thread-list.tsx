@@ -73,7 +73,7 @@ export function MessageThreadList({
           const isSelected = selectedBookingId === thread.booking_id
           const lastMessagePreview = thread.last_message
             ? stripHtml(thread.last_message.body).slice(0, 80)
-            : 'Keine Nachrichten'
+            : 'Tippen zum Anzeigen'
 
           return (
             <button

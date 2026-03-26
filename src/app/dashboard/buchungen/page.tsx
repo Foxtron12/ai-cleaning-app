@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { Suspense, useEffect, useState, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { Download, Search, Plus } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -118,6 +119,15 @@ function exportXLSX(bookings: BookingWithProperty[]) {
 const PAGE_SIZE = 20
 
 export default function BuchungenPage() {
+  return (
+    <Suspense>
+      <BuchungenContent />
+    </Suspense>
+  )
+}
+
+function BuchungenContent() {
+  const searchParams = useSearchParams()
   const [allBookings, setAllBookings] = useState<BookingWithProperty[]>([])
   const [invoiceBookingIds, setInvoiceBookingIds] = useState<Set<string>>(new Set())
   const [meldescheinBookingIds, setMeldescheinBookingIds] = useState<Set<string>>(new Set())
@@ -132,7 +142,7 @@ export default function BuchungenPage() {
   const [page, setPage] = useState(0)
   const [selectedBooking, setSelectedBooking] = useState<BookingWithProperty | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(searchParams.get('create') === 'true')
   const [sortColumn, setSortColumn] = useState<SortColumn>('check_in')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 

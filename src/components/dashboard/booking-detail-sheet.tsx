@@ -1,6 +1,6 @@
 'use client'
 
-import { format } from 'date-fns'
+import { format, differenceInCalendarDays } from 'date-fns'
 import { de } from 'date-fns/locale'
 import Link from 'next/link'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -655,6 +655,11 @@ export function BookingDetailSheet({
   const [editCity, setEditCity] = useState(booking.guest_city ?? '')
   const [editCountry, setEditCountry] = useState(booking.guest_country ?? '')
   const [editNote, setEditNote] = useState(booking.guest_note ?? '')
+  // Edit form state (booking data)
+  const [editCheckIn, setEditCheckIn] = useState(booking.check_in ?? '')
+  const [editCheckOut, setEditCheckOut] = useState(booking.check_out ?? '')
+  const [editAmountGross, setEditAmountGross] = useState(booking.amount_gross ?? 0)
+  const [editCleaningFee, setEditCleaningFee] = useState(booking.cleaning_fee ?? 0)
 
   async function handleCancel() {
     setCancelling(true)
@@ -676,6 +681,9 @@ export function BookingDetailSheet({
   async function handleSaveEdit() {
     setSaving(true)
     try {
+      const nights = editCheckIn && editCheckOut
+        ? differenceInCalendarDays(new Date(editCheckOut), new Date(editCheckIn))
+        : booking!.nights
       const { data: updated } = await supabase
         .from('bookings')
         .update({
@@ -688,6 +696,11 @@ export function BookingDetailSheet({
           guest_city: editCity || null,
           guest_country: editCountry || null,
           guest_note: editNote || null,
+          check_in: editCheckIn || booking!.check_in,
+          check_out: editCheckOut || booking!.check_out,
+          nights,
+          amount_gross: editAmountGross,
+          cleaning_fee: editCleaningFee,
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking!.id)
@@ -914,6 +927,10 @@ export function BookingDetailSheet({
                 setEditCity(booking.guest_city ?? '')
                 setEditCountry(booking.guest_country ?? '')
                 setEditNote(booking.guest_note ?? '')
+                setEditCheckIn(booking.check_in ?? '')
+                setEditCheckOut(booking.check_out ?? '')
+                setEditAmountGross(booking.amount_gross ?? 0)
+                setEditCleaningFee(booking.cleaning_fee ?? 0)
                 setEditDialogOpen(true)
               }}
             >
@@ -997,6 +1014,31 @@ export function BookingDetailSheet({
             <Label className="text-xs">Notiz</Label>
             <Input value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Besondere Wuensche..." />
           </div>
+
+          <Separator />
+          <p className="text-xs font-medium text-muted-foreground">Buchungsdaten</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Check-in</Label>
+              <Input type="date" value={editCheckIn} onChange={(e) => setEditCheckIn(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Check-out</Label>
+              <Input type="date" value={editCheckOut} onChange={(e) => setEditCheckOut(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Bruttobetrag (EUR)</Label>
+              <Input type="number" step="0.01" value={editAmountGross} onChange={(e) => setEditAmountGross(parseFloat(e.target.value) || 0)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Reinigungsgebühr (EUR)</Label>
+              <Input type="number" step="0.01" value={editCleaningFee} onChange={(e) => setEditCleaningFee(parseFloat(e.target.value) || 0)} />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">Hinweis: Änderungen betreffen nur die lokale Datenbank, nicht Smoobu.</p>
+
           <Button className="w-full" onClick={handleSaveEdit} disabled={saving}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Speichern

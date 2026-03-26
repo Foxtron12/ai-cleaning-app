@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
+import { supabase } from '@/lib/supabase'
 import { MessageTemplates } from '@/components/dashboard/message-templates'
 import type { SmoobuThread, SmoobuMessage, MessageTemplate } from '@/lib/types'
 
@@ -65,8 +66,34 @@ export function MessageConversation({
   const [error, setError] = useState<string | null>(null)
   const [messageText, setMessageText] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [registrationLink, setRegistrationLink] = useState<string | undefined>(undefined)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Fetch registration link for template placeholder
+  useEffect(() => {
+    async function fetchRegistrationLink() {
+      try {
+        const { data: booking } = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('external_id', thread.booking_id)
+          .single()
+        if (!booking) return
+        const { data: token } = await supabase
+          .from('guest_registration_tokens')
+          .select('token')
+          .eq('booking_id', booking.id)
+          .single()
+        if (token) {
+          setRegistrationLink(`${window.location.origin}/guest/register/${token.token}`)
+        }
+      } catch {
+        // Non-critical: template will keep placeholder if no link available
+      }
+    }
+    fetchRegistrationLink()
+  }, [thread.booking_id])
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -195,6 +222,7 @@ export function MessageConversation({
     checkin: format(new Date(thread.arrival), 'dd.MM.yyyy'),
     checkout: format(new Date(thread.departure), 'dd.MM.yyyy'),
     buchungsid: String(thread.booking_id),
+    registrierungslink: registrationLink,
   }
 
   return (

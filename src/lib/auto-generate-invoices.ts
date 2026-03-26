@@ -195,7 +195,7 @@ export async function autoGenerateInvoices(
       })
     }
 
-    // City tax – always include with actual amount
+    // City tax – always include so invoice total matches what guest pays
     if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
       const cityTaxRounded = Math.round(cityTax * 100) / 100
