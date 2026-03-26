@@ -213,7 +213,7 @@ function RechnungenContent() {
   const [typeFilter, setTypeFilter] = useState<'all' | InvoiceType>('all')
 
   // Sort state
-  const [sortField, setSortField] = useState<'number' | 'type' | 'guest' | 'property' | 'date' | 'period' | 'amount' | 'status'>('date')
+  const [sortField, setSortField] = useState<'number' | 'type' | 'guest' | 'property' | 'date' | 'due' | 'period' | 'amount' | 'status'>('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   // Form state
@@ -1057,6 +1057,8 @@ function RechnungenContent() {
       }
       case 'date':
         return dir * (a.issued_date ?? '').localeCompare(b.issued_date ?? '')
+      case 'due':
+        return dir * (a.due_date ?? '').localeCompare(b.due_date ?? '')
       case 'period':
         return dir * (a.service_period_start ?? '').localeCompare(b.service_period_start ?? '')
       case 'amount':
@@ -2002,7 +2004,10 @@ function RechnungenContent() {
                       <span className="inline-flex items-center gap-1">Wohnung <ArrowUpDown className={`h-3 w-3 ${sortField === 'property' ? 'opacity-100' : 'opacity-30'}`} /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('date')}>
-                      <span className="inline-flex items-center gap-1">Datum <ArrowUpDown className={`h-3 w-3 ${sortField === 'date' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                      <span className="inline-flex items-center gap-1">Rechnungsdatum <ArrowUpDown className={`h-3 w-3 ${sortField === 'date' ? 'opacity-100' : 'opacity-30'}`} /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('due')}>
+                      <span className="inline-flex items-center gap-1">Fällig am <ArrowUpDown className={`h-3 w-3 ${sortField === 'due' ? 'opacity-100' : 'opacity-30'}`} /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('period')}>
                       <span className="inline-flex items-center gap-1">Zeitraum <ArrowUpDown className={`h-3 w-3 ${sortField === 'period' ? 'opacity-100' : 'opacity-30'}`} /></span>
@@ -2046,6 +2051,11 @@ function RechnungenContent() {
                       <TableCell>
                         {inv.issued_date
                           ? format(new Date(inv.issued_date), 'dd.MM.yyyy')
+                          : '–'}
+                      </TableCell>
+                      <TableCell>
+                        {inv.due_date
+                          ? format(new Date(inv.due_date), 'dd.MM.yyyy')
                           : '–'}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
