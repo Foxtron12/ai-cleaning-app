@@ -203,7 +203,8 @@ function RechnungenContent() {
   const [splitPreviewOpen, setSplitPreviewOpen] = useState(false)
   const [splitSegments, setSplitSegments] = useState<SplitSegment[]>([])
   const [splitBooking, setSplitBooking] = useState<BookingWithProperty | null>(null)
-  const [splitCreating, setSplitCreating] = useState(false)
+  // Queue of split segments to process through the wizard one by one
+  const [splitQueue, setSplitQueue] = useState<SplitSegment[]>([])
   const { toast } = useToast()
 
   // Filter state
@@ -420,6 +421,123 @@ function RechnungenContent() {
     }
   }
 
+  /** Fill the wizard form from a split segment (proportional line items, segment dates) */
+  function fillFromSplitSegment(booking: BookingWithProperty, segment: SplitSegment, s: Settings | null) {
+    setSelectedBookingId(booking.id)
+    setNotes('')
+    setNotesFooter('')
+    setPaymentScheduleEnabled(false)
+
+    const isCompany = booking.invoice_recipient === 'company'
+    const name = isCompany && booking.company_name
+      ? booking.company_name
+      : [booking.guest_firstname, booking.guest_lastname].filter(Boolean).join(' ')
+    setGuestName(name)
+    setGuestStreet(isCompany && booking.company_street ? booking.company_street : (booking.guest_street ?? ''))
+    setGuestZip(isCompany && booking.company_zip ? booking.company_zip : (booking.guest_zip ?? ''))
+    setGuestCity(isCompany && booking.company_city ? booking.company_city : (booking.guest_city ?? ''))
+    setGuestCountry(isCompany && booking.company_country ? booking.company_country : (booking.guest_country ?? ''))
+    setServicePeriodStart(segment.checkIn)
+    setServicePeriodEnd(segment.checkOut)
+    setIssuedDate(format(new Date(), 'yyyy-MM-dd'))
+    setDueDate('')
+    setDueDateManual(false)
+
+    const isKlein = s?.is_kleinunternehmer ?? false
+    const effectiveRules = cityRules
+    const taxConfig = booking.properties ? getTaxConfigForProperty(booking.properties, effectiveRules) : null
+    const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
+    const cleaningFee = booking.cleaning_fee ?? 0
+    const accommodationGross = grossWithoutTax - cleaningFee
+
+    const fullTaxResult = taxConfig
+      ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
+      : null
+    const fullTaxAmount = booking.accommodation_tax_amount != null
+      ? booking.accommodation_tax_amount
+      : (fullTaxResult?.taxAmount ?? 0)
+    const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
+
+    // Proportional amounts based on segment ratio
+    const segAccomGross = Math.round(accommodationGross * segment.ratio * 100) / 100
+    const segClean = Math.round(cleaningFee * segment.ratio * 100) / 100
+
+    const items: InvoiceLineItem[] = []
+
+    const segAccomTotal = Math.round(segAccomGross * 100) / 100
+    const segAccomNetTotal = isKlein ? segAccomTotal : Math.round((segAccomGross / 1.07) * 100) / 100
+    const segAccomUnitPrice = segment.nights > 0 ? Math.round((segAccomNetTotal / segment.nights) * 100) / 100 : 0
+    const accomVat = isKlein ? 0 : Math.round((segAccomTotal - segAccomNetTotal) * 100) / 100
+    items.push({
+      description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${segment.monthLabel} (${segment.nights} Nächte)`,
+      quantity: segment.nights,
+      unitPrice: segAccomUnitPrice,
+      vatRate: 7,
+      vatAmount: accomVat,
+      total: segAccomTotal,
+    })
+
+    if (segClean > 0) {
+      const cleanUnitPrice = Math.round((segClean / (isKlein ? 1 : 1.07)) * 100) / 100
+      const cleanTotal = Math.round(segClean * 100) / 100
+      const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
+      items.push({
+        description: 'Endreinigung',
+        quantity: 1,
+        unitPrice: cleanUnitPrice,
+        vatRate: 7,
+        vatAmount: cleanVat,
+        total: cleanTotal,
+      })
+    }
+
+    if (fullTaxAmount > 0) {
+      const segTax = Math.round(fullTaxAmount * segment.ratio * 100) / 100
+      const taxVatAmount = isKlein ? 0 : Math.round(segTax * (taxVatRate / 100) * 100) / 100
+      items.push({
+        description: `Beherbergungssteuer${taxConfig?.city ? ` (${taxConfig.city})` : ''}`,
+        quantity: 1,
+        unitPrice: segTax,
+        vatRate: taxVatRate,
+        vatAmount: taxVatAmount,
+        total: Math.round((segTax + taxVatAmount) * 100) / 100,
+      })
+    }
+
+    setLineItems(items)
+
+    if (booking.external_id && !booking.guest_street) {
+      syncGuestFromSmoobu(booking.id)
+    }
+  }
+
+  /** Open the wizard for the next split segment in the queue */
+  function processNextSplitSegment() {
+    if (splitQueue.length === 0 || !splitBooking) return
+    const [next, ...rest] = splitQueue
+    setSplitQueue(rest)
+    fillFromSplitSegment(splitBooking, next, settings)
+    setDialogOpen(true)
+  }
+
+  /** Start the split wizard flow: queue selected segments and open wizard for the first one */
+  function startSplitWizardFlow() {
+    const booking = splitBooking
+    if (!booking) return
+    const selectedSegs = splitSegments.filter(seg => seg.selected && !seg.alreadyInvoiced)
+    if (selectedSegs.length === 0) {
+      toast({ title: 'Keine Monate ausgewählt', variant: 'destructive' })
+      return
+    }
+
+    // Queue all except the first, fill wizard with the first
+    const [first, ...rest] = selectedSegs
+    setSplitQueue(rest)
+    fillFromSplitSegment(booking, first, settings)
+    setSplitPreviewOpen(false)
+    setDialogOpen(true)
+  }
+
   /** Fetch latest guest data from Smoobu and update form fields + local booking state */
   async function syncGuestFromSmoobu(bookingId: string) {
     setSyncingGuest(true)
@@ -546,155 +664,6 @@ function RechnungenContent() {
     setSplitBooking(booking)
     setSplitSegments(enrichedSegments)
     setSplitPreviewOpen(true)
-  }
-
-  async function executeSplitInvoices() {
-    const booking = splitBooking
-    const s = settings
-    if (!booking || !s) return
-    const selectedSegs = splitSegments.filter(seg => seg.selected && !seg.alreadyInvoiced)
-    if (selectedSegs.length === 0) {
-      toast({ title: 'Keine Monate ausgewählt', variant: 'destructive' })
-      return
-    }
-
-    setSplitCreating(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const effectiveRules = cityRules
-      const isKlein = s.is_kleinunternehmer ?? false
-      const paymentDays = s.invoice_payment_days ?? 14
-      const prefix = s.invoice_prefix ?? 'RE'
-      let nextNumber = s.invoice_next_number ?? 1
-
-      // Only create invoices for selected segments that are not already invoiced
-
-      const taxConfig = booking.properties ? getTaxConfigForProperty(booking.properties, effectiveRules) : null
-      const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
-      const cleaningFee = booking.cleaning_fee ?? 0
-      const accommodationGross = grossWithoutTax - cleaningFee
-      const totalNights = booking.nights ?? differenceInCalendarDays(new Date(booking.check_out + 'T00:00:00'), new Date(booking.check_in + 'T00:00:00'))
-
-      const fullTaxResult = taxConfig
-        ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
-        : null
-      const fullTaxAmount = booking.accommodation_tax_amount != null
-        ? booking.accommodation_tax_amount
-        : (fullTaxResult?.taxAmount ?? 0)
-      const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
-
-      const landlordSnapshot = {
-        name: s.landlord_name ?? '', street: s.landlord_street ?? '', city: s.landlord_city ?? '',
-        zip: s.landlord_zip ?? '', country: s.landlord_country ?? 'DE', phone: s.landlord_phone ?? '',
-        email: s.landlord_email ?? '', website: s.landlord_website ?? '', tax_number: s.tax_number ?? '',
-        vat_id: s.vat_id ?? '', bank_iban: s.bank_iban ?? '', bank_bic: s.bank_bic ?? '',
-        bank_name: s.bank_name ?? '', company_register: s.company_register ?? '',
-        managing_director: s.managing_director ?? '', invoice_thank_you_text: s.invoice_thank_you_text ?? '',
-        logo_url: s.landlord_logo_url ?? '',
-      }
-
-      const guestSnapshot = {
-        firstname: booking.guest_firstname ?? '', lastname: booking.guest_lastname ?? '',
-        street: booking.guest_street ?? '', city: booking.guest_city ?? '',
-        zip: booking.guest_zip ?? '', country: booking.guest_country ?? '',
-        booking_reference: booking.external_id?.toString() ?? '',
-        guest_count: String((booking.adults ?? 0) + (booking.children ?? 0)),
-        payment_channel: booking.channel ?? '',
-        invoice_recipient: booking.invoice_recipient ?? 'guest',
-        company_name: booking.company_name ?? '',
-        company_street: booking.company_street ?? '',
-        company_zip: booking.company_zip ?? '',
-        company_city: booking.company_city ?? '',
-        company_country: booking.company_country ?? '',
-        company_vat_id: booking.company_vat_id ?? '',
-      }
-
-      const inserts = selectedSegs.map((seg) => {
-        const invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
-        nextNumber++
-
-        const segAccomGross = Math.round(accommodationGross * seg.ratio * 100) / 100
-        const segClean = Math.round(cleaningFee * seg.ratio * 100) / 100
-
-        const lineItems: Array<{ description: string; quantity: number; unit_price: number; vat_rate: number; vat_amount: number; total: number }> = []
-
-        const segAccomTotal = Math.round(segAccomGross * 100) / 100
-        const segAccomNetTotal = isKlein ? segAccomTotal : Math.round((segAccomGross / 1.07) * 100) / 100
-        const segAccomUnitPrice = seg.nights > 0 ? Math.round((segAccomNetTotal / seg.nights) * 100) / 100 : 0
-        const accomVat = isKlein ? 0 : Math.round((segAccomTotal - segAccomNetTotal) * 100) / 100
-        lineItems.push({
-          description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${seg.monthLabel} (${seg.nights} Nächte)`,
-          quantity: seg.nights,
-          unit_price: segAccomUnitPrice,
-          vat_rate: 7, vat_amount: accomVat, total: segAccomTotal,
-        })
-
-        if (segClean > 0) {
-          const cleanUnitPrice = Math.round((segClean / (isKlein ? 1 : 1.07)) * 100) / 100
-          const cleanTotal = Math.round(segClean * 100) / 100
-          const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
-          lineItems.push({
-            description: 'Endreinigung', quantity: 1, unit_price: cleanUnitPrice,
-            vat_rate: 7, vat_amount: cleanVat, total: cleanTotal,
-          })
-        }
-
-        // BHSt proportional — always include so invoice total matches guest payment
-        if (fullTaxAmount > 0) {
-          const segTax = Math.round(fullTaxAmount * seg.ratio * 100) / 100
-          const taxVatAmount = isKlein ? 0 : Math.round(segTax * (taxVatRate / 100) * 100) / 100
-          lineItems.push({
-            description: `Beherbergungssteuer${taxConfig?.city ? ` (${taxConfig.city})` : ''}`,
-            quantity: 1, unit_price: segTax,
-            vat_rate: taxVatRate, vat_amount: taxVatAmount,
-            total: Math.round((segTax + taxVatAmount) * 100) / 100,
-          })
-        }
-
-        const totalGross = Math.round(lineItems.reduce((s, i) => s + i.total, 0) * 100) / 100
-        const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
-        const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
-        const vat7Net = Math.round(vat7Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
-        const vat7Amount = isKlein ? 0 : Math.round(vat7Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
-        const vat19Net = Math.round(vat19Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
-        const vat19Amount = isKlein ? 0 : Math.round(vat19Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
-        const totalVat = Math.round((vat7Amount + vat19Amount) * 100) / 100
-        const subtotalNet = Math.round((totalGross - totalVat) * 100) / 100
-
-        return {
-          invoice_number: invoiceNumber,
-          booking_id: booking.id,
-          property_id: booking.property_id,
-          user_id: user?.id,
-          landlord_snapshot: landlordSnapshot as unknown as import('@/lib/database.types').Json,
-          guest_snapshot: guestSnapshot as unknown as import('@/lib/database.types').Json,
-          line_items: lineItems as unknown as import('@/lib/database.types').Json,
-          subtotal_net: Math.round(subtotalNet * 100) / 100,
-          vat_7_net: Math.round(vat7Net * 100) / 100, vat_7_amount: Math.round(vat7Amount * 100) / 100,
-          vat_19_net: Math.round(vat19Net * 100) / 100, vat_19_amount: Math.round(vat19Amount * 100) / 100,
-          total_vat: Math.round(totalVat * 100) / 100, total_gross: Math.round(totalGross * 100) / 100,
-          is_kleinunternehmer: isKlein,
-          issued_date: format(new Date(), 'yyyy-MM-dd'),
-          due_date: format(addDays(new Date(), paymentDays), 'yyyy-MM-dd'),
-          service_period_start: seg.checkIn,
-          service_period_end: seg.checkOut,
-          status: 'draft',
-        }
-      })
-
-      const { error } = await supabase.from('invoices').insert(inserts)
-      if (!error) {
-        await supabase.from('settings').update({ invoice_next_number: nextNumber }).eq('id', s.id)
-        toast({ title: `${inserts.length} Rechnungen erstellt`, description: `Monatsweise aufgeteilt: ${selectedSegs.map((s) => s.monthLabel).join(', ')}` })
-        const { data: refreshed } = await supabase.from('invoices').select(INVOICE_SELECT).order('created_at', { ascending: false })
-        if (refreshed) setInvoices(refreshed as InvoiceRow[])
-        setSplitPreviewOpen(false)
-      } else {
-        toast({ title: 'Fehler beim Erstellen', description: error.message, variant: 'destructive' })
-      }
-    } finally {
-      setSplitCreating(false)
-    }
   }
 
   function addLineItem() {
@@ -916,6 +885,19 @@ function RechnungenContent() {
 
       setDialogOpen(false)
       toast({ title: 'Rechnung gespeichert', description: invoiceNumber })
+
+      // If there are more split segments in the queue, open wizard for the next one
+      if (splitQueue.length > 0 && splitBooking) {
+        const [next, ...rest] = splitQueue
+        setSplitQueue(rest)
+        fillFromSplitSegment(splitBooking, next, settings)
+        // Small delay so the dialog close animation completes
+        setTimeout(() => setDialogOpen(true), 200)
+      } else {
+        // Clear split state when done
+        setSplitBooking(null)
+        setSplitQueue([])
+      }
     } finally {
       setGenerating(false)
     }
@@ -1599,7 +1581,15 @@ function RechnungenContent() {
             </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Rechnung erstellen</DialogTitle>
+              <DialogTitle>
+                Rechnung erstellen
+                {splitBooking && servicePeriodStart && (
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    – {format(new Date(servicePeriodStart + 'T00:00:00'), 'MMMM yyyy', { locale: de })}
+                    {splitQueue.length > 0 && ` (${splitQueue.length} weitere)`}
+                  </span>
+                )}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
               {/* Booking selector */}
@@ -2559,14 +2549,10 @@ function RechnungenContent() {
             </div>
             <Button
               className="w-full"
-              disabled={splitCreating || splitSegments.every(s => !s.selected || s.alreadyInvoiced)}
-              onClick={executeSplitInvoices}
+              disabled={splitSegments.every(s => !s.selected || s.alreadyInvoiced)}
+              onClick={startSplitWizardFlow}
             >
-              {splitCreating ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird erstellt...</>
-              ) : (
-                <><FileText className="mr-2 h-4 w-4" />Rechnungen erstellen</>
-              )}
+              <FileText className="mr-2 h-4 w-4" />Rechnungen im Wizard erstellen
             </Button>
           </div>
         </DialogContent>
