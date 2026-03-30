@@ -219,8 +219,8 @@ export function MessageConversation({
   const templateVariables = {
     gastname: thread.guest_name,
     property: thread.apartment.name,
-    checkin: format(new Date(thread.arrival), 'dd.MM.yyyy'),
-    checkout: format(new Date(thread.departure), 'dd.MM.yyyy'),
+    checkin: thread.arrival ? format(new Date(thread.arrival), 'dd.MM.yyyy') : '',
+    checkout: thread.departure ? format(new Date(thread.departure), 'dd.MM.yyyy') : '',
     buchungsid: String(thread.booking_id),
     registrierungslink: registrationLink,
   }
@@ -241,9 +241,11 @@ export function MessageConversation({
             <Badge variant="outline" className="text-xs">
               {thread.apartment.name}
             </Badge>
-            <span className="text-xs text-muted-foreground">
-              {format(new Date(thread.arrival), 'dd.MM.')} – {format(new Date(thread.departure), 'dd.MM.yyyy')}
-            </span>
+            {thread.arrival && thread.departure && (
+              <span className="text-xs text-muted-foreground">
+                {format(new Date(thread.arrival), 'dd.MM.')} – {format(new Date(thread.departure), 'dd.MM.yyyy')}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1 mt-1">
             <Info className="size-3 text-muted-foreground" />

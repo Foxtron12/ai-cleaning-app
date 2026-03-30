@@ -265,7 +265,9 @@ export class SmoobuClient {
     await this.fetch<unknown>(`/reservations/${id}`, { method: 'DELETE' })
   }
 
-  /** Fetch message threads from Smoobu using the dedicated /threads endpoint */
+  /** Fetch message threads from Smoobu using the dedicated /threads endpoint.
+   *  Threads don't include channel/arrival/departure, so we enrich from reservations cache.
+   */
   async getThreads(params?: {
     page?: number
     apartmentIds?: number[]
@@ -288,9 +290,6 @@ export class SmoobuClient {
       threads: Array<{
         booking: { id: number; guest_name?: string }
         apartment: { id: number; name: string }
-        channel?: { name?: string }
-        arrival?: string
-        departure?: string
         latest_message?: {
           id: number
           subject?: string
@@ -299,9 +298,12 @@ export class SmoobuClient {
           created_at?: string
           type?: number // 1 = inbox (guest), 2 = outbox (host)
         } | null
-        unread_count?: number
       }>
     }>(`/threads?${searchParams}`)
+
+    // Fetch reservation details for threads to get channel/arrival/departure
+    const bookingIds = (response.threads ?? []).map((t) => t.booking.id)
+    const reservationDetails = await this.getReservationDetailsForThreads(bookingIds)
 
     const threads: SmoobuThread[] = (response.threads ?? []).map((t) => {
       const lastMsg = t.latest_message
@@ -313,6 +315,8 @@ export class SmoobuClient {
           }
         : null
 
+      const details = reservationDetails.get(t.booking.id)
+
       return {
         booking_id: t.booking.id,
         guest_name: t.booking.guest_name ?? 'Unbekannter Gast',
@@ -320,11 +324,11 @@ export class SmoobuClient {
           id: t.apartment.id,
           name: t.apartment.name,
         },
-        channel: t.channel?.name ?? 'Direct',
+        channel: details?.channel ?? 'Direct',
         last_message: lastMsg,
-        unread_count: t.unread_count ?? 0,
-        arrival: t.arrival ?? '',
-        departure: t.departure ?? '',
+        unread_count: 0,
+        arrival: details?.arrival ?? '',
+        departure: details?.departure ?? '',
       }
     })
 
@@ -333,6 +337,37 @@ export class SmoobuClient {
       page: response.page_number ?? 1,
       page_count: response.page_count ?? 1,
     }
+  }
+
+  /** Fetch reservation details (channel, arrival, departure) for a list of booking IDs */
+  private async getReservationDetailsForThreads(
+    bookingIds: number[]
+  ): Promise<Map<number, { channel: string; arrival: string; departure: string }>> {
+    const map = new Map<number, { channel: string; arrival: string; departure: string }>()
+    if (bookingIds.length === 0) return map
+
+    // Fetch reservations for a wide date range to cover all threads
+    const sixMonthsAgo = new Date()
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+    const from = sixMonthsAgo.toISOString().split('T')[0]
+    const to = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+    try {
+      const reservations = await this.getReservations({ from, to, pageSize: 100 })
+      for (const b of reservations.bookings) {
+        if (bookingIds.includes(b.id)) {
+          map.set(b.id, {
+            channel: b.channel?.name ?? 'Direct',
+            arrival: b.arrival,
+            departure: b.departure,
+          })
+        }
+      }
+    } catch {
+      // Non-critical: threads will show without channel/dates
+    }
+
+    return map
   }
 
   /** Fetch messages for a specific reservation from Smoobu */
@@ -349,11 +384,9 @@ export class SmoobuClient {
         id?: number
         subject?: string
         message?: string
-        messageHtml?: string
+        htmlMessage?: string
         type?: number // 1 = inbox (guest), 2 = outbox (host)
-        created_at?: string
-        sent_at?: string
-        date?: string
+        createdAt?: string
       }>
     }>(`/reservations/${reservationId}/messages${searchParams.toString() ? `?${searchParams}` : ''}`)
 
@@ -366,8 +399,8 @@ export class SmoobuClient {
       return {
         id: msg.id ?? index,
         subject: msg.subject ?? '',
-        body: msg.message ?? msg.messageHtml ?? '',
-        sent_at: msg.created_at ?? msg.sent_at ?? msg.date ?? new Date().toISOString(),
+        body: msg.message ?? msg.htmlMessage ?? '',
+        sent_at: msg.createdAt ?? new Date().toISOString(),
         type: (isHost ? 'host' : 'guest') as 'guest' | 'host',
       }
     })
