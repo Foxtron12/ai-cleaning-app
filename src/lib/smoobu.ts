@@ -265,64 +265,73 @@ export class SmoobuClient {
     await this.fetch<unknown>(`/reservations/${id}`, { method: 'DELETE' })
   }
 
-  /** Fetch message threads from Smoobu.
-   *  Smoobu doesn't have a dedicated threads endpoint, so we build threads
-   *  from recent reservations and their message counts.
-   */
+  /** Fetch message threads from Smoobu using the dedicated /threads endpoint */
   async getThreads(params?: {
     page?: number
     apartmentIds?: number[]
   }): Promise<{ threads: SmoobuThread[]; page: number; page_count: number }> {
-    // Get recent reservations (last 6 months)
-    const sixMonthsAgo = new Date()
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
-    const from = sixMonthsAgo.toISOString().split('T')[0]
-    const to = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const searchParams = new URLSearchParams()
+    searchParams.set('page_number', String(params?.page ?? 1))
+    searchParams.set('page_size', '50')
+    if (params?.apartmentIds?.length) {
+      for (const id of params.apartmentIds) {
+        searchParams.append('apartments[]', String(id))
+      }
+    }
 
-    const reservations = await this.getReservations({
-      from,
-      to,
-      apartmentId: params?.apartmentIds?.[0],
-      page: params?.page ?? 1,
-      pageSize: 50,
-    })
+    const response = await this.fetch<{
+      page_number: number
+      page_size: number
+      page_count: number
+      total_threads: number
+      unread_messages: number
+      threads: Array<{
+        booking: { id: number; guest_name?: string }
+        apartment: { id: number; name: string }
+        channel?: { name?: string }
+        arrival?: string
+        departure?: string
+        latest_message?: {
+          id: number
+          subject?: string
+          text_content?: string
+          html_content?: string
+          created_at?: string
+          type?: number // 1 = inbox (guest), 2 = outbox (host)
+        } | null
+        unread_count?: number
+      }>
+    }>(`/threads?${searchParams}`)
 
-    // Filter out blocked bookings
-    const validBookings = reservations.bookings.filter(
-      (b) => !b['is-blocked-booking']
-    )
-
-    // Build threads from reservations without fetching messages per booking
-    // (messages are loaded on-demand when a thread is selected)
-    const threads: SmoobuThread[] = validBookings.map((booking) => {
-      const guestName = [booking.firstname, booking.lastname]
-        .filter(Boolean)
-        .join(' ') || booking['guest-name'] || 'Unbekannter Gast'
+    const threads: SmoobuThread[] = (response.threads ?? []).map((t) => {
+      const lastMsg = t.latest_message
+        ? {
+            subject: t.latest_message.subject ?? '',
+            body: t.latest_message.text_content ?? t.latest_message.html_content ?? '',
+            sent_at: t.latest_message.created_at ?? new Date().toISOString(),
+            type: (t.latest_message.type === 2 ? 'host' : 'guest') as 'guest' | 'host',
+          }
+        : null
 
       return {
-        booking_id: booking.id,
-        guest_name: guestName,
+        booking_id: t.booking.id,
+        guest_name: t.booking.guest_name ?? 'Unbekannter Gast',
         apartment: {
-          id: booking.apartment.id,
-          name: booking.apartment.name,
+          id: t.apartment.id,
+          name: t.apartment.name,
         },
-        channel: booking.channel?.name ?? 'Direct',
-        last_message: null,
-        unread_count: 0,
-        arrival: booking.arrival,
-        departure: booking.departure,
+        channel: t.channel?.name ?? 'Direct',
+        last_message: lastMsg,
+        unread_count: t.unread_count ?? 0,
+        arrival: t.arrival ?? '',
+        departure: t.departure ?? '',
       }
-    })
-
-    // Sort by arrival date (nearest check-in first)
-    threads.sort((a, b) => {
-      return new Date(b.arrival).getTime() - new Date(a.arrival).getTime()
     })
 
     return {
       threads,
-      page: params?.page ?? 1,
-      page_count: reservations.page_count,
+      page: response.page_number ?? 1,
+      page_count: response.page_count ?? 1,
     }
   }
 
@@ -332,41 +341,41 @@ export class SmoobuClient {
     if (page) searchParams.set('page', String(page))
 
     const response = await this.fetch<{
+      page_count?: number
+      page_size?: number
+      total_items?: number
+      page?: number
       messages?: Array<{
         id?: number
         subject?: string
-        message_body?: string
-        body?: string
-        sent_at?: string
+        message?: string
+        messageHtml?: string
+        type?: number // 1 = inbox (guest), 2 = outbox (host)
         created_at?: string
+        sent_at?: string
         date?: string
-        type?: string
-        sender?: string
-        direction?: string
       }>
     }>(`/reservations/${reservationId}/messages${searchParams.toString() ? `?${searchParams}` : ''}`)
 
     const messages = response.messages ?? []
 
     return messages.map((msg, index) => {
-      // Determine if message is from guest or host
-      const isHost = msg.type === 'host' ||
-        msg.sender === 'host' ||
-        msg.direction === 'outgoing'
+      // Smoobu uses type: 1 = inbox (guest), 2 = outbox (host)
+      const isHost = msg.type === 2
 
       return {
         id: msg.id ?? index,
         subject: msg.subject ?? '',
-        body: msg.message_body ?? msg.body ?? '',
-        sent_at: msg.sent_at ?? msg.created_at ?? msg.date ?? new Date().toISOString(),
+        body: msg.message ?? msg.messageHtml ?? '',
+        sent_at: msg.created_at ?? msg.sent_at ?? msg.date ?? new Date().toISOString(),
         type: (isHost ? 'host' : 'guest') as 'guest' | 'host',
       }
     })
   }
 
-  /** Send a message to a guest via the OTA channel (Airbnb thread, Booking.com, email for direct) */
+  /** Send a message to a guest via Smoobu (routed to OTA channel: Airbnb, Booking.com, or email for direct bookings) */
   async sendMessage(reservationId: number, subject: string, messageBody: string): Promise<void> {
-    await this.fetch<unknown>(`/reservations/${reservationId}/messages`, {
+    await this.fetch<unknown>(`/reservations/${reservationId}/messages/send-message-to-guest`, {
       method: 'POST',
       body: JSON.stringify({ subject, messageBody }),
     })

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, type KeyboardEvent } from 'react'
 import { format, isToday, isYesterday, isSameDay } from 'date-fns'
 import { de } from 'date-fns/locale'
-import { Send, AlertCircle, Loader2, ArrowLeft } from 'lucide-react'
+import { Send, AlertCircle, Loader2, ArrowLeft, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -243,6 +243,12 @@ export function MessageConversation({
             </Badge>
             <span className="text-xs text-muted-foreground">
               {format(new Date(thread.arrival), 'dd.MM.')} – {format(new Date(thread.departure), 'dd.MM.yyyy')}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <Info className="size-3 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">
+              Zustellung via: {thread.channel === 'Airbnb' ? 'Airbnb-Nachricht' : thread.channel === 'Booking.com' ? 'Booking.com-Nachricht' : thread.channel === 'Direct' ? 'E-Mail (Direktbuchung)' : `${thread.channel}-Kanal`}
             </span>
           </div>
         </div>
