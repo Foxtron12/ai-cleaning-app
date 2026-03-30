@@ -69,9 +69,9 @@ export function GuestRegistrationLinkManager({ bookingId, hasExternalId }: Props
 
       const data = await res.json()
       setTokenData(data)
-      toast.success('Registrierungslink erstellt')
+      toast.success('Online Check-In Link erstellt')
     } catch {
-      toast.error('Fehler beim Erstellen des Links')
+      toast.error('Fehler beim Erstellen des Check-In Links')
     } finally {
       setGenerating(false)
     }
@@ -103,7 +103,7 @@ export function GuestRegistrationLinkManager({ bookingId, hasExternalId }: Props
       }
 
       setTokenData(prev => prev ? { ...prev, status: 'sent' } : prev)
-      toast.success('Registrierungslink via Smoobu gesendet')
+      toast.success('Online Check-In Link via Smoobu gesendet')
     } catch (err) {
       toast.error(`Fehler: ${err instanceof Error ? err.message : 'Senden fehlgeschlagen'}`)
     } finally {
@@ -134,7 +134,7 @@ export function GuestRegistrationLinkManager({ bookingId, hasExternalId }: Props
         ) : (
           <Link2 className="mr-2 h-4 w-4" />
         )}
-        Gäste-Registrierungslink erstellen
+        Online Check-In Link erstellen
       </Button>
     )
   }
@@ -146,7 +146,7 @@ export function GuestRegistrationLinkManager({ bookingId, hasExternalId }: Props
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Gäste-Registrierung</span>
+        <span className="text-sm font-medium">Online Check-In</span>
         <Badge variant={statusConfig.variant} className="text-xs">
           <StatusIcon className="h-3 w-3 mr-1" />
           {statusConfig.label}

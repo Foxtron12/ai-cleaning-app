@@ -13,13 +13,13 @@ export function getRegistrationMessage(
 ): MessageTemplate {
   if (locale === 'en') {
     return {
-      subject: `Registration Form – ${propertyName}`,
+      subject: `Online Check-In – ${propertyName}`,
       body: [
         `Dear ${guestName},`,
         '',
         `We look forward to your stay at "${propertyName}".`,
         '',
-        'Please complete the registration form before your arrival (required by German law):',
+        'Please complete your online check-in before your arrival (required by German law):',
         registrationUrl,
         '',
         'It only takes 1–2 minutes.',
@@ -30,13 +30,13 @@ export function getRegistrationMessage(
   }
 
   return {
-    subject: `Meldeschein – ${propertyName}`,
+    subject: `Online Check-In – ${propertyName}`,
     body: [
       `Liebe/r ${guestName},`,
       '',
       `wir freuen uns auf Ihren Aufenthalt in unserer Ferienwohnung "${propertyName}".`,
       '',
-      'Bitte füllen Sie vorab den Meldeschein aus (gesetzliche Pflicht in Deutschland):',
+      'Bitte füllen Sie vorab den Online Check-In aus (gesetzliche Pflicht in Deutschland):',
       registrationUrl,
       '',
       'Das Formular dauert nur 1–2 Minuten.',

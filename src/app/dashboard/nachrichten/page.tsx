@@ -53,7 +53,7 @@ interface AutoTrigger {
 const EVENT_LABELS: Record<string, { label: string; description: string }> = {
   guest_checkin_completed: {
     label: 'Nach Online-Check-in',
-    description: 'Wenn der Gast das Registrierungsformular abgeschlossen hat.',
+    description: 'Wenn der Gast den Online Check-In abgeschlossen hat.',
   },
   new_booking: {
     label: 'Bei neuer Buchung',

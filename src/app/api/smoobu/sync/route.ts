@@ -276,6 +276,43 @@ export async function POST(request: NextRequest) {
     // 5. Auto-generate missing invoice drafts for newly synced bookings
     const { created: invoicesCreated } = await autoGenerateInvoices(userId, supabase)
 
+    // 5b. Auto-generate missing Online Check-In tokens for bookings
+    let checkInTokensCreated = 0
+    try {
+      const { data: existingTokenBookingIds } = await supabase
+        .from('guest_registration_tokens')
+        .select('booking_id')
+        .eq('user_id', userId)
+
+      const tokenBookingIdSet = new Set((existingTokenBookingIds ?? []).map(t => t.booking_id))
+
+      const { data: allBookings } = await supabase
+        .from('bookings')
+        .select('id, check_out')
+        .eq('user_id', userId)
+
+      const bookingsNeedingToken = (allBookings ?? []).filter(b => !tokenBookingIdSet.has(b.id))
+
+      if (bookingsNeedingToken.length > 0) {
+        const tokenInserts = bookingsNeedingToken.map(b => {
+          const expiresAt = new Date(b.check_out)
+          expiresAt.setDate(expiresAt.getDate() + 30)
+          return {
+            booking_id: b.id,
+            user_id: userId,
+            expires_at: expiresAt.toISOString(),
+          }
+        })
+        const { data: inserted } = await supabase
+          .from('guest_registration_tokens')
+          .insert(tokenInserts)
+          .select('id')
+        checkInTokensCreated = inserted?.length ?? 0
+      }
+    } catch (e) {
+      console.error('Auto-create guest registration tokens failed:', e)
+    }
+
     // 6. Backfill guest address on existing Meldescheine & invoices
     //    (for records created before address data was available from Smoobu)
     let meldescheineUpdated = 0
@@ -372,6 +409,7 @@ export async function POST(request: NextRequest) {
       reservations: { total: synced, created, updated },
       meldescheineCreated,
       invoicesCreated,
+      checkInTokensCreated,
       meldescheineUpdated,
       invoicesUpdated,
       syncedAt: new Date().toISOString(),

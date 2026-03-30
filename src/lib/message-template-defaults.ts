@@ -44,10 +44,10 @@ Vielen Dank fuer Ihren Besuch!`,
     sort_order: 2,
   },
   {
-    name: 'Registrierungslink',
+    name: 'Online Check-In',
     body: `Liebe/r {gastname},
 
-bitte fuellen Sie vor Ihrer Anreise den Meldeschein aus (gesetzliche Pflicht):
+bitte fuellen Sie vor Ihrer Anreise den Online Check-In aus (gesetzliche Pflicht):
 {registrierungslink}
 
 Das Formular dauert nur 1-2 Minuten.
@@ -60,7 +60,7 @@ Viele Gruesse`,
     name: 'Check-in Bestaetigung',
     body: `Liebe/r {gastname},
 
-vielen Dank fuer Ihre Registrierung fuer "{property}"!
+vielen Dank fuer Ihren Online Check-In fuer "{property}"!
 
 Hier die wichtigsten Infos fuer Ihren Aufenthalt:
 - Check-in: {checkin}
@@ -83,7 +83,7 @@ Your check-in is on {checkin}. Here is the key information:
 - WiFi password: [PLACEHOLDER]
 - Contact person: [PLACEHOLDER]
 
-If you haven't filled out the registration form yet:
+If you haven't completed your online check-in yet:
 {registrierungslink}
 
 We look forward to your stay!`,
@@ -100,7 +100,7 @@ export const TEMPLATE_VARIABLES = [
   { key: '{property}', label: 'Objekt', description: 'Name der Ferienwohnung' },
   { key: '{checkin}', label: 'Check-in', description: 'Check-in Datum (TT.MM.JJJJ)' },
   { key: '{checkout}', label: 'Check-out', description: 'Check-out Datum (TT.MM.JJJJ)' },
-  { key: '{registrierungslink}', label: 'Registrierungslink', description: 'Link zum Meldeschein-Formular' },
+  { key: '{registrierungslink}', label: 'Online Check-In Link', description: 'Link zum Online Check-In Formular' },
   { key: '{buchungsid}', label: 'Buchungs-ID', description: 'Smoobu Buchungsnummer' },
 ] as const
 

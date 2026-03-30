@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Gästeregistrierung',
-  description: 'Meldeschein ausfüllen',
+  title: 'Online Check-In',
+  description: 'Online Check-In ausfüllen',
 }
 
 export default function GuestLayout({

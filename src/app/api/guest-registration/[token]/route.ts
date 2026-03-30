@@ -98,6 +98,13 @@ export async function GET(
     return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
   }
 
+  // Fetch landlord logo from settings
+  const { data: settings } = await supabase
+    .from('settings')
+    .select('landlord_logo_url')
+    .eq('user_id', regToken.user_id)
+    .single()
+
   // Check if form was already submitted
   const { data: existingForm } = await supabase
     .from('registration_forms')
@@ -110,6 +117,7 @@ export async function GET(
 
   return NextResponse.json({
     status: regToken.status,
+    logo_url: settings?.landlord_logo_url ?? null,
     booking: {
       firstname: booking.guest_firstname ?? '',
       lastname: booking.guest_lastname ?? '',

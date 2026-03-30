@@ -191,7 +191,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 3. Auto-generate invoice for this booking
+    // 3. Auto-generate guest registration token (Online Check-In link)
+    try {
+      const expiresAt = new Date(data.checkOut)
+      expiresAt.setDate(expiresAt.getDate() + 30)
+      await supabase
+        .from('guest_registration_tokens')
+        .insert({
+          booking_id: booking.id,
+          user_id: user.id,
+          expires_at: expiresAt.toISOString(),
+        })
+    } catch (e) {
+      console.error('Auto-create guest registration token failed:', e)
+    }
+
+    // 4a. Auto-generate invoice for this booking
     let invoiceId: string | null = null
     try {
       const invoiceResult = await autoGenerateInvoices(user.id, supabase)
@@ -208,7 +223,7 @@ export async function POST(request: NextRequest) {
       console.error('Auto-generate invoice after booking creation failed:', e)
     }
 
-    // 4. Create Stripe payment link if user has Stripe configured
+    // 4b. Create Stripe payment link if user has Stripe configured
     let stripePaymentLink: string | null = null
     try {
       const { data: stripeIntegration } = await supabase

@@ -240,6 +240,21 @@ export async function POST(
         .select('id')
         .single()
 
+      // Auto-create Online Check-In token for new booking
+      if (inserted) {
+        try {
+          const expiresAt = new Date(reservation.departure)
+          expiresAt.setDate(expiresAt.getDate() + 30)
+          await supabase.from('guest_registration_tokens').insert({
+            booking_id: inserted.id,
+            user_id: userId,
+            expires_at: expiresAt.toISOString(),
+          })
+        } catch (e) {
+          console.error('Auto-create guest registration token failed:', e)
+        }
+      }
+
       // Fire auto-message trigger for new bookings (non-cancelled only)
       if (inserted && !isCancelled) {
         const guestName = [reservation.firstname, reservation.lastname]

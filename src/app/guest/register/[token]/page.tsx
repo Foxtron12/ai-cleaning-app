@@ -66,6 +66,7 @@ export default function GuestRegistrationPage() {
   const [booking, setBooking] = useState<BookingData | null>(null)
   const [property, setProperty] = useState<PropertyData | null>(null)
   const [existingForm, setExistingForm] = useState<ExistingForm | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   // Form state
@@ -96,6 +97,7 @@ export default function GuestRegistrationPage() {
         const data = await res.json()
         setBooking(data.booking)
         setProperty(data.property)
+        if (data.logo_url) setLogoUrl(data.logo_url)
 
         // Determine locale from guest language
         const lang = data.booking?.language?.toLowerCase() ?? 'de'
@@ -251,6 +253,16 @@ export default function GuestRegistrationPage() {
       {/* Header with property info + language toggle */}
       <Card className="mb-4">
         <CardHeader className="pb-3">
+          {logoUrl && (
+            <div className="flex justify-center mb-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={logoUrl}
+                alt="Logo"
+                className="h-16 max-w-[200px] object-contain"
+              />
+            </div>
+          )}
           <div className="flex items-start justify-between">
             <div>
               <CardTitle className="text-xl">{t.title}</CardTitle>
