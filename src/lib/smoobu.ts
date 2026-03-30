@@ -14,6 +14,16 @@ const SMOOBU_BASE_URL = 'https://login.smoobu.com/api'
 const MAX_REQUESTS_PER_MINUTE = 50
 const RETRY_DELAY_MS = 2000
 
+/** Parse Smoobu datetime (e.g. "2026-03-29 17:38:40") to ISO string.
+ *  Smoobu returns datetimes without timezone — we treat them as UTC. */
+function parseSmoobuDate(date: string | undefined | null): string {
+  if (!date) return new Date().toISOString()
+  // "2026-03-29 17:38:40" → "2026-03-29T17:38:40Z"
+  const iso = date.includes('T') ? date : date.replace(' ', 'T') + 'Z'
+  const parsed = new Date(iso)
+  return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString()
+}
+
 interface SmoobuClientOptions {
   apiKey: string
 }
@@ -310,7 +320,7 @@ export class SmoobuClient {
         ? {
             subject: t.latest_message.subject ?? '',
             body: t.latest_message.text_content ?? t.latest_message.html_content ?? '',
-            sent_at: t.latest_message.created_at ?? new Date().toISOString(),
+            sent_at: parseSmoobuDate(t.latest_message.created_at),
             type: (t.latest_message.type === 2 ? 'host' : 'guest') as 'guest' | 'host',
           }
         : null
@@ -400,7 +410,7 @@ export class SmoobuClient {
         id: msg.id ?? index,
         subject: msg.subject ?? '',
         body: msg.message ?? msg.htmlMessage ?? '',
-        sent_at: msg.createdAt ?? new Date().toISOString(),
+        sent_at: parseSmoobuDate(msg.createdAt),
         type: (isHost ? 'host' : 'guest') as 'guest' | 'host',
       }
     })

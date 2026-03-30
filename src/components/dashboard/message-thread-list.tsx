@@ -95,7 +95,7 @@ export function MessageThreadList({
                       {thread.unread_count}
                     </Badge>
                   )}
-                  {thread.last_message && (
+                  {thread.last_message?.sent_at && (
                     <span className="text-xs text-muted-foreground">
                       {formatDistanceToNow(new Date(thread.last_message.sent_at), {
                         addSuffix: false,
