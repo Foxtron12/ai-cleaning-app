@@ -20,6 +20,7 @@ interface MessageConversationProps {
   onBack?: () => void
   templates: MessageTemplate[]
   onTemplatesChange: () => void
+  companyName?: string
 }
 
 interface OptimisticMessage extends SmoobuMessage {
@@ -60,6 +61,7 @@ export function MessageConversation({
   onBack,
   templates,
   onTemplatesChange,
+  companyName,
 }: MessageConversationProps) {
   const [messages, setMessages] = useState<OptimisticMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -217,12 +219,13 @@ export function MessageConversation({
   }
 
   const templateVariables = {
-    gastname: thread.guest_name,
-    property: thread.apartment.name,
-    checkin: thread.arrival ? format(new Date(thread.arrival), 'dd.MM.yyyy') : '',
-    checkout: thread.departure ? format(new Date(thread.departure), 'dd.MM.yyyy') : '',
-    buchungsid: String(thread.booking_id),
-    registrierungslink: registrationLink,
+    guestFirstName: thread.guest_name.split(' ')[0],
+    checkInDate: thread.arrival ? format(new Date(thread.arrival), 'dd.MM.yyyy') : '',
+    checkOutDate: thread.departure ? format(new Date(thread.departure), 'dd.MM.yyyy') : '',
+    numberOfGuests: String(thread.adults ?? 1),
+    preCheckInLink: registrationLink,
+    guestAreaLateCheckOutLink: registrationLink ? registrationLink.replace('/register/', '/area/') : undefined,
+    companyName,
   }
 
   return (

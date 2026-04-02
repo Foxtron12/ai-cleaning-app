@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { MessageSquare, AlertTriangle, Settings, Zap, FileText, Plus, Pencil, Trash2, Eye } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { MessageSquare, AlertTriangle, Settings, Zap, FileText, Plus, Pencil, Trash2, Eye, Languages, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -50,22 +50,32 @@ interface AutoTrigger {
   days_offset: number
 }
 
-const EVENT_LABELS: Record<string, { label: string; description: string }> = {
-  guest_checkin_completed: {
-    label: 'Nach Online-Check-in',
-    description: 'Wenn der Gast den Online Check-In abgeschlossen hat.',
-  },
+const EVENT_LABELS: Record<string, { label: string; description: string; condition?: string }> = {
   new_booking: {
-    label: 'Bei neuer Buchung',
+    label: 'Buchungsbestaetigung',
     description: 'Wenn eine neue Buchung ueber Smoobu eingeht.',
   },
-  days_before_checkin: {
-    label: 'X Tage vor Check-in',
-    description: 'Automatisch X Tage vor dem Check-in-Datum senden.',
+  checkin_reminder: {
+    label: 'Online Check-In Erinnerung',
+    description: '1 Tag vor Check-in senden.',
+    condition: 'Nur wenn der Online Check-In noch NICHT abgeschlossen ist.',
   },
-  after_checkout: {
-    label: 'Nach Check-out',
-    description: 'Nach dem Abreisedatum des Gastes.',
+  guest_checkin_completed: {
+    label: 'Anreise-Info (Check-In abgeschlossen)',
+    description: 'Wenn der Gast den Online Check-In abgeschlossen hat.',
+    condition: 'Nur wenn der Online Check-In abgeschlossen ist.',
+  },
+  follow_up: {
+    label: 'Follow-up (Tag nach Check-in)',
+    description: '1 Tag nach dem Check-in-Datum senden.',
+  },
+  checkout_reminder: {
+    label: 'Check-out Erinnerung',
+    description: '1 Tag vor dem Check-out-Datum senden.',
+  },
+  review_request: {
+    label: 'Bewertung anfragen',
+    description: 'Am Check-out-Tag um 15:00 Uhr senden.',
   },
 }
 
@@ -76,14 +86,6 @@ const DELAY_OPTIONS = [
   { value: 1440, label: '24 Stunden spaeter' },
 ]
 
-const DAYS_OFFSET_OPTIONS = [
-  { value: 1, label: '1 Tag vorher' },
-  { value: 2, label: '2 Tage vorher' },
-  { value: 3, label: '3 Tage vorher' },
-  { value: 5, label: '5 Tage vorher' },
-  { value: 7, label: '7 Tage vorher' },
-  { value: 14, label: '14 Tage vorher' },
-]
 
 export default function NachrichtenPage() {
   // Active tab
@@ -107,6 +109,9 @@ export default function NachrichtenPage() {
   // Templates
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
 
+  // Company name from profile (for {{companyName}} placeholder)
+  const [companyName, setCompanyName] = useState<string>('')
+
   // Check-in status map
   const [checkinStatusMap, setCheckinStatusMap] = useState<Record<number, string>>({})
 
@@ -125,6 +130,12 @@ export default function NachrichtenPage() {
 
   // Preview
   const [previewTemplate, setPreviewTemplate] = useState<MessageTemplate | null>(null)
+
+  // Translation
+  const [isTranslating, setIsTranslating] = useState(false)
+
+  // Template editor textarea ref (for cursor-position insertion)
+  const templateTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Mobile: show conversation view
   const [showConversation, setShowConversation] = useState(false)
@@ -154,6 +165,17 @@ export default function NachrichtenPage() {
         .order('name')
 
       setProperties(props ?? [])
+
+      // Load brand name (or company name as fallback) from profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('brand_name, company_name')
+        .eq('id', user.id)
+        .single()
+      if (profile) {
+        setCompanyName(profile.brand_name || profile.company_name || '')
+      }
+
       await loadTemplates(user.id)
       await loadTriggers()
     }
@@ -175,6 +197,52 @@ export default function NachrichtenPage() {
       .select('*')
       .eq('user_id', uid)
       .order('sort_order')
+
+    // Check if old default templates need to be replaced with new ones.
+    // Detect old format by checking for {gastname} or old template names.
+    const oldDefaults = (existingTemplates ?? []).filter(
+      (t) => t.is_default && (
+        t.body.includes('{gastname}') ||
+        t.body.includes('{checkin}') ||
+        // Detect templates from previous default set (hardcoded company name)
+        (t.body.includes('NORA Stays') && !t.body.includes('{{companyName}}')) ||
+        t.name === 'Check-in Information' ||
+        t.name === 'Check-in Information (EN)' ||
+        t.name === 'Check-in Bestaetigung' ||
+        t.name === 'Online Check-In'
+      )
+    )
+
+    if (oldDefaults.length > 0) {
+      // Delete old default templates
+      const oldIds = oldDefaults.map((t) => t.id)
+      await supabase
+        .from('message_templates')
+        .delete()
+        .in('id', oldIds)
+
+      // Insert new defaults
+      const inserts = DEFAULT_TEMPLATES.map((t) => ({
+        user_id: uid!,
+        name: t.name,
+        body: t.body,
+        language: t.language,
+        is_default: true,
+        sort_order: t.sort_order,
+      }))
+
+      const { data: seeded } = await supabase
+        .from('message_templates')
+        .insert(inserts)
+        .select('*')
+
+      // Combine new defaults with any remaining custom templates
+      const remaining = (existingTemplates ?? []).filter(
+        (t) => !oldIds.includes(t.id)
+      )
+      setTemplates([...(seeded ?? []), ...remaining] as MessageTemplate[])
+      return
+    }
 
     if (existingTemplates && existingTemplates.length > 0) {
       setTemplates(existingTemplates as MessageTemplate[])
@@ -390,6 +458,56 @@ export default function NachrichtenPage() {
     toast({ title: 'Vorlage geloescht' })
   }
 
+  // ─── Template editor: insert placeholder at cursor ──────────────────────────
+
+  const insertPlaceholderAtCursor = (placeholder: string) => {
+    const textarea = templateTextareaRef.current
+    if (!textarea) {
+      setEditBody((b) => b + placeholder)
+      return
+    }
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const before = editBody.slice(0, start)
+    const after = editBody.slice(end)
+    const updated = before + placeholder + after
+    setEditBody(updated)
+
+    requestAnimationFrame(() => {
+      const newPos = start + placeholder.length
+      textarea.selectionStart = newPos
+      textarea.selectionEnd = newPos
+      textarea.focus()
+    })
+  }
+
+  // ─── Translation ───────────────────────────────────────────────────────────
+
+  const translateTemplate = async () => {
+    if (!editBody.trim()) return
+    setIsTranslating(true)
+
+    try {
+      const targetLang = editLanguage === 'de' ? 'en' : 'de'
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: editBody, targetLang }),
+      })
+
+      if (!res.ok) throw new Error('Uebersetzung fehlgeschlagen')
+      const data = await res.json()
+      setEditBody(data.translatedText)
+      setEditLanguage(targetLang)
+      toast({ title: `Uebersetzt nach ${targetLang === 'de' ? 'Deutsch' : 'Englisch'}` })
+    } catch {
+      toast({ title: 'Uebersetzung fehlgeschlagen', variant: 'destructive' })
+    } finally {
+      setIsTranslating(false)
+    }
+  }
+
   // ─── Navigation ──────────────────────────────────────────────────────────────
 
   const handleSelectThread = (thread: SmoobuThread) => {
@@ -530,6 +648,7 @@ export default function NachrichtenPage() {
                       onBack={handleBack}
                       templates={templates}
                       onTemplatesChange={() => loadTemplates()}
+                      companyName={companyName}
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-center px-4">
@@ -636,12 +755,13 @@ export default function NachrichtenPage() {
                     {previewTemplate?.id === t.id && (
                       <div className="mt-3 p-3 bg-muted rounded text-xs whitespace-pre-wrap border">
                         {replaceTemplateVariables(t.body, {
-                          gastname: 'Max Mustermann',
-                          property: 'Apartment Dresden City',
-                          checkin: '25.03.2026',
-                          checkout: '28.03.2026',
-                          registrierungslink: 'https://app.example.com/guest/register/...',
-                          buchungsid: '12345678',
+                          guestFirstName: 'Max',
+                          checkInDate: '25.03.2026',
+                          checkOutDate: '28.03.2026',
+                          numberOfGuests: '2',
+                          preCheckInLink: 'https://app.example.com/guest/register/...',
+                          guestAreaLateCheckOutLink: 'https://app.example.com/guest/area/...',
+                          companyName: companyName || 'Mein Unternehmen',
                         })}
                       </div>
                     )}
@@ -659,7 +779,7 @@ export default function NachrichtenPage() {
                   {isNewTemplate ? 'Neue Vorlage erstellen' : 'Vorlage bearbeiten'}
                 </DialogTitle>
                 <DialogDescription>
-                  Platzhalter wie {'{gastname}'} werden beim Senden automatisch ersetzt.
+                  Platzhalter wie {'{{guestFirstName}}'} werden beim Senden automatisch ersetzt.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
@@ -671,34 +791,55 @@ export default function NachrichtenPage() {
                     placeholder="z.B. Willkommensnachricht"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Sprache</Label>
-                  <Select value={editLanguage} onValueChange={(v) => setEditLanguage(v as 'de' | 'en')}>
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="de">Deutsch</SelectItem>
-                      <SelectItem value="en">English</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-end gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Sprache</Label>
+                    <Select value={editLanguage} onValueChange={(v) => setEditLanguage(v as 'de' | 'en')}>
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="de">Deutsch</SelectItem>
+                        <SelectItem value="en">English</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={translateTemplate}
+                    disabled={isTranslating || !editBody.trim()}
+                    title={`Uebersetzen nach ${editLanguage === 'de' ? 'Englisch' : 'Deutsch'}`}
+                  >
+                    {isTranslating ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Languages className="size-3.5" />
+                    )}
+                    {editLanguage === 'de' ? 'EN' : 'DE'}
+                  </Button>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Nachricht</Label>
                   <Textarea
+                    ref={templateTextareaRef}
                     value={editBody}
                     onChange={(e) => setEditBody(e.target.value)}
-                    placeholder="Liebe/r {gastname},&#10;&#10;..."
+                    placeholder="Hi {{guestFirstName}}, ..."
                     rows={8}
                     className="font-mono text-sm"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Klicke auf einen Platzhalter, um ihn an der Cursorposition einzufuegen:
+                  </p>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {TEMPLATE_VARIABLES.map((v) => (
                       <button
                         key={v.key}
                         type="button"
                         className="px-1.5 py-0.5 text-xs bg-muted rounded hover:bg-accent transition-colors font-mono"
-                        onClick={() => setEditBody((b) => b + v.key)}
+                        onClick={() => insertPlaceholderAtCursor(v.key)}
                         title={v.description}
                       >
                         {v.key}
@@ -732,12 +873,11 @@ export default function NachrichtenPage() {
               </p>
             </div>
 
-            {Object.entries(EVENT_LABELS).map(([eventType, { label, description }]) => {
+            {Object.entries(EVENT_LABELS).map(([eventType, { label, description, condition }]) => {
               const trigger = triggers.find((t) => t.event_type === eventType)
               const isEnabled = trigger?.is_enabled ?? false
               const templateId = trigger?.template_id ?? 'none'
               const delayMinutes = trigger?.delay_minutes ?? 0
-              const daysOffset = trigger?.days_offset ?? 3
               const isSaving = triggerSaving === eventType
 
               return (
@@ -756,9 +896,14 @@ export default function NachrichtenPage() {
                         }}
                       />
                     </div>
+                    {condition && (
+                      <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded">
+                        Bedingung: {condition}
+                      </div>
+                    )}
 
                     {isEnabled && (
-                      <div className="space-y-3 pl-0 border-l-2 border-primary/20 ml-1 pl-4">
+                      <div className="space-y-3 border-l-2 border-primary/20 ml-1 pl-4">
                         {/* Template selection */}
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Vorlage</Label>
@@ -783,55 +928,28 @@ export default function NachrichtenPage() {
                           </Select>
                         </div>
 
-                        {/* Delay selection (not for days_before_checkin) */}
-                        {eventType !== 'days_before_checkin' && (
-                          <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">Zeitpunkt</Label>
-                            <Select
-                              value={String(delayMinutes)}
-                              onValueChange={(v) => {
-                                saveTrigger(eventType, { delay_minutes: parseInt(v, 10) })
-                              }}
-                              disabled={isSaving}
-                            >
-                              <SelectTrigger className="w-48">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {DELAY_OPTIONS.map((o) => (
-                                  <SelectItem key={o.value} value={String(o.value)}>
-                                    {o.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-
-                        {/* Days offset (only for days_before_checkin) */}
-                        {eventType === 'days_before_checkin' && (
-                          <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">Wann senden?</Label>
-                            <Select
-                              value={String(daysOffset)}
-                              onValueChange={(v) => {
-                                saveTrigger(eventType, { days_offset: parseInt(v, 10) })
-                              }}
-                              disabled={isSaving}
-                            >
-                              <SelectTrigger className="w-48">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {DAYS_OFFSET_OPTIONS.map((o) => (
-                                  <SelectItem key={o.value} value={String(o.value)}>
-                                    {o.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
+                        {/* Delay selection */}
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Verzoegerung</Label>
+                          <Select
+                            value={String(delayMinutes)}
+                            onValueChange={(v) => {
+                              saveTrigger(eventType, { delay_minutes: parseInt(v, 10) })
+                            }}
+                            disabled={isSaving}
+                          >
+                            <SelectTrigger className="w-48">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DELAY_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={String(o.value)}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
                         {/* Template preview */}
                         {templateId !== 'none' && (
@@ -839,11 +957,13 @@ export default function NachrichtenPage() {
                             {replaceTemplateVariables(
                               templates.find((t) => t.id === templateId)?.body ?? '',
                               {
-                                gastname: 'Max Mustermann',
-                                property: 'Apartment Dresden City',
-                                checkin: '25.03.2026',
-                                checkout: '28.03.2026',
-                                registrierungslink: 'https://app.../guest/register/...',
+                                guestFirstName: 'Max',
+                                checkInDate: '25.03.2026',
+                                checkOutDate: '28.03.2026',
+                                numberOfGuests: '2',
+                                preCheckInLink: 'https://app.../guest/register/...',
+                                guestAreaLateCheckOutLink: 'https://app.../guest/area/...',
+                                companyName: companyName || 'Mein Unternehmen',
                               }
                             )}
                           </div>

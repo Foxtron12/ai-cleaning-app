@@ -339,6 +339,7 @@ export class SmoobuClient {
         unread_count: 0,
         arrival: details?.arrival ?? '',
         departure: details?.departure ?? '',
+        adults: details?.adults ?? 1,
       }
     })
 
@@ -352,8 +353,8 @@ export class SmoobuClient {
   /** Fetch reservation details (channel, arrival, departure) for a list of booking IDs */
   private async getReservationDetailsForThreads(
     bookingIds: number[]
-  ): Promise<Map<number, { channel: string; arrival: string; departure: string }>> {
-    const map = new Map<number, { channel: string; arrival: string; departure: string }>()
+  ): Promise<Map<number, { channel: string; arrival: string; departure: string; adults: number }>> {
+    const map = new Map<number, { channel: string; arrival: string; departure: string; adults: number }>()
     if (bookingIds.length === 0) return map
 
     // Fetch reservations for a wide date range to cover all threads
@@ -370,6 +371,7 @@ export class SmoobuClient {
             channel: b.channel?.name ?? 'Direct',
             arrival: b.arrival,
             departure: b.departure,
+            adults: b.adults ?? 1,
           })
         }
       }

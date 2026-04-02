@@ -12,83 +12,116 @@ export interface DefaultTemplate {
 
 export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
   {
-    name: 'Check-in Information',
-    body: `Liebe/r {gastname},
+    name: 'Buchungsbestaetigung',
+    body: `Hi {{guestFirstName}},
 
-herzlich willkommen in "{property}"!
+vielen Dank fuer deine Buchung bei {{companyName}}!
+Ich freue mich, deine Reservierung vom {{checkInDate}} bis {{checkOutDate}} fuer {{numberOfGuests}} Gaeste zu bestaetigen.
 
-Ihr Check-in ist am {checkin}. Hier die wichtigsten Infos:
-- Schluesseluebergabe: [PLATZHALTER]
-- WLAN-Passwort: [PLATZHALTER]
-- Ansprechpartner: [PLATZHALTER]
+Wichtig: Bitte nutze vor deiner Anreise unseren Online-Check-in. Dieser ist notwendig, damit du alle Informationen zum Check-in erhaeltst.
 
-Falls Sie den Meldeschein noch nicht ausgefuellt haben:
-{registrierungslink}
+Du kannst den Online-Check-in bereits jetzt schon ausfuellen, damit du am Anreisetag ganz entspannt anreisen kannst. Klicke dafuer einfach auf folgenden Link:
 
-Wir freuen uns auf Sie!`,
+{{preCheckInLink}}
+
+Wir freuen uns darauf, dich bald bei uns begruessen zu duerfen!
+
+Beste Gruesse
+Richard von {{companyName}}
+
+Hast du noch Fragen? Schreib uns gerne hier im Chat.`,
     language: 'de',
     sort_order: 1,
   },
   {
-    name: 'Check-out Erinnerung',
-    body: `Liebe/r {gastname},
+    name: 'Online Check-In Erinnerung',
+    body: `Hey {{guestFirstName}},
 
-Ihr Aufenthalt in "{property}" endet am {checkout}.
+morgen ist dein Check-in! 😊
+Dein Online-Check-in ist aktuell noch nicht abgeschlossen. Bitte schliesse ihn jetzt ab, damit du alle wichtigen Informationen fuer deine Anreise und den Check-in erhaeltst.
 
-Bitte beachten Sie:
-- Check-out bis [PLATZHALTER] Uhr
-- Schluessel [PLATZHALTER]
+👉 Hier geht's direkt zum Online-Check-in: {{preCheckInLink}}
 
-Vielen Dank fuer Ihren Besuch!`,
+Nach dem Abschluss wirst du automatisch in deinen persoenlichen Gaeste-Online-Bereich weitergeleitet. Dort findest du alle Infos zur Anreise, zur Unterkunft und zum Check-in.
+
+Wir freuen uns auf dich – fuehl dich ganz wie zuhause!
+Dein {{companyName}} Team`,
     language: 'de',
     sort_order: 2,
   },
   {
-    name: 'Online Check-In',
-    body: `Liebe/r {gastname},
+    name: 'Anreise (Check-In abgeschlossen)',
+    body: `Hey {{guestFirstName}},
 
-bitte fuellen Sie vor Ihrer Anreise den Online Check-In aus (gesetzliche Pflicht):
-{registrierungslink}
+super, danke! ✅ Dein Online-Check-in ist abgeschlossen.
 
-Das Formular dauert nur 1-2 Minuten.
+Klicke einfach auf den folgenden Link, um deinen persoenlichen Gaeste-Online-Bereich jederzeit aufzurufen. Dort findest du alle Infos zur Anreise, zum Check-in, zu den Zugangsdaten, den WLAN-Daten und weiteren wichtigen Hinweisen fuer deinen Aufenthalt:
 
-Viele Gruesse`,
+👉 {{preCheckInLink}}
+
+Wir wuenschen dir eine gute Anreise und einen richtig schoenen Aufenthalt bei {{companyName}}!
+Dein {{companyName}} Team`,
     language: 'de',
     sort_order: 3,
   },
   {
-    name: 'Check-in Bestaetigung',
-    body: `Liebe/r {gastname},
+    name: 'Follow-up (Tag nach Check-in)',
+    body: `Hey {{guestFirstName}},
 
-vielen Dank fuer Ihren Online Check-In fuer "{property}"!
+ich hoffe, du bist gut angekommen und hattest eine angenehme erste Nacht bei uns. 😊
+Ist alles so, wie du es dir vorgestellt hast – und findest du dich in der Unterkunft gut zurecht?
 
-Hier die wichtigsten Infos fuer Ihren Aufenthalt:
-- Check-in: {checkin}
-- Check-out: {checkout}
-- Schluesseluebergabe: [PLATZHALTER]
-- WLAN-Passwort: [PLATZHALTER]
+Wenn irgendetwas ist oder du Fragen hast, melde dich jederzeit gerne bei uns hier im Chat – wir sind fuer dich da.
 
-Wir freuen uns auf Sie!`,
+Viele Gruesse
+dein Team von {{companyName}}`,
     language: 'de',
     sort_order: 4,
   },
   {
-    name: 'Check-in Information (EN)',
-    body: `Dear {gastname},
+    name: 'Check-out Erinnerung',
+    body: `Hey {{guestFirstName}},
 
-Welcome to "{property}"!
+morgen ist dein Check-out – wir hoffen, du hattest eine richtig schoene Zeit bei uns und konntest deinen Aufenthalt geniessen. 👋
+Du kannst ganz entspannt bis 10:00 Uhr in der Wohnung bleiben.
 
-Your check-in is on {checkin}. Here is the key information:
-- Key handover: [PLACEHOLDER]
-- WiFi password: [PLACEHOLDER]
-- Contact person: [PLACEHOLDER]
+Damit beim Check-out alles reibungslos klappt, beachte bitte kurz diese Punkte:
+→ Lege die benutzten Handtuecher im Badezimmer auf den Boden.
+→ Entsorge deinen Muell in den vorgesehenen Muelleimern – um den Rest kuemmern wir uns.
+→ Schalte bitte alle Lampen und Geraete aus. Falls die Spuelmaschine noch laeuft, ist das kein Problem.
+→ Ziehe die Tuer beim Verlassen bitte einfach zu und achte darauf, dass sie vollstaendig geschlossen ist.
+→ Lege den Schluessel nach dem Check-out wieder an den Ort zurueck, an dem du ihn bekommen hast (z. B. Schluesselkasten oder in der Wohnung).
 
-If you haven't completed your online check-in yet:
-{registrierungslink}
+Wenn du noch Fragen hast, sind wir jederzeit per Nachricht oder Anruf fuer dich da.
 
-We look forward to your stay!`,
-    language: 'en',
+Und denk dran: Bei {{companyName}} bist du jederzeit wieder willkommen – ein Apartment ist immer bereit fuer dich. ✨
+
+Bis hoffentlich ganz bald
+dein Team von {{companyName}} 👋
+
+PS: Wenn du spaeter auschecken moechtest, kannst du – je nach Verfuegbarkeit – ganz einfach ueber dein Gaeste-Portal einen Late-Check-out buchen:
+{{guestAreaLateCheckOutLink}}`,
+    language: 'de',
     sort_order: 5,
+  },
+  {
+    name: 'Bewertung (nach Check-out)',
+    body: `Hallo {{guestFirstName}},
+
+vielen Dank, dass du bei {{companyName}} zu Gast warst – es hat uns sehr gefreut, dich in einem unserer Apartments begruessen zu duerfen!
+
+Wenn du mit deinem Aufenthalt zufrieden warst, wuerden wir uns sehr ueber eine positive Bewertung freuen. Damit hilfst du uns und auch zukuenftigen Gaesten, sich ein gutes Bild von {{companyName}} zu machen.
+
+Falls du Anregungen oder Wuensche hast, was wir noch besser machen koennen, schreib uns gerne direkt – wir moechten unseren Service stetig weiterentwickeln und deinen naechsten Aufenthalt noch angenehmer gestalten.
+
+Wir wuenschen dir weiterhin schoene Reisen und wuerden uns freuen, dich bald wieder bei uns begruessen zu duerfen. 😊
+
+Herzliche Gruesse
+dein Team von {{companyName}}
+
+PS: Als wiederkehrender Gast bekommst du bei Direktbuchung 10 % Rabatt – melde dich einfach kurz vor deiner naechsten Buchung bei uns!`,
+    language: 'de',
+    sort_order: 6,
   },
 ]
 
@@ -96,12 +129,13 @@ We look forward to your stay!`,
  * Available template variables and their descriptions.
  */
 export const TEMPLATE_VARIABLES = [
-  { key: '{gastname}', label: 'Gastname', description: 'Vor- und Nachname des Gastes' },
-  { key: '{property}', label: 'Objekt', description: 'Name der Ferienwohnung' },
-  { key: '{checkin}', label: 'Check-in', description: 'Check-in Datum (TT.MM.JJJJ)' },
-  { key: '{checkout}', label: 'Check-out', description: 'Check-out Datum (TT.MM.JJJJ)' },
-  { key: '{registrierungslink}', label: 'Online Check-In Link', description: 'Link zum Online Check-In Formular' },
-  { key: '{buchungsid}', label: 'Buchungs-ID', description: 'Smoobu Buchungsnummer' },
+  { key: '{{guestFirstName}}', label: 'Vorname', description: 'Vorname des Gastes' },
+  { key: '{{checkInDate}}', label: 'Check-in', description: 'Check-in Datum (TT.MM.JJJJ)' },
+  { key: '{{checkOutDate}}', label: 'Check-out', description: 'Check-out Datum (TT.MM.JJJJ)' },
+  { key: '{{numberOfGuests}}', label: 'Gaeste', description: 'Anzahl der Gaeste' },
+  { key: '{{preCheckInLink}}', label: 'Online Check-In Link', description: 'Link zum Online Check-In Formular' },
+  { key: '{{guestAreaLateCheckOutLink}}', label: 'Late-Checkout Link', description: 'Link zum Late-Checkout im Gaesteportal' },
+  { key: '{{companyName}}', label: 'Firmenname', description: 'Name Ihres Unternehmens (aus Profil)' },
 ] as const
 
 /**
@@ -110,28 +144,42 @@ export const TEMPLATE_VARIABLES = [
 export function replaceTemplateVariables(
   template: string,
   variables: {
-    gastname?: string
-    property?: string
-    checkin?: string
-    checkout?: string
-    registrierungslink?: string
-    buchungsid?: string
+    guestFirstName?: string
+    checkInDate?: string
+    checkOutDate?: string
+    numberOfGuests?: string
+    preCheckInLink?: string
+    guestAreaLateCheckOutLink?: string
+    companyName?: string
   }
 ): string {
   let result = template
-  if (variables.gastname) result = result.replace(/\{gastname\}/g, variables.gastname)
-  if (variables.property) result = result.replace(/\{property\}/g, variables.property)
-  if (variables.checkin) result = result.replace(/\{checkin\}/g, variables.checkin)
-  if (variables.checkout) result = result.replace(/\{checkout\}/g, variables.checkout)
-  if (variables.registrierungslink) {
-    result = result.replace(/\{registrierungslink\}/g, variables.registrierungslink)
-  } else {
-    result = result.replace(/\{registrierungslink\}/g, '')
+
+  if (variables.companyName) {
+    result = result.replace(/\{\{companyName\}\}/g, variables.companyName)
   }
-  if (variables.buchungsid) {
-    result = result.replace(/\{buchungsid\}/g, variables.buchungsid)
-  } else {
-    result = result.replace(/\{buchungsid\}/g, '')
+  if (variables.guestFirstName) {
+    result = result.replace(/\{\{guestFirstName\}\}/g, variables.guestFirstName)
   }
+  if (variables.checkInDate) {
+    result = result.replace(/\{\{checkInDate\}\}/g, variables.checkInDate)
+  }
+  if (variables.checkOutDate) {
+    result = result.replace(/\{\{checkOutDate\}\}/g, variables.checkOutDate)
+  }
+  if (variables.numberOfGuests) {
+    result = result.replace(/\{\{numberOfGuests\}\}/g, variables.numberOfGuests)
+  }
+  if (variables.preCheckInLink) {
+    result = result.replace(/\{\{preCheckInLink\}\}/g, variables.preCheckInLink)
+  } else {
+    result = result.replace(/\{\{preCheckInLink\}\}/g, '')
+  }
+  if (variables.guestAreaLateCheckOutLink) {
+    result = result.replace(/\{\{guestAreaLateCheckOutLink\}\}/g, variables.guestAreaLateCheckOutLink)
+  } else {
+    result = result.replace(/\{\{guestAreaLateCheckOutLink\}\}/g, '')
+  }
+
   return result
 }

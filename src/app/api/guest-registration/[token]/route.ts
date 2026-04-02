@@ -325,6 +325,7 @@ export async function POST(
       propertyName: property?.name ?? '',
       checkIn: booking.check_in,
       checkOut: booking.check_out,
+      numberOfGuests: booking.adults ?? 1,
     })
   }
 

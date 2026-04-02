@@ -23,6 +23,7 @@ export async function fireAutoMessageTrigger(
     propertyName: string
     checkIn: string
     checkOut: string
+    numberOfGuests?: number
     registrationLink?: string
   }
 ): Promise<void> {
@@ -70,13 +71,21 @@ export async function fireAutoMessageTrigger(
     const { plaintext: apiKey } = decrypt(integration.api_key_encrypted)
     const client = new SmoobuClient({ apiKey })
 
+    // Load brand name from profile for {{companyName}} placeholder
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('brand_name, company_name')
+      .eq('id', userId)
+      .single()
+
     const messageBody = replaceTemplateVariables(template.body, {
-      gastname: guestName,
-      property: propertyName,
-      checkin: checkIn ? format(new Date(checkIn), 'dd.MM.yyyy', { locale: de }) : '',
-      checkout: checkOut ? format(new Date(checkOut), 'dd.MM.yyyy', { locale: de }) : '',
-      registrierungslink: registrationLink,
-      buchungsid: String(externalId),
+      guestFirstName: guestName.split(' ')[0],
+      checkInDate: checkIn ? format(new Date(checkIn), 'dd.MM.yyyy', { locale: de }) : '',
+      checkOutDate: checkOut ? format(new Date(checkOut), 'dd.MM.yyyy', { locale: de }) : '',
+      numberOfGuests: String(params.numberOfGuests ?? 1),
+      preCheckInLink: registrationLink,
+      guestAreaLateCheckOutLink: registrationLink ? registrationLink.replace('/register/', '/area/') : undefined,
+      companyName: profile?.brand_name || profile?.company_name || '',
     })
 
     let success = false

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { FileText, Plus, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,12 +38,13 @@ interface MessageTemplatesProps {
   templates: MessageTemplate[]
   onInsert: (text: string) => void
   variables: {
-    gastname?: string
-    property?: string
-    checkin?: string
-    checkout?: string
-    registrierungslink?: string
-    buchungsid?: string
+    guestFirstName?: string
+    checkInDate?: string
+    checkOutDate?: string
+    numberOfGuests?: string
+    preCheckInLink?: string
+    guestAreaLateCheckOutLink?: string
+    companyName?: string
   }
   onTemplatesChange: () => void
 }
@@ -61,6 +62,7 @@ export function MessageTemplates({
   const [newBody, setNewBody] = useState('')
   const [newLanguage, setNewLanguage] = useState<'de' | 'en'>('de')
   const [isSaving, setIsSaving] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSelectTemplate = (template: MessageTemplate) => {
     const resolvedText = replaceTemplateVariables(template.body, variables)
@@ -104,6 +106,30 @@ export function MessageTemplates({
 
     toast.success('Vorlage geloescht')
     onTemplatesChange()
+  }
+
+  /** Insert a placeholder at the current cursor position in the textarea */
+  const insertAtCursor = (placeholder: string) => {
+    const textarea = textareaRef.current
+    if (!textarea) {
+      setNewBody((prev) => prev + placeholder)
+      return
+    }
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const before = newBody.slice(0, start)
+    const after = newBody.slice(end)
+    const updated = before + placeholder + after
+    setNewBody(updated)
+
+    // Restore cursor position after the inserted placeholder
+    requestAnimationFrame(() => {
+      const newPos = start + placeholder.length
+      textarea.selectionStart = newPos
+      textarea.selectionEnd = newPos
+      textarea.focus()
+    })
   }
 
   const handleSave = async () => {
@@ -308,20 +334,25 @@ export function MessageTemplates({
               <Label htmlFor="template-body">Nachrichtentext</Label>
               <Textarea
                 id="template-body"
+                ref={textareaRef}
                 value={newBody}
                 onChange={(e) => setNewBody(e.target.value)}
-                placeholder="Liebe/r {gastname}, ..."
+                placeholder="Hi {{guestFirstName}}, ..."
                 rows={8}
                 className="font-mono text-sm"
               />
-              <div className="flex flex-wrap gap-1 mt-2">
+              <p className="text-xs text-muted-foreground mt-1.5 mb-1">
+                Klicke auf einen Platzhalter, um ihn an der Cursorposition einzufuegen:
+              </p>
+              <div className="flex flex-wrap gap-1">
                 {TEMPLATE_VARIABLES.map((v) => (
                   <Button
                     key={v.key}
                     variant="outline"
                     size="sm"
                     className="h-6 text-xs font-mono"
-                    onClick={() => setNewBody((prev) => prev + v.key)}
+                    onClick={() => insertAtCursor(v.key)}
+                    title={v.description}
                   >
                     {v.key}
                   </Button>

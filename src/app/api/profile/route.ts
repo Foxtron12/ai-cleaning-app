@@ -5,6 +5,7 @@ import { getServerUser } from '@/lib/supabase-server'
 const updateProfileSchema = z.object({
   display_name: z.string().max(100).nullable().optional(),
   company_name: z.string().max(200).nullable().optional(),
+  brand_name: z.string().max(200).nullable().optional(),
   street: z.string().max(200).nullable().optional(),
   zip: z.string().max(20).nullable().optional(),
   city: z.string().max(100).nullable().optional(),

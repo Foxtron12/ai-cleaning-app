@@ -200,6 +200,7 @@ export interface SmoobuThread {
   unread_count: number
   arrival: string
   departure: string
+  adults: number
 }
 
 export interface SmoobuMessage {

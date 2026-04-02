@@ -268,6 +268,7 @@ export async function POST(
           propertyName: property.name,
           checkIn: reservation.arrival,
           checkOut: reservation.departure,
+          numberOfGuests: reservation.adults ?? 1,
         })
       }
     }

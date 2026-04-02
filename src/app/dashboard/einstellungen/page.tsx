@@ -627,8 +627,19 @@ export default function EinstellungenPage() {
                       <Input
                         value={profile.company_name ?? ''}
                         onChange={(e) => setProfile({ ...profile, company_name: e.target.value })}
-                        placeholder="Muster Ferienwohnungen GbR"
+                        placeholder="Spacious Living Operations GmbH"
                       />
+                    </div>
+                    <div className="space-y-2 col-span-2">
+                      <Label>Markenname (fuer Gaeste-Kommunikation)</Label>
+                      <Input
+                        value={profile.brand_name ?? ''}
+                        onChange={(e) => setProfile({ ...profile, brand_name: e.target.value })}
+                        placeholder="z.B. NORA Stays"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Wird in Nachrichtenvorlagen als {'{{companyName}}'} verwendet. Falls leer, wird der Firmenname genutzt.
+                      </p>
                     </div>
                   </div>
                 </CardContent>

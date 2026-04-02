@@ -628,6 +628,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          brand_name: string | null
           city: string | null
           company_name: string | null
           country: string | null
@@ -644,6 +645,7 @@ export type Database = {
           zip: string | null
         }
         Insert: {
+          brand_name?: string | null
           city?: string | null
           company_name?: string | null
           country?: string | null
@@ -660,6 +662,7 @@ export type Database = {
           zip?: string | null
         }
         Update: {
+          brand_name?: string | null
           city?: string | null
           company_name?: string | null
           country?: string | null
