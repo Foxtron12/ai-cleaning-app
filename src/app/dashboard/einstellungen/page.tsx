@@ -631,7 +631,7 @@ export default function EinstellungenPage() {
                       />
                     </div>
                     <div className="space-y-2 col-span-2">
-                      <Label>Markenname (fuer Gaeste-Kommunikation)</Label>
+                      <Label>Markenname (für Gäste-Kommunikation)</Label>
                       <Input
                         value={profile.brand_name ?? ''}
                         onChange={(e) => setProfile({ ...profile, brand_name: e.target.value })}

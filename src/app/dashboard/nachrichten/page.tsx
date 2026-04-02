@@ -52,8 +52,8 @@ interface AutoTrigger {
 
 const EVENT_LABELS: Record<string, { label: string; description: string; condition?: string }> = {
   new_booking: {
-    label: 'Buchungsbestaetigung',
-    description: 'Wenn eine neue Buchung ueber Smoobu eingeht.',
+    label: 'Buchungsbestätigung',
+    description: 'Wenn eine neue Buchung über Smoobu eingeht.',
   },
   checkin_reminder: {
     label: 'Online Check-In Erinnerung',
@@ -81,9 +81,9 @@ const EVENT_LABELS: Record<string, { label: string; description: string; conditi
 
 const DELAY_OPTIONS = [
   { value: 0, label: 'Sofort' },
-  { value: 60, label: '1 Stunde spaeter' },
-  { value: 180, label: '3 Stunden spaeter' },
-  { value: 1440, label: '24 Stunden spaeter' },
+  { value: 60, label: '1 Stunde später' },
+  { value: 180, label: '3 Stunden später' },
+  { value: 1440, label: '24 Stunden später' },
 ]
 
 
@@ -449,13 +449,13 @@ export default function NachrichtenPage() {
 
   const deleteTemplate = async (t: MessageTemplate) => {
     if (t.is_default) {
-      toast({ title: 'Standard-Vorlagen koennen nicht geloescht werden', variant: 'destructive' })
+      toast({ title: 'Standard-Vorlagen können nicht gelöscht werden', variant: 'destructive' })
       return
     }
 
     await supabase.from('message_templates').delete().eq('id', t.id)
     await loadTemplates()
-    toast({ title: 'Vorlage geloescht' })
+    toast({ title: 'Vorlage gelöscht' })
   }
 
   // ─── Template editor: insert placeholder at cursor ──────────────────────────
@@ -496,13 +496,13 @@ export default function NachrichtenPage() {
         body: JSON.stringify({ text: editBody, targetLang }),
       })
 
-      if (!res.ok) throw new Error('Uebersetzung fehlgeschlagen')
+      if (!res.ok) throw new Error('Übersetzung fehlgeschlagen')
       const data = await res.json()
       setEditBody(data.translatedText)
       setEditLanguage(targetLang)
-      toast({ title: `Uebersetzt nach ${targetLang === 'de' ? 'Deutsch' : 'Englisch'}` })
+      toast({ title: `Übersetzt nach ${targetLang === 'de' ? 'Deutsch' : 'Englisch'}` })
     } catch {
-      toast({ title: 'Uebersetzung fehlgeschlagen', variant: 'destructive' })
+      toast({ title: 'Übersetzung fehlgeschlagen', variant: 'destructive' })
     } finally {
       setIsTranslating(false)
     }
@@ -674,7 +674,7 @@ export default function NachrichtenPage() {
               <div>
                 <h3 className="text-base font-semibold">Nachrichten-Vorlagen</h3>
                 <p className="text-sm text-muted-foreground">
-                  Vorlagen fuer wiederkehrende Nachrichten an Gaeste.
+                  Vorlagen für wiederkehrende Nachrichten an Gäste.
                 </p>
               </div>
               <Button onClick={openNewTemplate} size="sm" className="gap-1.5">
@@ -686,7 +686,7 @@ export default function NachrichtenPage() {
             {/* Variable info */}
             <Card>
               <CardHeader className="py-3 px-4">
-                <CardTitle className="text-sm">Verfuegbare Platzhalter</CardTitle>
+                <CardTitle className="text-sm">Verfügbare Platzhalter</CardTitle>
               </CardHeader>
               <CardContent className="px-4 pb-3">
                 <div className="flex flex-wrap gap-2">
@@ -745,7 +745,7 @@ export default function NachrichtenPage() {
                             size="icon"
                             className="size-8 text-destructive hover:text-destructive"
                             onClick={() => deleteTemplate(t)}
-                            title="Loeschen"
+                            title="Löschen"
                           >
                             <Trash2 className="size-3.5" />
                           </Button>
@@ -810,7 +810,7 @@ export default function NachrichtenPage() {
                     className="gap-1.5"
                     onClick={translateTemplate}
                     disabled={isTranslating || !editBody.trim()}
-                    title={`Uebersetzen nach ${editLanguage === 'de' ? 'Englisch' : 'Deutsch'}`}
+                    title={`Übersetzen nach ${editLanguage === 'de' ? 'Englisch' : 'Deutsch'}`}
                   >
                     {isTranslating ? (
                       <Loader2 className="size-3.5 animate-spin" />
@@ -831,7 +831,7 @@ export default function NachrichtenPage() {
                     className="font-mono text-sm"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Klicke auf einen Platzhalter, um ihn an der Cursorposition einzufuegen:
+                    Klicke auf einen Platzhalter, um ihn an der Cursorposition einzufügen:
                   </p>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {TEMPLATE_VARIABLES.map((v) => (
@@ -869,7 +869,7 @@ export default function NachrichtenPage() {
             <div>
               <h3 className="text-base font-semibold">Automatische Nachrichten</h3>
               <p className="text-sm text-muted-foreground">
-                Nachrichten automatisch an Gaeste senden, wenn bestimmte Ereignisse eintreten.
+                Nachrichten automatisch an Gäste senden, wenn bestimmte Ereignisse eintreten.
               </p>
             </div>
 
@@ -915,7 +915,7 @@ export default function NachrichtenPage() {
                             disabled={isSaving}
                           >
                             <SelectTrigger className="w-64">
-                              <SelectValue placeholder="Vorlage waehlen..." />
+                              <SelectValue placeholder="Vorlage wählen..." />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">Keine Vorlage</SelectItem>
@@ -930,7 +930,7 @@ export default function NachrichtenPage() {
 
                         {/* Delay selection */}
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Verzoegerung</Label>
+                          <Label className="text-xs text-muted-foreground">Verzögerung</Label>
                           <Select
                             value={String(delayMinutes)}
                             onValueChange={(v) => {

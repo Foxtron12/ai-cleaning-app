@@ -235,7 +235,7 @@ export function MessageConversation({
         {onBack && (
           <Button variant="ghost" size="icon" onClick={onBack} className="md:hidden">
             <ArrowLeft className="size-4" />
-            <span className="sr-only">Zurueck</span>
+            <span className="sr-only">Zurück</span>
           </Button>
         )}
         <div className="flex-1 min-w-0">
@@ -314,7 +314,7 @@ export function MessageConversation({
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Nachricht schreiben... (Enter zum Senden, Shift+Enter fuer Zeilenumbruch)"
+            placeholder="Nachricht schreiben... (Enter zum Senden, Shift+Enter für Zeilenumbruch)"
             className="min-h-[40px] max-h-[120px] resize-none text-sm"
             rows={1}
             disabled={isSending}

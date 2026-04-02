@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getServerUser } from '@/lib/supabase-server'
 
-const EVENT_TYPES = ['guest_checkin_completed', 'new_booking', 'days_before_checkin', 'after_checkout'] as const
+const EVENT_TYPES = [
+  'new_booking',
+  'checkin_reminder',
+  'guest_checkin_completed',
+  'follow_up',
+  'checkout_reminder',
+  'review_request',
+  // Legacy (kept for backwards compatibility)
+  'days_before_checkin',
+  'after_checkout',
+] as const
 
 const upsertSchema = z.object({
   event_type: z.enum(EVENT_TYPES),

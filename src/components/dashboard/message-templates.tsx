@@ -90,7 +90,7 @@ export function MessageTemplates({
 
   const handleDelete = async (template: MessageTemplate) => {
     if (template.is_default) {
-      toast.error('Standard-Vorlagen koennen nicht geloescht werden')
+      toast.error('Standard-Vorlagen können nicht gelöscht werden')
       return
     }
 
@@ -100,11 +100,11 @@ export function MessageTemplates({
       .eq('id', template.id)
 
     if (error) {
-      toast.error('Fehler beim Loeschen der Vorlage')
+      toast.error('Fehler beim Löschen der Vorlage')
       return
     }
 
-    toast.success('Vorlage geloescht')
+    toast.success('Vorlage gelöscht')
     onTemplatesChange()
   }
 
@@ -193,7 +193,7 @@ export function MessageTemplates({
             variant="ghost"
             size="icon"
             className="shrink-0"
-            aria-label="Nachrichtenvorlage einfuegen"
+            aria-label="Nachrichtenvorlage einfügen"
           >
             <FileText className="size-4" />
           </Button>
@@ -207,7 +207,7 @@ export function MessageTemplates({
           <div className="p-3 pb-2">
             <h4 className="text-sm font-semibold">Vorlagen</h4>
             <p className="text-xs text-muted-foreground">
-              Klicken Sie auf eine Vorlage, um sie einzufuegen.
+              Klicken Sie auf eine Vorlage, um sie einzufügen.
             </p>
           </div>
           <Separator />
@@ -255,7 +255,7 @@ export function MessageTemplates({
                           size="icon"
                           className="size-7 text-destructive hover:text-destructive"
                           onClick={() => handleDelete(template)}
-                          aria-label={`${template.name} loeschen`}
+                          aria-label={`${template.name} löschen`}
                         >
                           <Trash2 className="size-3" />
                         </Button>
@@ -281,7 +281,7 @@ export function MessageTemplates({
           {/* Variable hint */}
           <Separator />
           <div className="p-2">
-            <p className="text-xs text-muted-foreground mb-1">Verfuegbare Variablen:</p>
+            <p className="text-xs text-muted-foreground mb-1">Verfügbare Variablen:</p>
             <div className="flex flex-wrap gap-1">
               {TEMPLATE_VARIABLES.map((v) => (
                 <Badge key={v.key} variant="secondary" className="text-xs font-mono">
@@ -302,7 +302,7 @@ export function MessageTemplates({
             </DialogTitle>
             <DialogDescription>
               {editingTemplate
-                ? 'Aendern Sie die Vorlage und speichern Sie.'
+                ? 'Ändern Sie die Vorlage und speichern Sie.'
                 : 'Erstellen Sie eine neue Nachrichtenvorlage mit Platzhaltern.'}
             </DialogDescription>
           </DialogHeader>
@@ -342,7 +342,7 @@ export function MessageTemplates({
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground mt-1.5 mb-1">
-                Klicke auf einen Platzhalter, um ihn an der Cursorposition einzufuegen:
+                Klicke auf einen Platzhalter, um ihn an der Cursorposition einzufügen:
               </p>
               <div className="flex flex-wrap gap-1">
                 {TEMPLATE_VARIABLES.map((v) => (
