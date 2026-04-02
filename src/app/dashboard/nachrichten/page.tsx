@@ -199,17 +199,20 @@ export default function NachrichtenPage() {
       .order('sort_order')
 
     // Check if old default templates need to be replaced with new ones.
-    // Detect old format by checking for {gastname} or old template names.
+    // Detect old format by checking for old placeholders, old names, or missing Umlaute.
     const oldDefaults = (existingTemplates ?? []).filter(
       (t) => t.is_default && (
         t.body.includes('{gastname}') ||
         t.body.includes('{checkin}') ||
         // Detect templates from previous default set (hardcoded company name)
         (t.body.includes('NORA Stays') && !t.body.includes('{{companyName}}')) ||
+        // Detect templates without proper Umlaute (ae/oe/ue encoding)
+        (t.body.includes('fuer deine') || t.body.includes('Gaeste') || t.body.includes('Gruesse')) ||
         t.name === 'Check-in Information' ||
         t.name === 'Check-in Information (EN)' ||
         t.name === 'Check-in Bestaetigung' ||
-        t.name === 'Online Check-In'
+        t.name === 'Online Check-In' ||
+        t.name === 'Buchungsbestaetigung'
       )
     )
 
