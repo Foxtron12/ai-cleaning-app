@@ -183,7 +183,7 @@ export default function NachrichtenPage() {
     init()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load templates — with automatic cleanup of outdated/duplicate defaults
+  // Load templates — with aggressive cleanup of ALL outdated/duplicate templates
   const loadTemplates = useCallback(async (userId?: string) => {
     let uid = userId
     if (!uid) {
@@ -199,40 +199,39 @@ export default function NachrichtenPage() {
       .order('sort_order')
 
     const all = existingTemplates ?? []
-    const defaults = all.filter((t) => t.is_default)
-    const custom = all.filter((t) => !t.is_default)
-
     const currentDefaultNames = new Set(DEFAULT_TEMPLATES.map((t) => t.name))
     const idsToDelete: string[] = []
 
-    // 1) Delete outdated defaults (name not in current DEFAULT_TEMPLATES)
-    for (const t of defaults) {
-      if (!currentDefaultNames.has(t.name)) {
-        idsToDelete.push(t.id)
-      }
-    }
-
-    // 2) Deduplicate: for defaults with the same name, keep only the first
-    const seenNames = new Set<string>()
-    for (const t of defaults) {
+    // 1) For each default name: keep only ONE template, delete all other copies
+    //    (regardless of is_default flag — old migrations may have created non-default dupes)
+    const keptByName = new Map<string, string>() // name → kept id
+    for (const t of all) {
       if (currentDefaultNames.has(t.name)) {
-        if (seenNames.has(t.name)) {
+        if (keptByName.has(t.name)) {
           idsToDelete.push(t.id)
         } else {
-          seenNames.add(t.name)
+          keptByName.set(t.name, t.id)
         }
       }
     }
 
-    // 3) Find missing defaults that need to be inserted
-    const existingDefaultNames = new Set(defaults.map((t) => t.name))
-    const missingDefaults = DEFAULT_TEMPLATES.filter((t) => !existingDefaultNames.has(t.name))
+    // 2) Delete old/outdated default templates (is_default=true but name not in current set)
+    for (const t of all) {
+      if (t.is_default && !currentDefaultNames.has(t.name)) {
+        idsToDelete.push(t.id)
+      }
+    }
 
-    // Apply changes if needed
+    // 3) Find missing defaults that need to be inserted
+    const existingNames = new Set(all.map((t) => t.name))
+    const missingDefaults = DEFAULT_TEMPLATES.filter((t) => !existingNames.has(t.name))
+
+    // Apply deletions
     if (idsToDelete.length > 0) {
       await supabase.from('message_templates').delete().in('id', idsToDelete)
     }
 
+    // Insert missing defaults
     if (missingDefaults.length > 0) {
       await supabase.from('message_templates').insert(
         missingDefaults.map((t) => ({
@@ -255,7 +254,7 @@ export default function NachrichtenPage() {
         .order('sort_order')
       setTemplates((refreshed ?? []) as MessageTemplate[])
     } else {
-      setTemplates([...defaults, ...custom] as MessageTemplate[])
+      setTemplates(all as MessageTemplate[])
     }
   }, [])
 
