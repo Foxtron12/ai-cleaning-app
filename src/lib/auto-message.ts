@@ -25,6 +25,8 @@ export async function fireAutoMessageTrigger(
     checkOut: string
     numberOfGuests?: number
     registrationLink?: string
+    /** Skip delay_minutes check (used by cron, which handles timing itself) */
+    skipDelayCheck?: boolean
   }
 ): Promise<void> {
   const { userId, bookingId, externalId, eventType, guestName, propertyName, checkIn, checkOut, registrationLink } = params
@@ -41,9 +43,9 @@ export async function fireAutoMessageTrigger(
 
     if (!trigger?.template_id) return
 
-    // If delay > 0, skip for now (would need a job queue for delayed sends)
-    // For MVP: only send immediately (delay_minutes === 0)
-    if (trigger.delay_minutes > 0) {
+    // If delay > 0 and not called from cron, skip (would need a job queue for delayed sends)
+    // Cron-based triggers (checkin_reminder, follow_up, etc.) handle timing via schedule
+    if (trigger.delay_minutes > 0 && !params.skipDelayCheck) {
       console.log(`Auto-message for ${eventType}: delay=${trigger.delay_minutes}min, skipping (not yet supported)`)
       return
     }

@@ -183,7 +183,7 @@ export default function NachrichtenPage() {
     init()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load templates
+  // Load templates — with automatic cleanup of outdated/duplicate defaults
   const loadTemplates = useCallback(async (userId?: string) => {
     let uid = userId
     if (!uid) {
@@ -198,75 +198,64 @@ export default function NachrichtenPage() {
       .eq('user_id', uid)
       .order('sort_order')
 
-    // Check if old default templates need to be replaced with new ones.
-    // Detect old format by checking for old placeholders, old names, or missing Umlaute.
-    const oldDefaults = (existingTemplates ?? []).filter(
-      (t) => t.is_default && (
-        t.body.includes('{gastname}') ||
-        t.body.includes('{checkin}') ||
-        // Detect templates from previous default set (hardcoded company name)
-        (t.body.includes('NORA Stays') && !t.body.includes('{{companyName}}')) ||
-        // Detect templates without proper Umlaute (ae/oe/ue encoding)
-        (t.body.includes('fuer deine') || t.body.includes('Gaeste') || t.body.includes('Gruesse')) ||
-        t.name === 'Check-in Information' ||
-        t.name === 'Check-in Information (EN)' ||
-        t.name === 'Check-in Bestaetigung' ||
-        t.name === 'Online Check-In' ||
-        t.name === 'Buchungsbestaetigung'
-      )
-    )
+    const all = existingTemplates ?? []
+    const defaults = all.filter((t) => t.is_default)
+    const custom = all.filter((t) => !t.is_default)
 
-    if (oldDefaults.length > 0) {
-      // Delete old default templates
-      const oldIds = oldDefaults.map((t) => t.id)
-      await supabase
-        .from('message_templates')
-        .delete()
-        .in('id', oldIds)
+    const currentDefaultNames = new Set(DEFAULT_TEMPLATES.map((t) => t.name))
+    const idsToDelete: string[] = []
 
-      // Insert new defaults
-      const inserts = DEFAULT_TEMPLATES.map((t) => ({
-        user_id: uid!,
-        name: t.name,
-        body: t.body,
-        language: t.language,
-        is_default: true,
-        sort_order: t.sort_order,
-      }))
-
-      const { data: seeded } = await supabase
-        .from('message_templates')
-        .insert(inserts)
-        .select('*')
-
-      // Combine new defaults with any remaining custom templates
-      const remaining = (existingTemplates ?? []).filter(
-        (t) => !oldIds.includes(t.id)
-      )
-      setTemplates([...(seeded ?? []), ...remaining] as MessageTemplate[])
-      return
+    // 1) Delete outdated defaults (name not in current DEFAULT_TEMPLATES)
+    for (const t of defaults) {
+      if (!currentDefaultNames.has(t.name)) {
+        idsToDelete.push(t.id)
+      }
     }
 
-    if (existingTemplates && existingTemplates.length > 0) {
-      setTemplates(existingTemplates as MessageTemplate[])
-    } else {
-      const inserts = DEFAULT_TEMPLATES.map((t) => ({
-        user_id: uid!,
-        name: t.name,
-        body: t.body,
-        language: t.language,
-        is_default: true,
-        sort_order: t.sort_order,
-      }))
-
-      const { data: seeded, error } = await supabase
-        .from('message_templates')
-        .insert(inserts)
-        .select('*')
-
-      if (!error && seeded) {
-        setTemplates(seeded as MessageTemplate[])
+    // 2) Deduplicate: for defaults with the same name, keep only the first
+    const seenNames = new Set<string>()
+    for (const t of defaults) {
+      if (currentDefaultNames.has(t.name)) {
+        if (seenNames.has(t.name)) {
+          idsToDelete.push(t.id)
+        } else {
+          seenNames.add(t.name)
+        }
       }
+    }
+
+    // 3) Find missing defaults that need to be inserted
+    const existingDefaultNames = new Set(defaults.map((t) => t.name))
+    const missingDefaults = DEFAULT_TEMPLATES.filter((t) => !existingDefaultNames.has(t.name))
+
+    // Apply changes if needed
+    if (idsToDelete.length > 0) {
+      await supabase.from('message_templates').delete().in('id', idsToDelete)
+    }
+
+    if (missingDefaults.length > 0) {
+      await supabase.from('message_templates').insert(
+        missingDefaults.map((t) => ({
+          user_id: uid!,
+          name: t.name,
+          body: t.body,
+          language: t.language,
+          is_default: true,
+          sort_order: t.sort_order,
+        }))
+      )
+    }
+
+    // Reload from DB if anything changed, otherwise use what we have
+    if (idsToDelete.length > 0 || missingDefaults.length > 0) {
+      const { data: refreshed } = await supabase
+        .from('message_templates')
+        .select('*')
+        .eq('user_id', uid)
+        .order('sort_order')
+      setTemplates((refreshed ?? []) as MessageTemplate[])
+    } else {
+      setTemplates([...defaults, ...custom] as MessageTemplate[])
     }
   }, [])
 
@@ -657,7 +646,7 @@ export default function NachrichtenPage() {
                     <div className="flex flex-col items-center justify-center h-full text-center px-4">
                       <MessageSquare className="size-12 text-muted-foreground mb-3" />
                       <p className="text-sm font-medium text-muted-foreground">
-                        Waehlen Sie eine Konversation
+                        Wählen Sie eine Konversation
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         Klicken Sie links auf einen Thread, um die Nachrichten zu lesen.

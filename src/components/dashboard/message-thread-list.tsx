@@ -60,7 +60,7 @@ export function MessageThreadList({
           Keine Konversationen
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Nachrichten erscheinen hier, sobald Gaeste Ihnen schreiben.
+          Nachrichten erscheinen hier, sobald Gäste Ihnen schreiben.
         </p>
       </div>
     )

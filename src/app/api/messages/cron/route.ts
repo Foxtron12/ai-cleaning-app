@@ -19,10 +19,14 @@ import { addDays, format } from 'date-fns'
 export async function GET(req: NextRequest) {
   // Auth: accept CRON_SECRET header or query param
   const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) {
+    return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 })
+  }
+
   const authHeader = req.headers.get('authorization')
   const querySecret = req.nextUrl.searchParams.get('secret')
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -140,6 +144,7 @@ export async function GET(req: NextRequest) {
               checkOut: booking.check_out,
               numberOfGuests: booking.adults ?? 1,
               registrationLink,
+              skipDelayCheck: true,
             })
             results.checkin_reminder++
           } catch {
@@ -165,6 +170,7 @@ export async function GET(req: NextRequest) {
               checkOut: booking.check_out,
               numberOfGuests: booking.adults ?? 1,
               registrationLink,
+              skipDelayCheck: true,
             })
             results.follow_up++
           } catch {
@@ -190,6 +196,7 @@ export async function GET(req: NextRequest) {
               checkOut: booking.check_out,
               numberOfGuests: booking.adults ?? 1,
               registrationLink,
+              skipDelayCheck: true,
             })
             results.checkout_reminder++
           } catch {
@@ -215,6 +222,7 @@ export async function GET(req: NextRequest) {
               checkOut: booking.check_out,
               numberOfGuests: booking.adults ?? 1,
               registrationLink,
+              skipDelayCheck: true,
             })
             results.review_request++
           } catch {

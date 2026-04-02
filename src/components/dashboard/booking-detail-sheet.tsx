@@ -216,7 +216,7 @@ function StripePaymentSection({
                 <Copy className="h-4 w-4" />
               )}
             </Button>
-            <Button variant="outline" size="icon" asChild aria-label="Link oeffnen">
+            <Button variant="outline" size="icon" asChild aria-label="Link öffnen">
               <a href={stripeLink} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4" />
               </a>
@@ -483,7 +483,7 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
 
       window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
     } catch {
-      toast.error('Fehler beim Oeffnen des Dokuments.')
+      toast.error('Fehler beim Öffnen des Dokuments.')
     }
   }, [])
 
@@ -503,15 +503,15 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
       const json = await res.json()
 
       if (!res.ok) {
-        toast.error(json.error ?? 'Loeschen fehlgeschlagen.')
+        toast.error(json.error ?? 'Löschen fehlgeschlagen.')
         return
       }
 
       // Remove from list
       setDocuments(prev => prev.filter(d => d.id !== doc.id))
-      toast.success(`"${doc.file_name}" geloescht.`)
+      toast.success(`"${doc.file_name}" gelöscht.`)
     } catch {
-      toast.error('Netzwerkfehler beim Loeschen.')
+      toast.error('Netzwerkfehler beim Löschen.')
     } finally {
       setDeleting(prev => {
         const next = { ...prev }
@@ -548,7 +548,7 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
           multiple
           className="hidden"
           onChange={handleFileChange}
-          aria-label="Datei auswaehlen"
+          aria-label="Datei auswählen"
         />
       </div>
 
@@ -601,7 +601,7 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
                 size="icon"
                 className="h-7 w-7 shrink-0"
                 onClick={() => handleOpen(doc)}
-                aria-label={`${doc.file_name} oeffnen`}
+                aria-label={`${doc.file_name} öffnen`}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </Button>
@@ -611,7 +611,7 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
                 className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
                 onClick={() => handleDelete(doc)}
                 disabled={deleting[doc.id] ?? false}
-                aria-label={`${doc.file_name} loeschen`}
+                aria-label={`${doc.file_name} löschen`}
               >
                 {deleting[doc.id] ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
