@@ -54,8 +54,14 @@ export async function POST(request: NextRequest) {
     const parsed = createBookingSchema.safeParse(body)
 
     if (!parsed.success) {
+      const fieldErrors = parsed.error.issues.map(
+        (i) => `${i.path.join('.')}: ${i.message}`
+      )
       return NextResponse.json(
-        { error: 'Ungültige Daten', details: parsed.error.issues },
+        {
+          error: `Ungültige Daten: ${fieldErrors.join(', ')}`,
+          details: parsed.error.issues,
+        },
         { status: 400 }
       )
     }

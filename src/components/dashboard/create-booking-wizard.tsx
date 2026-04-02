@@ -433,7 +433,11 @@ export function CreateBookingWizard({
       const data = await res.json()
 
       if (!res.ok) {
-        setSubmitError(data.error ?? 'Fehler beim Erstellen der Buchung')
+        const msg = data.error ?? 'Fehler beim Erstellen der Buchung'
+        if (data.details?.length) {
+          console.error('Booking validation errors:', data.details)
+        }
+        setSubmitError(msg)
         return
       }
 
