@@ -241,15 +241,20 @@ export async function POST(
         .single()
 
       // Auto-create Online Check-In token for new booking
+      let registrationToken: string | undefined
       if (inserted) {
         try {
           const expiresAt = new Date(reservation.departure)
           expiresAt.setDate(expiresAt.getDate() + 30)
-          await supabase.from('guest_registration_tokens').insert({
+          const { data: tokenRow } = await supabase.from('guest_registration_tokens').insert({
             booking_id: inserted.id,
             user_id: userId,
             expires_at: expiresAt.toISOString(),
-          })
+          }).select('token').single()
+          if (tokenRow) {
+            const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://app.example.com'
+            registrationToken = `${siteUrl}/guest/register/${tokenRow.token}`
+          }
         } catch (e) {
           console.error('Auto-create guest registration token failed:', e)
         }
@@ -269,6 +274,7 @@ export async function POST(
           checkIn: reservation.arrival,
           checkOut: reservation.departure,
           numberOfGuests: reservation.adults ?? 1,
+          registrationLink: registrationToken,
         })
       }
     }
