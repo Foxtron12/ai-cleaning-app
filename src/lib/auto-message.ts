@@ -88,6 +88,7 @@ export async function fireAutoMessageTrigger(
       preCheckInLink: registrationLink,
       guestAreaLateCheckOutLink: registrationLink ? registrationLink.replace('/register/', '/area/') : undefined,
       companyName: profile?.brand_name || profile?.company_name || '',
+      bookingNumber: String(externalId),
     })
 
     let success = false

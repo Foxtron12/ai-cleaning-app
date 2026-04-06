@@ -226,6 +226,7 @@ export function MessageConversation({
     preCheckInLink: registrationLink,
     guestAreaLateCheckOutLink: registrationLink ? registrationLink.replace('/register/', '/area/') : undefined,
     companyName,
+    bookingNumber: String(thread.booking_id),
   }
 
   return (

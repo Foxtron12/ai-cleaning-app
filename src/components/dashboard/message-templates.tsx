@@ -45,6 +45,7 @@ interface MessageTemplatesProps {
     preCheckInLink?: string
     guestAreaLateCheckOutLink?: string
     companyName?: string
+    bookingNumber?: string
   }
   onTemplatesChange: () => void
 }

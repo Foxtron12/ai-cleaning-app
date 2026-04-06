@@ -722,6 +722,7 @@ export default function NachrichtenPage() {
                           preCheckInLink: 'https://app.example.com/guest/register/...',
                           guestAreaLateCheckOutLink: 'https://app.example.com/guest/area/...',
                           companyName: companyName || 'Mein Unternehmen',
+                          bookingNumber: '123456',
                         })}
                       </div>
                     )}

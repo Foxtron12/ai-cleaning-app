@@ -136,6 +136,7 @@ export const TEMPLATE_VARIABLES = [
   { key: '{{preCheckInLink}}', label: 'Online Check-In Link', description: 'Link zum Online Check-In Formular' },
   { key: '{{guestAreaLateCheckOutLink}}', label: 'Late-Checkout Link', description: 'Link zum Late-Checkout im Gästeportal' },
   { key: '{{companyName}}', label: 'Markenname', description: 'Markenname Ihres Unternehmens (aus Profil)' },
+  { key: '{{bookingNumber}}', label: 'Buchungsnummer', description: 'Smoobu Buchungsnummer' },
 ] as const
 
 /**
@@ -151,6 +152,7 @@ export function replaceTemplateVariables(
     preCheckInLink?: string
     guestAreaLateCheckOutLink?: string
     companyName?: string
+    bookingNumber?: string
   }
 ): string {
   let result = template
@@ -179,6 +181,11 @@ export function replaceTemplateVariables(
     result = result.replace(/\{\{guestAreaLateCheckOutLink\}\}/g, variables.guestAreaLateCheckOutLink)
   } else {
     result = result.replace(/\{\{guestAreaLateCheckOutLink\}\}/g, '')
+  }
+  if (variables.bookingNumber) {
+    result = result.replace(/\{\{bookingNumber\}\}/g, variables.bookingNumber)
+  } else {
+    result = result.replace(/\{\{bookingNumber\}\}/g, '')
   }
 
   return result
