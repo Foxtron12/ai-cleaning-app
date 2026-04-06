@@ -183,7 +183,7 @@ export default function NachrichtenPage() {
     init()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load templates — nuke duplicates on first load, then stable
+  // Load templates — seed defaults only for first-time users (0 templates)
   const loadTemplates = useCallback(async (userId?: string) => {
     let uid = userId
     if (!uid) {
@@ -200,12 +200,8 @@ export default function NachrichtenPage() {
 
     const all = existingTemplates ?? []
 
-    // If there are more templates than expected (duplicates exist), nuke everything and reseed
-    if (all.length === 0 || all.length > DEFAULT_TEMPLATES.length) {
-      // Delete ALL templates for this user
-      await supabase.from('message_templates').delete().eq('user_id', uid)
-
-      // Insert fresh defaults
+    // Seed defaults only for first-time users (no templates yet)
+    if (all.length === 0) {
       const { data: seeded } = await supabase
         .from('message_templates')
         .insert(
