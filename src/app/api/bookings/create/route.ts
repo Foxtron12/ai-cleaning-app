@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
-import { getServerUser } from '@/lib/supabase-server'
+import { getServerUser, createServiceClient } from '@/lib/supabase-server'
 import { decrypt } from '@/lib/encryption'
 import { autoGenerateInvoices } from '@/lib/auto-generate-invoices'
+import { fireAutoMessageTrigger } from '@/lib/auto-message'
 import { z } from 'zod'
 
 
@@ -198,16 +199,23 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Auto-generate guest registration token (Online Check-In link)
+    let registrationLink: string | undefined
     try {
       const expiresAt = new Date(data.checkOut)
       expiresAt.setDate(expiresAt.getDate() + 30)
-      await supabase
+      const { data: tokenRow } = await supabase
         .from('guest_registration_tokens')
         .insert({
           booking_id: booking.id,
           user_id: user.id,
           expires_at: expiresAt.toISOString(),
         })
+        .select('token')
+        .single()
+      if (tokenRow) {
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://app.example.com'
+        registrationLink = `${siteUrl}/guest/register/${tokenRow.token}`
+      }
     } catch (e) {
       console.error('Auto-create guest registration token failed:', e)
     }
@@ -293,6 +301,27 @@ export async function POST(request: NextRequest) {
       }
     } catch (e) {
       console.error('Auto-create Stripe payment link failed:', e)
+    }
+
+    // 5. Fire auto-message trigger for new booking
+    try {
+      const serviceClient = createServiceClient()
+      const propertyName = booking.properties?.name ?? 'Ferienwohnung'
+      const guestName = `${data.guestFirstname} ${data.guestLastname}`
+      await fireAutoMessageTrigger(serviceClient, {
+        userId: user.id,
+        bookingId: booking.id,
+        externalId: smoobuResult.id,
+        eventType: 'new_booking',
+        guestName,
+        propertyName,
+        checkIn: data.checkIn,
+        checkOut: data.checkOut,
+        numberOfGuests: data.adults + data.children,
+        registrationLink,
+      })
+    } catch (e) {
+      console.error('Auto-message trigger after booking creation failed:', e)
     }
 
     return NextResponse.json({
