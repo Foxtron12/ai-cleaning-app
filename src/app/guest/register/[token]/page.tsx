@@ -462,28 +462,30 @@ export default function GuestRegistrationPage() {
 
             {/* ZIP */}
             <div className="space-y-2">
-              <Label htmlFor="zip">{t.zip}</Label>
+              <Label htmlFor="zip">{t.zip} <span className="text-destructive">*</span></Label>
               <Input
                 id="zip"
                 value={zip}
                 onChange={e => setZip(e.target.value)}
+                required
               />
             </div>
 
             {/* City */}
             <div className="space-y-2">
-              <Label htmlFor="city">{t.city}</Label>
+              <Label htmlFor="city">{t.city} <span className="text-destructive">*</span></Label>
               <Input
                 id="city"
                 value={city}
                 onChange={e => setCity(e.target.value)}
+                required
               />
             </div>
 
             {/* Country */}
             <div className="space-y-2">
-              <Label htmlFor="country">{t.country}</Label>
-              <Select value={country} onValueChange={setCountry}>
+              <Label htmlFor="country">{t.country} <span className="text-destructive">*</span></Label>
+              <Select value={country} onValueChange={setCountry} required>
                 <SelectTrigger>
                   <SelectValue placeholder={locale === 'de' ? 'Bitte wählen...' : 'Please select...'} />
                 </SelectTrigger>

@@ -44,9 +44,9 @@ const submissionSchema = z.object({
   birthdate: z.string().optional(),
   nationality: z.string().optional(),
   street: z.string().optional(),
-  zip: z.string().optional(),
-  city: z.string().optional(),
-  country: z.string().optional(),
+  zip: z.string().min(1),
+  city: z.string().min(1),
+  country: z.string().min(1),
   trip_purpose: z.enum(['leisure', 'business', 'unknown']).optional(),
   co_travellers: z.array(coTravellerSchema).optional(),
 })
