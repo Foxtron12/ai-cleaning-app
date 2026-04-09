@@ -59,6 +59,74 @@ interface CoTraveller {
 
 type PageState = 'loading' | 'form' | 'success' | 'expired' | 'invalid' | 'error'
 
+// Countries with priority countries on top (nearby/common)
+const PRIORITY_COUNTRIES = [
+  { code: 'DE', de: 'Deutschland', en: 'Germany' },
+  { code: 'AT', de: 'Österreich', en: 'Austria' },
+  { code: 'CH', de: 'Schweiz', en: 'Switzerland' },
+  { code: 'CZ', de: 'Tschechien', en: 'Czech Republic' },
+  { code: 'PL', de: 'Polen', en: 'Poland' },
+  { code: 'NL', de: 'Niederlande', en: 'Netherlands' },
+  { code: 'DK', de: 'Dänemark', en: 'Denmark' },
+  { code: 'FR', de: 'Frankreich', en: 'France' },
+  { code: 'BE', de: 'Belgien', en: 'Belgium' },
+  { code: 'LU', de: 'Luxemburg', en: 'Luxembourg' },
+]
+
+const OTHER_COUNTRIES = [
+  { code: 'AL', de: 'Albanien', en: 'Albania' },
+  { code: 'AD', de: 'Andorra', en: 'Andorra' },
+  { code: 'AM', de: 'Armenien', en: 'Armenia' },
+  { code: 'AU', de: 'Australien', en: 'Australia' },
+  { code: 'AZ', de: 'Aserbaidschan', en: 'Azerbaijan' },
+  { code: 'BA', de: 'Bosnien und Herzegowina', en: 'Bosnia and Herzegovina' },
+  { code: 'BG', de: 'Bulgarien', en: 'Bulgaria' },
+  { code: 'BR', de: 'Brasilien', en: 'Brazil' },
+  { code: 'BY', de: 'Belarus', en: 'Belarus' },
+  { code: 'CA', de: 'Kanada', en: 'Canada' },
+  { code: 'CN', de: 'China', en: 'China' },
+  { code: 'CY', de: 'Zypern', en: 'Cyprus' },
+  { code: 'EE', de: 'Estland', en: 'Estonia' },
+  { code: 'ES', de: 'Spanien', en: 'Spain' },
+  { code: 'FI', de: 'Finnland', en: 'Finland' },
+  { code: 'GB', de: 'Vereinigtes Königreich', en: 'United Kingdom' },
+  { code: 'GE', de: 'Georgien', en: 'Georgia' },
+  { code: 'GR', de: 'Griechenland', en: 'Greece' },
+  { code: 'HR', de: 'Kroatien', en: 'Croatia' },
+  { code: 'HU', de: 'Ungarn', en: 'Hungary' },
+  { code: 'IE', de: 'Irland', en: 'Ireland' },
+  { code: 'IL', de: 'Israel', en: 'Israel' },
+  { code: 'IN', de: 'Indien', en: 'India' },
+  { code: 'IS', de: 'Island', en: 'Iceland' },
+  { code: 'IT', de: 'Italien', en: 'Italy' },
+  { code: 'JP', de: 'Japan', en: 'Japan' },
+  { code: 'KR', de: 'Südkorea', en: 'South Korea' },
+  { code: 'LI', de: 'Liechtenstein', en: 'Liechtenstein' },
+  { code: 'LT', de: 'Litauen', en: 'Lithuania' },
+  { code: 'LV', de: 'Lettland', en: 'Latvia' },
+  { code: 'MC', de: 'Monaco', en: 'Monaco' },
+  { code: 'MD', de: 'Moldau', en: 'Moldova' },
+  { code: 'ME', de: 'Montenegro', en: 'Montenegro' },
+  { code: 'MK', de: 'Nordmazedonien', en: 'North Macedonia' },
+  { code: 'MT', de: 'Malta', en: 'Malta' },
+  { code: 'MX', de: 'Mexiko', en: 'Mexico' },
+  { code: 'NO', de: 'Norwegen', en: 'Norway' },
+  { code: 'NZ', de: 'Neuseeland', en: 'New Zealand' },
+  { code: 'PT', de: 'Portugal', en: 'Portugal' },
+  { code: 'RO', de: 'Rumänien', en: 'Romania' },
+  { code: 'RS', de: 'Serbien', en: 'Serbia' },
+  { code: 'RU', de: 'Russland', en: 'Russia' },
+  { code: 'SE', de: 'Schweden', en: 'Sweden' },
+  { code: 'SI', de: 'Slowenien', en: 'Slovenia' },
+  { code: 'SK', de: 'Slowakei', en: 'Slovakia' },
+  { code: 'TR', de: 'Türkei', en: 'Turkey' },
+  { code: 'UA', de: 'Ukraine', en: 'Ukraine' },
+  { code: 'US', de: 'Vereinigte Staaten', en: 'United States' },
+  { code: 'ZA', de: 'Südafrika', en: 'South Africa' },
+]
+
+const ALL_COUNTRIES = [...PRIORITY_COUNTRIES, ...OTHER_COUNTRIES]
+
 export default function GuestRegistrationPage() {
   const { token } = useParams<{ token: string }>()
 
@@ -79,6 +147,7 @@ export default function GuestRegistrationPage() {
   const [city, setCity] = useState('')
   const [country, setCountry] = useState('')
   const [tripPurpose, setTripPurpose] = useState('unknown')
+  const [idScanFile, setIdScanFile] = useState<File | null>(null)
   const [coTravellers, setCoTravellers] = useState<CoTraveller[]>([])
 
   // Language
@@ -130,24 +199,35 @@ export default function GuestRegistrationPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // Validate ID scan for non-German guests
+    if (nationality && nationality !== 'DE' && !idScanFile) {
+      return
+    }
+
     setSubmitting(true)
 
     try {
+      const formPayload = new FormData()
+      formPayload.append('data', JSON.stringify({
+        firstname,
+        lastname,
+        birthdate: birthdate || undefined,
+        nationality: nationality || undefined,
+        street: street || undefined,
+        zip: zip || undefined,
+        city: city || undefined,
+        country: country || undefined,
+        trip_purpose: tripPurpose,
+        co_travellers: coTravellers.filter(ct => ct.firstname && ct.lastname),
+      }))
+      if (idScanFile) {
+        formPayload.append('idScan', idScanFile)
+      }
+
       const res = await fetch(`/api/guest-registration/${token}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstname,
-          lastname,
-          birthdate: birthdate || undefined,
-          nationality: nationality || undefined,
-          street: street || undefined,
-          zip: zip || undefined,
-          city: city || undefined,
-          country: country || undefined,
-          trip_purpose: tripPurpose,
-          co_travellers: coTravellers.filter(ct => ct.firstname && ct.lastname),
-        }),
+        body: formPayload,
       })
 
       if (res.ok) {
@@ -351,12 +431,20 @@ export default function GuestRegistrationPage() {
               <Label htmlFor="nationality">
                 {t.nationality} <span className="text-destructive">*</span>
               </Label>
-              <Input
-                id="nationality"
-                value={nationality}
-                onChange={e => setNationality(e.target.value)}
-                required
-              />
+              <Select value={nationality} onValueChange={setNationality} required>
+                <SelectTrigger>
+                  <SelectValue placeholder={locale === 'de' ? 'Bitte wählen...' : 'Please select...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_COUNTRIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{locale === 'de' ? c.de : c.en}</SelectItem>
+                  ))}
+                  <SelectItem disabled value="__sep1__">───────────</SelectItem>
+                  {OTHER_COUNTRIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{locale === 'de' ? c.de : c.en}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Street */}
@@ -395,12 +483,42 @@ export default function GuestRegistrationPage() {
             {/* Country */}
             <div className="space-y-2">
               <Label htmlFor="country">{t.country}</Label>
-              <Input
-                id="country"
-                value={country}
-                onChange={e => setCountry(e.target.value)}
-              />
+              <Select value={country} onValueChange={setCountry}>
+                <SelectTrigger>
+                  <SelectValue placeholder={locale === 'de' ? 'Bitte wählen...' : 'Please select...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_COUNTRIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{locale === 'de' ? c.de : c.en}</SelectItem>
+                  ))}
+                  <SelectItem disabled value="__sep2__">───────────</SelectItem>
+                  {OTHER_COUNTRIES.map(c => (
+                    <SelectItem key={c.code} value={c.code}>{locale === 'de' ? c.de : c.en}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+
+            {/* ID scan required for non-German guests */}
+            {nationality && nationality !== 'DE' && (
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="idScan">
+                  {locale === 'de' ? 'Ausweiskopie / Reisepass' : 'ID / Passport scan'} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="idScan"
+                  type="file"
+                  accept="image/*,.pdf"
+                  required
+                  onChange={e => setIdScanFile(e.target.files?.[0] ?? null)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {locale === 'de'
+                    ? 'Foto oder Scan Ihres Ausweises / Reisepasses (Bild oder PDF).'
+                    : 'Photo or scan of your ID / passport (image or PDF).'}
+                </p>
+              </div>
+            )}
 
             {/* Trip purpose */}
             <div className="space-y-2">

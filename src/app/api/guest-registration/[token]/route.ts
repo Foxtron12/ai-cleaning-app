@@ -173,7 +173,19 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid token' }, { status: 400 })
   }
 
-  const body = await request.json()
+  // Support both JSON and FormData (multipart) submissions
+  let body: unknown
+  let idScanFile: File | null = null
+  const contentType = request.headers.get('content-type') ?? ''
+  if (contentType.includes('multipart/form-data')) {
+    const formData = await request.formData()
+    const dataStr = formData.get('data') as string | null
+    body = dataStr ? JSON.parse(dataStr) : {}
+    idScanFile = formData.get('idScan') as File | null
+  } else {
+    body = await request.json()
+  }
+
   const parsed = submissionSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.issues }, { status: 400 })
@@ -258,6 +270,36 @@ export async function POST(
           zip: property?.zip ?? '',
         },
       })
+  }
+
+  // Upload ID scan to storage if provided (non-German guests)
+  if (idScanFile && idScanFile.size > 0) {
+    const MAX_ID_SIZE = 10 * 1024 * 1024 // 10 MB
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+    if (idScanFile.size <= MAX_ID_SIZE && ALLOWED_TYPES.includes(idScanFile.type)) {
+      try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+        const ext = idScanFile.name.split('.').pop() ?? 'jpg'
+        const storagePath = `${regToken.user_id}/${regToken.booking_id}/id-scan_${timestamp}.${ext}`
+        const fileBuffer = Buffer.from(await idScanFile.arrayBuffer())
+
+        await supabase.storage
+          .from('booking-documents')
+          .upload(storagePath, fileBuffer, { contentType: idScanFile.type, upsert: false })
+
+        // Save document reference
+        await supabase.from('booking_documents').insert({
+          booking_id: regToken.booking_id,
+          user_id: regToken.user_id,
+          file_name: `Ausweis – ${data.firstname} ${data.lastname}`,
+          file_size: idScanFile.size,
+          mime_type: idScanFile.type,
+          storage_path: storagePath,
+        })
+      } catch (err) {
+        console.error('Guest registration: ID scan upload failed (non-fatal):', err)
+      }
+    }
   }
 
   // Update booking with guest data

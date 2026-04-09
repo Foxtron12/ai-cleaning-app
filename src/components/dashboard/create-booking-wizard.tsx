@@ -66,10 +66,10 @@ const guestFormSchema = z.object({
   guestLastname: z.string().min(1, 'Nachname ist erforderlich'),
   guestEmail: z.string().email('Ungültige E-Mail-Adresse'),
   guestPhone: z.string().optional(),
-  guestStreet: z.string().min(1, 'Straße ist erforderlich'),
-  guestZip: z.string().min(1, 'PLZ ist erforderlich').regex(/^\d+$/, { message: 'PLZ darf nur Ziffern enthalten' }),
-  guestCity: z.string().min(1, 'Ort ist erforderlich'),
-  guestCountry: z.string().min(1, 'Land ist erforderlich'),
+  guestStreet: z.string().optional(),
+  guestZip: z.string().optional(),
+  guestCity: z.string().optional(),
+  guestCountry: z.string().optional(),
   guestNationality: z.string().optional(),
   guestBirthdate: z.string().optional(),
   guestIdNumber: z.string().optional(),
@@ -922,7 +922,7 @@ export function CreateBookingWizard({
                 name="guestStreet"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Straße + Hausnummer *</FormLabel>
+                    <FormLabel>Straße + Hausnummer</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="Musterstr. 1" />
                     </FormControl>
@@ -937,7 +937,7 @@ export function CreateBookingWizard({
                   name="guestZip"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>PLZ *</FormLabel>
+                      <FormLabel>PLZ</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="01067" />
                       </FormControl>
@@ -950,7 +950,7 @@ export function CreateBookingWizard({
                   name="guestCity"
                   render={({ field }) => (
                     <FormItem className="col-span-2">
-                      <FormLabel>Ort *</FormLabel>
+                      <FormLabel>Ort</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Dresden" />
                       </FormControl>
@@ -965,7 +965,7 @@ export function CreateBookingWizard({
                 name="guestCountry"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Land *</FormLabel>
+                    <FormLabel>Land</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder="DE" />
                     </FormControl>
