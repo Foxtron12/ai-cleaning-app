@@ -8,7 +8,6 @@ import {
 } from '@/lib/smoobu'
 import { decrypt, encrypt } from '@/lib/encryption'
 import { autoGenerateMeldescheine } from '@/lib/auto-generate-meldeschein'
-import { autoGenerateInvoices } from '@/lib/auto-generate-invoices'
 
 export async function POST(request: NextRequest) {
   void request
@@ -273,8 +272,6 @@ export async function POST(request: NextRequest) {
     // 4. Auto-generate missing Meldescheine for newly synced bookings
     const { created: meldescheineCreated } = await autoGenerateMeldescheine(userId, supabase)
 
-    // 5. Auto-generate missing invoice drafts for newly synced bookings
-    const { created: invoicesCreated } = await autoGenerateInvoices(userId, supabase)
 
     // 5b. Auto-generate missing Online Check-In tokens for bookings
     let checkInTokensCreated = 0
@@ -408,7 +405,7 @@ export async function POST(request: NextRequest) {
       properties: apartments.length,
       reservations: { total: synced, created, updated },
       meldescheineCreated,
-      invoicesCreated,
+      invoicesCreated: 0,
       checkInTokensCreated,
       meldescheineUpdated,
       invoicesUpdated,

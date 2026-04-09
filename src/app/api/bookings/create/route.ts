@@ -3,7 +3,6 @@ import Stripe from 'stripe'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
 import { getServerUser, createServiceClient } from '@/lib/supabase-server'
 import { decrypt } from '@/lib/encryption'
-import { autoGenerateInvoices } from '@/lib/auto-generate-invoices'
 import { fireAutoMessageTrigger } from '@/lib/auto-message'
 import { z } from 'zod'
 
@@ -220,22 +219,7 @@ export async function POST(request: NextRequest) {
       console.error('Auto-create guest registration token failed:', e)
     }
 
-    // 4a. Auto-generate invoice for this booking
     let invoiceId: string | null = null
-    try {
-      const invoiceResult = await autoGenerateInvoices(user.id, supabase)
-      if (invoiceResult.created > 0) {
-        // Fetch the invoice created for this booking
-        const { data: invoice } = await supabase
-          .from('invoices')
-          .select('id')
-          .eq('booking_id', booking.id)
-          .single()
-        invoiceId = invoice?.id ?? null
-      }
-    } catch (e) {
-      console.error('Auto-generate invoice after booking creation failed:', e)
-    }
 
     // 4b. Create Stripe payment link if user has Stripe configured
     let stripePaymentLink: string | null = null

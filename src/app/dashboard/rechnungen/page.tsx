@@ -7,7 +7,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Wand2, Info, Mail, Copy, Check, RotateCcw, CreditCard, ArrowUpDown } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Info, Mail, Copy, Check, RotateCcw, CreditCard, ArrowUpDown } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -180,10 +180,6 @@ function RechnungenContent() {
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   const [bulkDownloading, setBulkDownloading] = useState(false)
-  const [bulkGenDialogOpen, setBulkGenDialogOpen] = useState(false)
-  const [bulkGenFrom, setBulkGenFrom] = useState('')
-  const [bulkGenTo, setBulkGenTo] = useState('')
-  const [bulkGenerating, setBulkGenerating] = useState(false)
   const [syncingGuest, setSyncingGuest] = useState(false)
   const [dunningDialogOpen, setDunningDialogOpen] = useState(false)
   const [dunningInvoice, setDunningInvoice] = useState<InvoiceRow | null>(null)
@@ -219,6 +215,7 @@ function RechnungenContent() {
 
   // Form state
   const [selectedBookingId, setSelectedBookingId] = useState('')
+  const [selectedPropertyId, setSelectedPropertyId] = useState('')
   const [guestName, setGuestName] = useState('')
   const [guestStreet, setGuestStreet] = useState('')
   const [guestZip, setGuestZip] = useState('')
@@ -270,27 +267,6 @@ function RechnungenContent() {
       setCityRules(rules)
       setLoading(false)
 
-      // Auto-generate invoice drafts for bookings without invoices
-      // Skip when in split mode to avoid creating drafts that interfere with split creation
-      if (!splitParam) {
-        try {
-          const res = await fetch('/api/rechnungen/auto-generate', { method: 'POST' })
-          const result = await res.json()
-          if (result.created > 0) {
-            toast({
-              title: `${result.created} neue Rechnungsentwürfe erstellt`,
-              description: 'Automatisch aus Buchungsdaten generiert.',
-            })
-            const { data: refreshed } = await supabase
-              .from('invoices')
-              .select(INVOICE_SELECT)
-              .order('created_at', { ascending: false })
-            if (refreshed) setInvoices(refreshed as InvoiceRow[])
-          }
-        } catch {
-          // Non-blocking: page still works without auto-generation
-        }
-      }
 
       if (bookingIdParam) {
         // First try the already-loaded list, then fall back to a direct fetch (avoids limit(100) miss)
@@ -327,6 +303,7 @@ function RechnungenContent() {
 
   function fillFromBooking(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
     setSelectedBookingId(booking.id)
+    setSelectedPropertyId(booking.property_id ?? '')
     setNotes('')
     setNotesFooter('')
     setPaymentScheduleEnabled(false)
@@ -424,6 +401,7 @@ function RechnungenContent() {
   /** Fill the wizard form from a split segment (proportional line items, segment dates) */
   function fillFromSplitSegment(booking: BookingWithProperty, segment: SplitSegment, s: Settings | null) {
     setSelectedBookingId(booking.id)
+    setSelectedPropertyId(booking.property_id ?? '')
     setNotes('')
     setNotesFooter('')
     setPaymentScheduleEnabled(false)
@@ -814,7 +792,7 @@ function RechnungenContent() {
         .insert({
           invoice_number: invoiceNumber,
           booking_id: selectedBookingId || null,
-          property_id: selectedBooking?.property_id ?? null,
+          property_id: selectedBooking?.property_id ?? (selectedPropertyId || null),
           user_id: user?.id,
           landlord_snapshot: landlordSnapshotData,
           guest_snapshot: guestSnapshotData,
@@ -1085,35 +1063,6 @@ function RechnungenContent() {
     }
   }
 
-  async function handleBulkGenerate() {
-    if (!bulkGenFrom || !bulkGenTo) return
-    setBulkGenerating(true)
-    try {
-      const res = await fetch('/api/rechnungen/bulk-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate: bulkGenFrom, toDate: bulkGenTo }),
-      })
-      const result = await res.json()
-      if (!res.ok) {
-        toast({ title: 'Fehler', description: result.error ?? 'Generierung fehlgeschlagen', variant: 'destructive' })
-        return
-      }
-      setBulkGenDialogOpen(false)
-      if (result.created > 0) {
-        toast({ title: `${result.created} neue Rechnungsentwürfe erstellt`, description: `Zeitraum: ${bulkGenFrom} – ${bulkGenTo}` })
-        const { data: refreshed } = await supabase
-          .from('invoices')
-          .select(INVOICE_SELECT)
-          .order('created_at', { ascending: false })
-        if (refreshed) setInvoices(refreshed as InvoiceRow[])
-      } else {
-        toast({ title: 'Keine neuen Rechnungen', description: 'Alle Buchungen im Zeitraum haben bereits eine Rechnung.' })
-      }
-    } finally {
-      setBulkGenerating(false)
-    }
-  }
 
   async function handleDeleteInvoice(invoiceId: string) {
     await supabase.from('invoices').delete().eq('id', invoiceId)
@@ -1510,55 +1459,12 @@ function RechnungenContent() {
             <Archive className="mr-2 h-4 w-4" />
             {bulkDownloading ? 'Wird erstellt...' : `Alle herunterladen (${filteredInvoices.length})`}
           </Button>
-          {/* Bulk-Erstellen Dialog */}
-          <Dialog open={bulkGenDialogOpen} onOpenChange={setBulkGenDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Wand2 className="mr-2 h-4 w-4" />
-                Rechnungen erstellen
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-sm">
-              <DialogHeader>
-                <DialogTitle>Rechnungen bulk erstellen</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                Erstellt Rechnungsentwürfe für alle Buchungen im gewählten Zeitraum (Anreisedatum), die noch keine Rechnung haben.
-              </p>
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <Label htmlFor="bulk-from">Anreise von</Label>
-                  <Input
-                    id="bulk-from"
-                    type="date"
-                    value={bulkGenFrom}
-                    onChange={(e) => setBulkGenFrom(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="bulk-to">Anreise bis</Label>
-                  <Input
-                    id="bulk-to"
-                    type="date"
-                    value={bulkGenTo}
-                    onChange={(e) => setBulkGenTo(e.target.value)}
-                  />
-                </div>
-                <Button
-                  className="w-full"
-                  disabled={bulkGenerating || !bulkGenFrom || !bulkGenTo}
-                  onClick={handleBulkGenerate}
-                >
-                  {bulkGenerating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird erstellt...</> : 'Rechnungen erstellen'}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button
                 onClick={() => {
                   setSelectedBookingId('')
+                  setSelectedPropertyId('')
                   setGuestName('')
                   setGuestStreet('')
                   setGuestZip('')
@@ -1566,7 +1472,7 @@ function RechnungenContent() {
                   setGuestCountry('')
                   setServicePeriodStart('')
                   setServicePeriodEnd('')
-                  setLineItems([])
+                  setLineItems([{ description: '', quantity: 1, unitPrice: 0, vatRate: 19, vatAmount: 0, total: 0 }])
                   setIssuedDate(format(new Date(), 'yyyy-MM-dd'))
                   setDueDate(format(addDays(new Date(), settings?.invoice_payment_days ?? 14), 'yyyy-MM-dd'))
                   setDueDateManual(false)
@@ -1592,20 +1498,26 @@ function RechnungenContent() {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              {/* Booking selector */}
+              {/* Booking selector (optional) */}
               <div className="space-y-2">
-                <Label>Aus Buchung vorausfüllen</Label>
+                <Label>Aus Buchung vorausfüllen (optional)</Label>
                 <Select
                   value={selectedBookingId}
                   onValueChange={(v) => {
+                    if (v === '__none__') {
+                      setSelectedBookingId('')
+                      setSelectedPropertyId('')
+                      return
+                    }
                     const booking = bookings.find((b) => b.id === v)
                     if (booking) fillFromBooking(booking, settings, cityRules)
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Buchung wählen..." />
+                    <SelectValue placeholder="Ohne Buchung (freie Rechnung)" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__none__">Ohne Buchung (freie Rechnung)</SelectItem>
                     {bookings.map((b) => (
                       <SelectItem key={b.id} value={b.id}>
                         {[b.guest_firstname, b.guest_lastname].filter(Boolean).join(' ') || 'Unbekannt'}{' '}
@@ -1615,6 +1527,35 @@ function RechnungenContent() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Property selector for free invoices (without booking) */}
+              {!selectedBookingId && (
+                <div className="space-y-2">
+                  <Label>Objekt (optional)</Label>
+                  <Select
+                    value={selectedPropertyId}
+                    onValueChange={(v) => {
+                      if (v === '__none__') {
+                        setSelectedPropertyId('')
+                        return
+                      }
+                      setSelectedPropertyId(v)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Kein Objekt" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Kein Objekt</SelectItem>
+                      {properties.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Guest & date */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1628,7 +1569,6 @@ function RechnungenContent() {
                     value={guestStreet}
                     onChange={(e) => setGuestStreet(e.target.value)}
                     placeholder="Straße, Nr."
-                    className={!guestStreet ? 'border-destructive' : ''}
                   />
                   <div className="grid grid-cols-3 gap-2">
                     <Input value={guestZip} onChange={(e) => setGuestZip(e.target.value)} placeholder="PLZ" />
@@ -1649,6 +1589,11 @@ function RechnungenContent() {
                     setDueDate(e.target.value)
                     setDueDateManual(true)
                   }} />
+                  <Label>Leistungszeitraum (optional)</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input type="date" value={servicePeriodStart} onChange={(e) => setServicePeriodStart(e.target.value)} placeholder="Von" />
+                    <Input type="date" value={servicePeriodEnd} onChange={(e) => setServicePeriodEnd(e.target.value)} placeholder="Bis" />
+                  </div>
                 </div>
               </div>
 

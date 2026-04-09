@@ -186,7 +186,6 @@ export function CreateBookingWizard({
   // Success state
   const [createdBooking, setCreatedBooking] = useState<BookingWithProperty | null>(null)
   const [stripeLink, setStripeLink] = useState<string | null>(null)
-  const [invoiceId, setInvoiceId] = useState<string | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
   const [emailCopied, setEmailCopied] = useState(false)
 
@@ -240,7 +239,6 @@ export function CreateBookingWizard({
       setSubmitError(null)
       setCreatedBooking(null)
       setStripeLink(null)
-      setInvoiceId(null)
       setLinkCopied(false)
       setEmailCopied(false)
       setCheckIn('')
@@ -443,7 +441,6 @@ export function CreateBookingWizard({
 
       setCreatedBooking(data.booking)
       setStripeLink(data.stripePaymentLink)
-      setInvoiceId(data.invoiceId)
       setStep(3) // Success
       onBookingCreated?.(data.booking)
     } catch {
@@ -1261,14 +1258,6 @@ export function CreateBookingWizard({
               <SummaryRow label="Gesamtpreis" value={formatCurrency(totalPrice)} bold />
             </div>
 
-            {invoiceId && (
-              <Alert>
-                <Check className="h-4 w-4 text-green-600" />
-                <AlertDescription>
-                  Rechnung wurde automatisch erstellt. Sie finden sie unter Rechnungen.
-                </AlertDescription>
-              </Alert>
-            )}
 
             {stripeLink ? (
               <div className="space-y-4 text-left">
