@@ -108,6 +108,7 @@ export function BookingTable({
             {th('nights', 'Nächte', 'hidden md:table-cell text-center')}
             {th('amount_gross', 'Betrag', 'text-right')}
             <TableHead className="hidden md:table-cell">Kanal</TableHead>
+            <TableHead className="hidden lg:table-cell">Gebucht am</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-center w-16">Docs</TableHead>
           </TableRow>
@@ -158,6 +159,9 @@ export function BookingTable({
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
                   {booking.channel}
+                </TableCell>
+                <TableCell className="hidden lg:table-cell text-muted-foreground">
+                  {booking.created_at ? formatDate(booking.created_at.split('T')[0]) : '–'}
                 </TableCell>
                 <TableCell>
                   <BookingStatusBadge status={booking.status} />
