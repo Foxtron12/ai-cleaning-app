@@ -888,48 +888,10 @@ function RechnungenContent() {
   }
 
   /** Sync guest data from Smoobu before download (always, to catch address updates) */
-  async function syncGuestForBooking(bookingId: string): Promise<boolean> {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('/api/smoobu/sync-guest', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({ bookingId }),
-      })
-      return res.ok
-    } catch {
-      return false
-    }
-  }
-
-  /** Generate PDF on-demand – always syncs guest data from Smoobu first */
+  /** Generate PDF on-demand – uses the frozen guest_snapshot from invoice creation */
   async function handleDownloadPDF(inv: InvoiceRow) {
     setDownloading(inv.id)
     try {
-      // Always sync guest data from Smoobu before PDF generation
-      // (webhook doesn't send address updates, so we always re-fetch)
-      if (inv.booking_id) {
-        await syncGuestForBooking(inv.booking_id)
-
-        // Re-fetch invoice (guest_snapshot may have been updated by sync-guest backfill)
-        const { data: refreshed } = await supabase
-          .from('invoices')
-          .select(INVOICE_SELECT)
-          .eq('id', inv.id)
-          .single()
-        if (refreshed) {
-          // Update local state so the table also reflects any changes
-          const refreshedInv = refreshed as InvoiceRow
-          setInvoices((prev) =>
-            prev.map((i) => (i.id === inv.id ? refreshedInv : i))
-          )
-          inv = refreshedInv
-        }
-      }
-
       const pdfData = buildPdfData(inv)
       const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
       const url = URL.createObjectURL(blob)

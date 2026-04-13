@@ -216,48 +216,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 8. Always update related invoices guest_snapshot with latest data
-    let invoicesUpdated = 0
-
-    if (updateData.guest_street) {
-      const { data: invoicesToUpdate } = await supabase
-        .from('invoices')
-        .select('id, guest_snapshot')
-        .eq('booking_id', bookingId)
-        .eq('user_id', userId)
-
-      if (invoicesToUpdate && invoicesToUpdate.length > 0) {
-        for (const inv of invoicesToUpdate) {
-          const gs = inv.guest_snapshot as Record<string, string> | null
-
-          // Build combined address string to replace legacy "address" field
-          const newStreet = updateData.guest_street ?? ''
-          const newCity = updateData.guest_city ?? ''
-          const newZip = updateData.guest_zip ?? ''
-          const newCountry = updateData.guest_country ?? ''
-          const combinedAddress = [newStreet, [newZip, newCity].filter(Boolean).join(' '), newCountry]
-            .filter(Boolean)
-            .join(', ')
-
-          const updatedSnapshot = {
-            ...gs,
-            firstname: updateData.guest_firstname ?? gs?.firstname ?? '',
-            lastname: updateData.guest_lastname ?? gs?.lastname ?? '',
-            street: newStreet,
-            city: newCity,
-            zip: newZip,
-            country: newCountry,
-            address: combinedAddress, // overwrite legacy combined field
-          }
-
-          await supabase
-            .from('invoices')
-            .update({ guest_snapshot: updatedSnapshot })
-            .eq('id', inv.id)
-          invoicesUpdated++
-        }
-      }
-    }
+    // 8. Invoice guest_snapshot is frozen at creation time and NOT updated here.
+    // Manual edits in the invoice wizard must be preserved.
+    const invoicesUpdated = 0
 
     return NextResponse.json({
       success: true,
