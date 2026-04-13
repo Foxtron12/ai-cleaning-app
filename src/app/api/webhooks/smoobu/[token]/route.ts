@@ -158,6 +158,18 @@ export async function POST(
 
     const reservation = parsed.data as SmoobuReservation
 
+    // Skip blocked bookings (Sperrungen) — they are not real reservations
+    if (reservation['is-blocked-booking']) {
+      await supabase.from('webhook_logs').insert({
+        user_id: userId,
+        provider: 'smoobu',
+        action,
+        payload: rawPayload,
+        processed: true,
+      })
+      return NextResponse.json({ success: true, skipped: 'blocked-booking' })
+    }
+
     // Find the property by Smoobu apartment ID (scoped to user)
     const { data: property } = await supabase
       .from('properties')

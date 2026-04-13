@@ -47,6 +47,7 @@ export function BookingTable({
   onSort,
   invoiceBookingIds = new Set(),
   meldescheinBookingIds = new Set(),
+  onToggleReady,
 }: {
   bookings: BookingWithProperty[]
   loading: boolean
@@ -56,6 +57,7 @@ export function BookingTable({
   onSort: (col: SortColumn) => void
   invoiceBookingIds?: Set<string>
   meldescheinBookingIds?: Set<string>
+  onToggleReady?: (bookingId: string, newValue: boolean) => void
 }) {
   if (loading) {
     return (
@@ -86,10 +88,19 @@ export function BookingTable({
   )
 
   return (
+    <TooltipProvider>
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8 text-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help">&#9679;</span>
+                </TooltipTrigger>
+                <TooltipContent>Bereit-Status</TooltipContent>
+              </Tooltip>
+            </TableHead>
             {th('guest', 'Gast')}
             <TableHead className="hidden sm:table-cell">Objekt</TableHead>
             {th('check_in', 'Check-in')}
@@ -114,6 +125,25 @@ export function BookingTable({
                 className={onRowClick ? 'cursor-pointer' : ''}
                 onClick={() => onRowClick?.(booking)}
               >
+                <TableCell className="text-center w-8">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onToggleReady?.(booking.id, !booking.is_ready)
+                        }}
+                      >
+                        <span className={`inline-block h-3 w-3 rounded-full ${booking.is_ready ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {booking.is_ready ? 'Bereit' : 'Nicht bereit'} – Klicken zum Umschalten
+                    </TooltipContent>
+                  </Tooltip>
+                </TableCell>
                 <TableCell className="font-medium">{guestName}</TableCell>
                 <TableCell className="hidden sm:table-cell text-muted-foreground">
                   {booking.properties?.name ?? '–'}
@@ -133,7 +163,6 @@ export function BookingTable({
                   <BookingStatusBadge status={booking.status} />
                 </TableCell>
                 <TableCell className="text-center">
-                  <TooltipProvider>
                     <div className="flex items-center justify-center gap-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -172,7 +201,6 @@ export function BookingTable({
                         </TooltipContent>
                       </Tooltip>
                     </div>
-                  </TooltipProvider>
                 </TableCell>
               </TableRow>
             )
@@ -180,5 +208,6 @@ export function BookingTable({
         </TableBody>
       </Table>
     </div>
+    </TooltipProvider>
   )
 }

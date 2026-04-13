@@ -240,6 +240,14 @@ function BuchungenContent() {
     setSheetOpen(true)
   }, [])
 
+  const handleToggleReady = useCallback(async (bookingId: string, newValue: boolean) => {
+    // Optimistic update
+    setAllBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, is_ready: newValue } : b))
+    )
+    await supabase.from('bookings').update({ is_ready: newValue }).eq('id', bookingId)
+  }, [])
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -351,6 +359,7 @@ function BuchungenContent() {
         onSort={handleSort}
         invoiceBookingIds={invoiceBookingIds}
         meldescheinBookingIds={meldescheinBookingIds}
+        onToggleReady={handleToggleReady}
       />
 
       {/* Pagination */}

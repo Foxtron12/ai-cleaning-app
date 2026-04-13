@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalendarDays } from 'date-fns'
@@ -136,6 +136,7 @@ function formatEur(value: number): string {
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Entwurf',
   created: 'Erstellt',
+  sent: 'Versendet',
   paid: 'Bezahlt',
   cancelled: 'Storniert',
 }
@@ -221,6 +222,8 @@ function RechnungenContent() {
   const [guestZip, setGuestZip] = useState('')
   const [guestCity, setGuestCity] = useState('')
   const [guestCountry, setGuestCountry] = useState('')
+  // Track which guest fields the user has manually edited (dirty)
+  const dirtyGuestFields = useRef(new Set<string>())
   const [servicePeriodStart, setServicePeriodStart] = useState('')
   const [servicePeriodEnd, setServicePeriodEnd] = useState('')
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
@@ -307,6 +310,7 @@ function RechnungenContent() {
     setNotes('')
     setNotesFooter('')
     setPaymentScheduleEnabled(false)
+    dirtyGuestFields.current.clear()
 
     // Use company data as invoice recipient if set
     const isCompany = booking.invoice_recipient === 'company'
@@ -405,6 +409,7 @@ function RechnungenContent() {
     setNotes('')
     setNotesFooter('')
     setPaymentScheduleEnabled(false)
+    dirtyGuestFields.current.clear()
 
     const isCompany = booking.invoice_recipient === 'company'
     const name = isCompany && booking.company_name
@@ -527,12 +532,13 @@ function RechnungenContent() {
       })
       const data = await res.json()
       if (data.success && data.guest) {
-        // Update form fields
-        if (data.guest.street) setGuestStreet(data.guest.street)
-        if (data.guest.zip) setGuestZip(data.guest.zip)
-        if (data.guest.city) setGuestCity(data.guest.city)
-        if (data.guest.country) setGuestCountry(data.guest.country)
-        if (data.guest.name) setGuestName(data.guest.name)
+        // Update form fields — only overwrite fields the user hasn't manually edited
+        const dirty = dirtyGuestFields.current
+        if (data.guest.street && !dirty.has('guestStreet')) setGuestStreet(data.guest.street)
+        if (data.guest.zip && !dirty.has('guestZip')) setGuestZip(data.guest.zip)
+        if (data.guest.city && !dirty.has('guestCity')) setGuestCity(data.guest.city)
+        if (data.guest.country && !dirty.has('guestCountry')) setGuestCountry(data.guest.country)
+        if (data.guest.name && !dirty.has('guestName')) setGuestName(data.guest.name)
 
         // Update local bookings state so re-opening won't re-fetch
         setBookings((prev) =>
@@ -1564,17 +1570,17 @@ function RechnungenContent() {
                   {syncingGuest && (
                     <p className="text-xs text-muted-foreground animate-pulse">Adresse wird aus Smoobu geladen…</p>
                   )}
-                  <Input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Name" />
+                  <Input value={guestName} onChange={(e) => { dirtyGuestFields.current.add('guestName'); setGuestName(e.target.value) }} placeholder="Name" />
                   <Input
                     value={guestStreet}
-                    onChange={(e) => setGuestStreet(e.target.value)}
+                    onChange={(e) => { dirtyGuestFields.current.add('guestStreet'); setGuestStreet(e.target.value) }}
                     placeholder="Straße, Nr."
                   />
                   <div className="grid grid-cols-3 gap-2">
-                    <Input value={guestZip} onChange={(e) => setGuestZip(e.target.value)} placeholder="PLZ" />
-                    <Input value={guestCity} onChange={(e) => setGuestCity(e.target.value)} placeholder="Ort" className="col-span-2" />
+                    <Input value={guestZip} onChange={(e) => { dirtyGuestFields.current.add('guestZip'); setGuestZip(e.target.value) }} placeholder="PLZ" />
+                    <Input value={guestCity} onChange={(e) => { dirtyGuestFields.current.add('guestCity'); setGuestCity(e.target.value) }} placeholder="Ort" className="col-span-2" />
                   </div>
-                  <Input value={guestCountry} onChange={(e) => setGuestCountry(e.target.value)} placeholder="Land" />
+                  <Input value={guestCountry} onChange={(e) => { dirtyGuestFields.current.add('guestCountry'); setGuestCountry(e.target.value) }} placeholder="Land" />
                 </div>
                 <div className="space-y-2">
                   <Label>Rechnungsdatum</Label>
@@ -2017,6 +2023,7 @@ function RechnungenContent() {
                             <SelectContent>
                               <SelectItem value="draft">{STATUS_LABELS.draft}</SelectItem>
                               <SelectItem value="created">{STATUS_LABELS.created}</SelectItem>
+                              <SelectItem value="sent">{STATUS_LABELS.sent}</SelectItem>
                               <SelectItem value="paid">{STATUS_LABELS.paid}</SelectItem>
                               <SelectItem value="cancelled">{STATUS_LABELS.cancelled}</SelectItem>
                             </SelectContent>

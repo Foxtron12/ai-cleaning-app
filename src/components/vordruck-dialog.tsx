@@ -208,6 +208,8 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
   const [period, setPeriod] = useState(new Date().getMonth() + 1)
 
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
+  const [chemnitzRhythm, setChemnitzRhythm] = useState<DresdenRhythm>('monthly')
+  const [chemnitzPeriod, setChemnitzPeriod] = useState(1)
 
   const isDresden = city.toLowerCase() === 'dresden'
   const [formType, setFormType] = useState<FormType>('anmeldung')
@@ -228,12 +230,28 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
     })
   }, [properties, city, cityRules])
 
+  function getChemnitzMonths(): number[] {
+    switch (chemnitzRhythm) {
+      case 'monthly':
+        return [selectedMonth]
+      case 'quarterly': {
+        const start = (chemnitzPeriod - 1) * 3 + 1
+        return [start, start + 1, start + 2]
+      }
+      case 'half-yearly': {
+        const start = (chemnitzPeriod - 1) * 6 + 1
+        return Array.from({ length: 6 }, (_, i) => start + i)
+      }
+    }
+  }
+
   const dateRange = useMemo(() => {
     if (isDresden) {
       return getDateRangeForDresden(year, rhythm, period)
     }
-    return getDateRangeForChemnitz(year, [selectedMonth])
-  }, [isDresden, year, rhythm, period, selectedMonth])
+    return getDateRangeForChemnitz(year, getChemnitzMonths())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDresden, year, rhythm, period, selectedMonth, chemnitzRhythm, chemnitzPeriod])
 
   const taxData = useMemo(() => {
     interface TaxDataItem {
@@ -356,7 +374,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
         payload = {
           city: 'chemnitz',
           year,
-          months: [selectedMonth],
+          months: getChemnitzMonths(),
           type: formType as 'anmeldung' | 'korrektur',
           propertyName: primaryProperty?.name ?? '',
           propertyStreet: primaryProperty?.street ?? '',
@@ -433,12 +451,46 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
     }
   }
 
+  function handleChemnitzRhythmChange(newRhythm: DresdenRhythm) {
+    setChemnitzRhythm(newRhythm)
+    if (newRhythm === 'monthly') {
+      setSelectedMonth(Math.min(selectedMonth, 12))
+    } else if (newRhythm === 'quarterly') {
+      setChemnitzPeriod(Math.min(chemnitzPeriod, 4))
+    } else {
+      setChemnitzPeriod(Math.min(chemnitzPeriod, 2))
+    }
+  }
+
+  function getChemnitzPeriodOptions() {
+    switch (chemnitzRhythm) {
+      case 'quarterly':
+        return [
+          { value: 1, label: 'Q1 (Jan - März)' },
+          { value: 2, label: 'Q2 (Apr - Jun)' },
+          { value: 3, label: 'Q3 (Jul - Sep)' },
+          { value: 4, label: 'Q4 (Okt - Dez)' },
+        ]
+      case 'half-yearly':
+        return [
+          { value: 1, label: '1. Halbjahr (Jan - Jun)' },
+          { value: 2, label: '2. Halbjahr (Jul - Dez)' },
+        ]
+      default:
+        return []
+    }
+  }
+
   function getPeriodLabel(): string {
     if (isDresden) {
       const opts = getDresdenPeriodOptions()
       return opts.find((o) => o.value === period)?.label ?? ''
     }
-    return MONTHS_SHORT[selectedMonth - 1]
+    if (chemnitzRhythm === 'monthly') {
+      return MONTHS_SHORT[selectedMonth - 1]
+    }
+    const opts = getChemnitzPeriodOptions()
+    return opts.find((o) => o.value === chemnitzPeriod)?.label ?? ''
   }
 
   return (
@@ -512,17 +564,50 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
             </div>
           ) : (
             <div className="space-y-3">
-              <Label>Meldemonat</Label>
-              <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
-                <SelectTrigger className="w-[260px]" aria-label="Meldemonat">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MONTHS.map((m, i) => (
-                    <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Melderhythmus</Label>
+              <RadioGroup
+                value={chemnitzRhythm}
+                onValueChange={(v) => handleChemnitzRhythmChange(v as DresdenRhythm)}
+                className="flex flex-wrap gap-4"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="monthly" id="chemnitz-rhythm-monthly" />
+                  <Label htmlFor="chemnitz-rhythm-monthly" className="font-normal">Monatlich</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="quarterly" id="chemnitz-rhythm-quarterly" />
+                  <Label htmlFor="chemnitz-rhythm-quarterly" className="font-normal">Vierteljährlich</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="half-yearly" id="chemnitz-rhythm-half-yearly" />
+                  <Label htmlFor="chemnitz-rhythm-half-yearly" className="font-normal">Halbjährlich</Label>
+                </div>
+              </RadioGroup>
+
+              <Label>Zeitraum</Label>
+              {chemnitzRhythm === 'monthly' ? (
+                <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
+                  <SelectTrigger className="w-[260px]" aria-label="Meldemonat">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((m, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select value={String(chemnitzPeriod)} onValueChange={(v) => setChemnitzPeriod(Number(v))}>
+                  <SelectTrigger className="w-[260px]" aria-label="Zeitraum">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getChemnitzPeriodOptions().map((opt) => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           )}
 

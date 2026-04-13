@@ -117,6 +117,7 @@ export type Database = {
           host_note: string | null
           id: string
           invoice_recipient: string | null
+          is_ready: boolean
           nights: number | null
           payment_status: string | null
           prepayment: number | null
@@ -168,6 +169,7 @@ export type Database = {
           host_note?: string | null
           id?: string
           invoice_recipient?: string | null
+          is_ready?: boolean
           nights?: number | null
           payment_status?: string | null
           prepayment?: number | null
@@ -219,6 +221,7 @@ export type Database = {
           host_note?: string | null
           id?: string
           invoice_recipient?: string | null
+          is_ready?: boolean
           nights?: number | null
           payment_status?: string | null
           prepayment?: number | null
