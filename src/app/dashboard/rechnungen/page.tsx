@@ -749,9 +749,10 @@ function RechnungenContent() {
       }
 
       const isCompanyInvoice = selectedBooking?.invoice_recipient === 'company'
+      const nameParts = guestName.trim().split(' ')
       const guestSnapshotData = {
-        firstname: selectedBooking?.guest_firstname ?? guestName.split(' ')[0] ?? '',
-        lastname: selectedBooking?.guest_lastname ?? guestName.split(' ').slice(1).join(' ') ?? '',
+        firstname: nameParts[0] ?? '',
+        lastname: nameParts.slice(1).join(' ') ?? '',
         street: isCompanyInvoice ? (selectedBooking?.guest_street ?? '') : guestStreet,
         zip: isCompanyInvoice ? (selectedBooking?.guest_zip ?? '') : guestZip,
         city: isCompanyInvoice ? (selectedBooking?.guest_city ?? '') : guestCity,
