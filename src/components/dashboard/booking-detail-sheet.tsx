@@ -681,6 +681,14 @@ export function BookingDetailSheet({
   async function handleSaveEdit() {
     setSaving(true)
     try {
+      // For wizard-created direct bookings (channel_id=0), amount_gross includes cleaning.
+      // If the user changes cleaning_fee, auto-adjust amount_gross to stay in sync.
+      let adjustedGross = editAmountGross
+      if (booking!.channel_id === 0 && editCleaningFee !== (booking!.cleaning_fee ?? 0)) {
+        const oldCleaning = booking!.cleaning_fee ?? 0
+        adjustedGross = editAmountGross - oldCleaning + editCleaningFee
+      }
+
       const { data: updated, error } = await supabase
         .from('bookings')
         .update({
@@ -695,7 +703,7 @@ export function BookingDetailSheet({
           guest_note: editNote || null,
           check_in: editCheckIn || booking!.check_in,
           check_out: editCheckOut || booking!.check_out,
-          amount_gross: editAmountGross,
+          amount_gross: adjustedGross,
           cleaning_fee: editCleaningFee,
           updated_at: new Date().toISOString(),
         })
