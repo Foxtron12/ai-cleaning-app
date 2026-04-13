@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { BookingStatusBadge } from './booking-status-badge'
 import type { BookingWithProperty } from '@/lib/types'
 
-export type SortColumn = 'guest' | 'check_in' | 'check_out' | 'nights' | 'amount_gross'
+export type SortColumn = 'guest' | 'check_in' | 'check_out' | 'nights' | 'amount_gross' | 'created_at'
 export type SortDirection = 'asc' | 'desc'
 
 function formatCurrency(value: number | null): string {
@@ -93,6 +93,16 @@ export function BookingTable({
       <Table>
         <TableHeader>
           <TableRow>
+            {th('guest', 'Gast')}
+            <TableHead className="hidden sm:table-cell">Objekt</TableHead>
+            {th('check_in', 'Check-in')}
+            {th('check_out', 'Check-out')}
+            {th('nights', 'Nächte', 'hidden md:table-cell text-center')}
+            {th('amount_gross', 'Betrag', 'text-right')}
+            <TableHead className="hidden md:table-cell">Kanal</TableHead>
+            {th('created_at', 'Gebucht am', 'hidden lg:table-cell')}
+            <TableHead>Status</TableHead>
+            <TableHead className="text-center w-16">Docs</TableHead>
             <TableHead className="w-8 text-center">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -101,16 +111,6 @@ export function BookingTable({
                 <TooltipContent>Bereit-Status</TooltipContent>
               </Tooltip>
             </TableHead>
-            {th('guest', 'Gast')}
-            <TableHead className="hidden sm:table-cell">Objekt</TableHead>
-            {th('check_in', 'Check-in')}
-            {th('check_out', 'Check-out')}
-            {th('nights', 'Nächte', 'hidden md:table-cell text-center')}
-            {th('amount_gross', 'Betrag', 'text-right')}
-            <TableHead className="hidden md:table-cell">Kanal</TableHead>
-            <TableHead className="hidden lg:table-cell">Gebucht am</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-center w-16">Docs</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -126,25 +126,6 @@ export function BookingTable({
                 className={onRowClick ? 'cursor-pointer' : ''}
                 onClick={() => onRowClick?.(booking)}
               >
-                <TableCell className="text-center w-8">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onToggleReady?.(booking.id, !booking.is_ready)
-                        }}
-                      >
-                        <span className={`inline-block h-3 w-3 rounded-full ${booking.is_ready ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {booking.is_ready ? 'Bereit' : 'Nicht bereit'} – Klicken zum Umschalten
-                    </TooltipContent>
-                  </Tooltip>
-                </TableCell>
                 <TableCell className="font-medium">{guestName}</TableCell>
                 <TableCell className="hidden sm:table-cell text-muted-foreground">
                   {booking.properties?.name ?? '–'}
@@ -205,6 +186,25 @@ export function BookingTable({
                         </TooltipContent>
                       </Tooltip>
                     </div>
+                </TableCell>
+                <TableCell className="text-center w-8">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onToggleReady?.(booking.id, !booking.is_ready)
+                        }}
+                      >
+                        <span className={`inline-block h-3 w-3 rounded-full ${booking.is_ready ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {booking.is_ready ? 'Bereit' : 'Nicht bereit'} – Klicken zum Umschalten
+                    </TooltipContent>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             )

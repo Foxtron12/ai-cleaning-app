@@ -222,6 +222,7 @@ function BuchungenContent() {
         case 'check_out': return a.check_out.localeCompare(b.check_out) * dir
         case 'nights': return ((a.nights ?? 0) - (b.nights ?? 0)) * dir
         case 'amount_gross': return ((a.amount_gross ?? 0) - (b.amount_gross ?? 0)) * dir
+        case 'created_at': return (a.created_at ?? '').localeCompare(b.created_at ?? '') * dir
         default: return 0
       }
     })
