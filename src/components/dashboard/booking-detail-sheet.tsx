@@ -681,9 +681,6 @@ export function BookingDetailSheet({
   async function handleSaveEdit() {
     setSaving(true)
     try {
-      const nights = editCheckIn && editCheckOut
-        ? differenceInCalendarDays(new Date(editCheckOut), new Date(editCheckIn))
-        : booking!.nights
       const { data: updated, error } = await supabase
         .from('bookings')
         .update({
@@ -698,7 +695,6 @@ export function BookingDetailSheet({
           guest_note: editNote || null,
           check_in: editCheckIn || booking!.check_in,
           check_out: editCheckOut || booking!.check_out,
-          nights,
           amount_gross: editAmountGross,
           cleaning_fee: editCleaningFee,
           updated_at: new Date().toISOString(),
