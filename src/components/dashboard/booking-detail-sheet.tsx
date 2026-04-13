@@ -684,7 +684,7 @@ export function BookingDetailSheet({
       const nights = editCheckIn && editCheckOut
         ? differenceInCalendarDays(new Date(editCheckOut), new Date(editCheckIn))
         : booking!.nights
-      const { data: updated } = await supabase
+      const { data: updated, error } = await supabase
         .from('bookings')
         .update({
           guest_firstname: editFirstname || null,
@@ -706,6 +706,11 @@ export function BookingDetailSheet({
         .eq('id', booking!.id)
         .select('*, properties(*)')
         .single()
+      if (error) {
+        console.error('Booking update failed:', error)
+        alert(`Speichern fehlgeschlagen: ${error.message}`)
+        return
+      }
       if (updated) {
         onBookingUpdated?.(updated as BookingWithProperty)
       }
