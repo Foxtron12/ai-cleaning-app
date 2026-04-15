@@ -913,6 +913,18 @@ function RechnungenContent() {
       if (saved) {
         setInvoices((prev) => [saved as InvoiceRow, ...prev])
 
+        // Auto-attach invoice PDF to booking documents (non-blocking)
+        if ((saved as InvoiceRow).booking_id) {
+          const inv = saved as InvoiceRow
+          try {
+            const pdfData = buildPdfData(inv)
+            const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
+            await attachInvoicePdfToBooking(inv, blob)
+          } catch (err) {
+            console.error('Auto-attach invoice PDF failed (non-fatal):', err)
+          }
+        }
+
         // Sync cleaning fee back to booking (non-blocking)
         if (selectedBookingId) {
           const cleaningLineItem = lineItems.find(i => /reinigung|cleaning|endreinigung/i.test(i.description))
