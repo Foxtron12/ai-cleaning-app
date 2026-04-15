@@ -224,8 +224,14 @@ export async function POST(
         if (existingBooking.accommodation_tax_amount != null) {
           updateData.accommodation_tax_amount = existingBooking.accommodation_tax_amount
         }
-      } else if ((updateData.cleaning_fee ?? 0) === 0 && updateData.channel !== 'Direct') {
-        // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
+      } else if ((updateData.cleaning_fee ?? 0) === 0 && (existingBooking?.cleaning_fee ?? 0) > 0) {
+        // Smoobu returns no cleaning fee, but user has set one manually — preserve it
+        updateData.cleaning_fee = existingBooking!.cleaning_fee
+        if (existingBooking!.accommodation_tax_amount != null) {
+          updateData.accommodation_tax_amount = existingBooking!.accommodation_tax_amount
+        }
+      } else if ((updateData.cleaning_fee ?? 0) === 0) {
+        // No cleaning fee from Smoobu and none stored — use property default
         if (property.default_cleaning_fee != null && property.default_cleaning_fee > 0) {
           updateData.cleaning_fee = property.default_cleaning_fee
         }

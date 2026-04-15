@@ -239,11 +239,15 @@ export async function POST(request: NextRequest) {
           if (existingBooking.accommodation_tax_amount != null) {
             updateData.accommodation_tax_amount = existingBooking.accommodation_tax_amount
           }
-        } else if (isDirectChannel) {
-          // Direct bookings from Smoobu: use what Smoobu returns as-is (no fallback)
-          // The user explicitly controls pricing for direct bookings
+        } else if ((updateData.cleaning_fee ?? 0) === 0 && (existingBooking?.cleaning_fee ?? 0) > 0) {
+          // Smoobu returns no cleaning fee, but user has set one manually (e.g. via booking edit).
+          // Preserve the manually entered value.
+          updateData.cleaning_fee = existingBooking!.cleaning_fee
+          if (existingBooking!.accommodation_tax_amount != null) {
+            updateData.accommodation_tax_amount = existingBooking!.accommodation_tax_amount
+          }
         } else if ((updateData.cleaning_fee ?? 0) === 0) {
-          // For OTA bookings: when Smoobu returns cleaning_fee=0, use the property default
+          // No cleaning fee from Smoobu and none stored locally — use property default
           const fallback = propertyCleaningFees.get(propertyId)
           if (fallback != null && fallback > 0) {
             updateData.cleaning_fee = fallback
