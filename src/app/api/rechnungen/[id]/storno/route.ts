@@ -10,7 +10,7 @@ import { format } from 'date-fns'
  * Creates a Stornorechnung (cancellation invoice) for the given invoice.
  * - Negates all line items from the original invoice
  * - Sets original invoice status to 'cancelled'
- * - Sets booking amount_gross to 0
+ * - Booking financial data (amount_gross etc.) is preserved
  * - Assigns a sequential ST-YYYY-NNN number
  *
  * GoBD-compliant: atomic operation via sequential DB calls with validation.
@@ -152,18 +152,9 @@ export async function POST(
       console.error('Original invoice status update error:', updateOriginalError.message)
     }
 
-    // 11. Set booking amount_gross to 0
-    if (original.booking_id) {
-      const { error: bookingError } = await supabase
-        .from('bookings')
-        .update({ amount_gross: 0 })
-        .eq('id', original.booking_id)
-        .eq('user_id', user.id)
-
-      if (bookingError) {
-        console.error('Booking amount update error:', bookingError.message)
-      }
-    }
+    // 11. Booking values (amount_gross, cleaning_fee etc.) are intentionally
+    // kept as-is so the original financial data remains visible in the booking overview.
+    // The storno is tracked via the invoice system (storno invoice + original invoice cancelled).
 
     // 12. Increment storno_next_number in settings
     const { error: settingsUpdateError } = await supabase
