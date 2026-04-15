@@ -266,6 +266,37 @@ export default function GuestRegistrationPage() {
   const [country, setCountry] = useState('')
   const [tripPurpose, setTripPurpose] = useState('unknown')
   const [idScanFile, setIdScanFile] = useState<File | null>(null)
+
+  // Compress image to stay under Vercel's 4.5 MB body limit
+  async function compressImage(file: File, maxSizeKB = 900): Promise<File> {
+    if (file.size <= maxSizeKB * 1024) return file
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let { width, height } = img
+        // Scale down if very large
+        const maxDim = 1600
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height)
+          width = Math.round(width * ratio)
+          height = Math.round(height * ratio)
+        }
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0, width, height)
+        canvas.toBlob(
+          (blob) => {
+            resolve(new File([blob!], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }))
+          },
+          'image/jpeg',
+          0.7
+        )
+      }
+      img.src = URL.createObjectURL(file)
+    })
+  }
   const [signature, setSignature] = useState<string | null>(null)
   const [coTravellers, setCoTravellers] = useState<CoTraveller[]>([])
 
@@ -346,7 +377,8 @@ export default function GuestRegistrationPage() {
         co_travellers: coTravellers.filter(ct => ct.firstname && ct.lastname),
       }))
       if (idScanFile) {
-        formPayload.append('idScan', idScanFile)
+        const compressed = await compressImage(idScanFile)
+        formPayload.append('idScan', compressed)
       }
 
       const res = await fetch(`/api/guest-registration/${token}`, {
