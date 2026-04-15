@@ -228,6 +228,7 @@ function RechnungenContent() {
   const [servicePeriodStart, setServicePeriodStart] = useState('')
   const [servicePeriodEnd, setServicePeriodEnd] = useState('')
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
+  const [bhstIncluded, setBhstIncluded] = useState<boolean[]>([]) // parallel to lineItems: is this item included in BhSt?
   const [issuedDate, setIssuedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [dueDate, setDueDate] = useState('')
   const [dueDateManual, setDueDateManual] = useState(false)
@@ -396,6 +397,8 @@ function RechnungenContent() {
     }
 
     setLineItems(items)
+    // Initialize BhSt flags: non-BhSt items are included by default
+    setBhstIncluded(items.map(i => !isBhStItem(i)))
 
     // Auto-sync guest address from Smoobu when booking has an external_id
     if (booking.external_id && !booking.guest_street) {
@@ -448,14 +451,16 @@ function RechnungenContent() {
       const customGross = segment.amount
       const customNet = isKlein ? customGross : Math.round((customGross / 1.07) * 100) / 100
       const customVat = isKlein ? 0 : Math.round((customGross - customNet) * 100) / 100
-      setLineItems([{
+      const customItems = [{
         description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${segment.monthLabel} (${segment.nights} Nächte)`,
         quantity: 1,
         unitPrice: customNet,
         vatRate: 7,
         vatAmount: customVat,
         total: customGross,
-      }])
+      }]
+      setLineItems(customItems)
+      setBhstIncluded(customItems.map(() => true))
     } else {
       // Proportional amounts based on segment ratio
       const segAccomGross = Math.round(accommodationGross * segment.ratio * 100) / 100
@@ -504,6 +509,7 @@ function RechnungenContent() {
       }
 
       setLineItems(items)
+      setBhstIncluded(items.map(i => !isBhStItem(i)))
     }
 
     if (booking.external_id && !booking.guest_street) {
@@ -672,6 +678,7 @@ function RechnungenContent() {
       ...prev,
       { description: '', quantity: 1, unitPrice: 0, vatRate: 19, vatAmount: 0, total: 0 },
     ])
+    setBhstIncluded((prev) => [...prev, true])
   }
 
   function updateLineItem(index: number, field: keyof InvoiceLineItem | 'unitPriceGross', value: string | number) {
@@ -680,8 +687,10 @@ function RechnungenContent() {
       const item = { ...updated[index] }
       const isKlein = settings?.is_kleinunternehmer ?? false
 
+      // Don't manually edit the BhSt line item if it's auto-calculated
+      const editingBhSt = isBhStItem(item)
+
       if (field === 'unitPriceGross') {
-        // Reverse-calculate net from gross, anchor total to gross to avoid rounding drift
         const grossPrice = Number(value)
         const vatRate = Number(item.vatRate)
         item.unitPrice = isKlein || vatRate === 0
@@ -700,12 +709,66 @@ function RechnungenContent() {
         }
       }
       updated[index] = item
+
+      // Auto-recalculate BhSt when a non-BhSt item changes
+      if (!editingBhSt) {
+        return recalcBhSt(updated, bhstIncluded)
+      }
       return updated
     })
   }
 
   function removeLineItem(index: number) {
-    setLineItems((prev) => prev.filter((_, i) => i !== index))
+    const newFlags = bhstIncluded.filter((_, i) => i !== index)
+    setBhstIncluded(newFlags)
+    setLineItems((prev) => {
+      const filtered = prev.filter((_, i) => i !== index)
+      return recalcBhSt(filtered, newFlags)
+    })
+  }
+
+  const isBhStItem = (item: InvoiceLineItem) => /beherbergungssteuer|city.?tax/i.test(item.description)
+
+  /** Recalculate the BhSt line item based on checked items */
+  function recalcBhSt(items: InvoiceLineItem[], included: boolean[]): InvoiceLineItem[] {
+    const bhstIdx = items.findIndex(i => isBhStItem(i))
+    if (bhstIdx < 0) return items
+
+    const selectedBooking = bookings.find(b => b.id === selectedBookingId)
+    const taxConfig = selectedBooking?.properties
+      ? getTaxConfigForProperty(selectedBooking.properties, cityRules)
+      : null
+    if (!taxConfig) return items
+
+    const isKlein = settings?.is_kleinunternehmer ?? false
+    const base = items.reduce((sum, item, idx) => {
+      if (idx === bhstIdx) return sum
+      if (!included[idx]) return sum
+      return sum + item.total
+    }, 0)
+
+    let newTaxAmount: number
+    if (taxConfig.model === 'net_percentage') {
+      // Net models: exclude cleaning from base
+      const cleaningTotal = items
+        .filter((_, idx) => idx !== bhstIdx)
+        .filter(i => /reinigung|cleaning|endreinigung/i.test(i.description))
+        .reduce((sum, i) => sum + i.total, 0)
+      newTaxAmount = (base - cleaningTotal) * (taxConfig.rate / 100)
+    } else {
+      // Gross percentage (Dresden) and others: rate * base
+      newTaxAmount = base * (taxConfig.rate / 100)
+    }
+
+    const newTax = Math.round(newTaxAmount * 100) / 100
+    const taxVatRate = taxConfig.vatType === '7' ? 7 : taxConfig.vatType === '19' ? 19 : 0
+    const newTaxVat = isKlein ? 0 : Math.round(newTax * (taxVatRate / 100) * 100) / 100
+
+    return items.map((item, idx) =>
+      idx === bhstIdx
+        ? { ...item, unitPrice: newTax, vatAmount: newTaxVat, total: Math.round((newTax + newTaxVat) * 100) / 100 }
+        : item
+    )
   }
 
   async function handleSave() {
@@ -714,47 +777,6 @@ function RechnungenContent() {
     const { data: { user } } = await supabase.auth.getUser()
     try {
       const isKlein = settings.is_kleinunternehmer ?? false
-
-      // ─── Auto-recalculate BhSt if cleaning fee was added/changed ─────────
-      const selectedBookingForTax = bookings.find((b) => b.id === selectedBookingId)
-      if (selectedBookingForTax) {
-        const bhstIndex = lineItems.findIndex(i => /beherbergungssteuer|city.?tax/i.test(i.description))
-        if (bhstIndex >= 0) {
-          const taxConfig = selectedBookingForTax.properties
-            ? getTaxConfigForProperty(selectedBookingForTax.properties, cityRules)
-            : null
-          if (taxConfig && (taxConfig.model === 'gross_percentage' || taxConfig.model === 'net_percentage')) {
-            const nonBhstGross = lineItems.reduce((sum, item, idx) => idx === bhstIndex ? sum : sum + item.total, 0)
-            let newTaxAmount: number
-            if (taxConfig.model === 'gross_percentage') {
-              // Dresden: rate% of total gross (accommodation + cleaning)
-              newTaxAmount = nonBhstGross * (taxConfig.rate / 100)
-            } else {
-              // Net: rate% of (gross - cleaning fee)
-              const cleaningTotal = lineItems
-                .filter((_, idx) => idx !== bhstIndex)
-                .filter(i => /reinigung|cleaning|endreinigung/i.test(i.description))
-                .reduce((sum, i) => sum + i.total, 0)
-              newTaxAmount = (nonBhstGross - cleaningTotal) * (taxConfig.rate / 100)
-            }
-            const newTaxRounded = Math.round(newTaxAmount * 100) / 100
-            const taxVatRate = taxConfig.vatType === '7' ? 7 : taxConfig.vatType === '19' ? 19 : 0
-            const newTaxVat = isKlein ? 0 : Math.round(newTaxRounded * (taxVatRate / 100) * 100) / 100
-            setLineItems(prev => prev.map((item, idx) =>
-              idx === bhstIndex
-                ? { ...item, unitPrice: newTaxRounded, vatAmount: newTaxVat, total: Math.round((newTaxRounded + newTaxVat) * 100) / 100 }
-                : item
-            ))
-            // Use updated lineItems for further calculation
-            lineItems[bhstIndex] = {
-              ...lineItems[bhstIndex],
-              unitPrice: newTaxRounded,
-              vatAmount: newTaxVat,
-              total: Math.round((newTaxRounded + newTaxVat) * 100) / 100,
-            }
-          }
-        }
-      }
 
       const subtotalNet = lineItems.reduce(
         (s, item) => s + (item.total - item.vatAmount),
@@ -1561,6 +1583,7 @@ function RechnungenContent() {
                   setServicePeriodStart('')
                   setServicePeriodEnd('')
                   setLineItems([{ description: '', quantity: 1, unitPrice: 0, vatRate: 19, vatAmount: 0, total: 0 }])
+                  setBhstIncluded([true])
                   setIssuedDate(format(new Date(), 'yyyy-MM-dd'))
                   setDueDate(format(addDays(new Date(), settings?.invoice_payment_days ?? 14), 'yyyy-MM-dd'))
                   setDueDateManual(false)
@@ -1771,6 +1794,47 @@ function RechnungenContent() {
                     )
                   })}
                 </div>
+
+                {/* BhSt-Relevanz: Checkboxen für jede Position */}
+                {lineItems.some(i => isBhStItem(i)) && (
+                  <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">BhSt-Berechnung – welche Positionen fließen ein?</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      {lineItems.map((item, i) => {
+                        if (isBhStItem(item)) return null
+                        return (
+                          <label key={i} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                            <Checkbox
+                              checked={bhstIncluded[i] ?? true}
+                              onCheckedChange={(checked) => {
+                                const newFlags = [...bhstIncluded]
+                                newFlags[i] = checked === true
+                                setBhstIncluded(newFlags)
+                                setLineItems(prev => recalcBhSt(prev, newFlags))
+                              }}
+                            />
+                            <span className="truncate max-w-[200px]">{item.description || `Position ${i + 1}`}</span>
+                            <span className="text-muted-foreground">({formatEur(item.total)})</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    {(() => {
+                      const bhstItem = lineItems.find(i => isBhStItem(i))
+                      return bhstItem ? (
+                        <p className="text-xs text-muted-foreground">
+                          → BhSt: {formatEur(bhstItem.unitPrice)} (Basis: {formatEur(
+                            lineItems.reduce((sum, item, idx) => {
+                              if (isBhStItem(item)) return sum
+                              if (!bhstIncluded[idx]) return sum
+                              return sum + item.total
+                            }, 0)
+                          )})
+                        </p>
+                      ) : null
+                    })()}
+                  </div>
+                )}
 
                 {/* Totals – aufgeschlüsselt nach MwSt-Satz */}
                 {lineItems.length > 0 && (() => {
