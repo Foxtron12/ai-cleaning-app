@@ -715,6 +715,47 @@ function RechnungenContent() {
     try {
       const isKlein = settings.is_kleinunternehmer ?? false
 
+      // ─── Auto-recalculate BhSt if cleaning fee was added/changed ─────────
+      const selectedBookingForTax = bookings.find((b) => b.id === selectedBookingId)
+      if (selectedBookingForTax) {
+        const bhstIndex = lineItems.findIndex(i => /beherbergungssteuer|city.?tax/i.test(i.description))
+        if (bhstIndex >= 0) {
+          const taxConfig = selectedBookingForTax.properties
+            ? getTaxConfigForProperty(selectedBookingForTax.properties, cityRules)
+            : null
+          if (taxConfig && (taxConfig.model === 'gross_percentage' || taxConfig.model === 'net_percentage')) {
+            const nonBhstGross = lineItems.reduce((sum, item, idx) => idx === bhstIndex ? sum : sum + item.total, 0)
+            let newTaxAmount: number
+            if (taxConfig.model === 'gross_percentage') {
+              // Dresden: rate% of total gross (accommodation + cleaning)
+              newTaxAmount = nonBhstGross * (taxConfig.rate / 100)
+            } else {
+              // Net: rate% of (gross - cleaning fee)
+              const cleaningTotal = lineItems
+                .filter((_, idx) => idx !== bhstIndex)
+                .filter(i => /reinigung|cleaning|endreinigung/i.test(i.description))
+                .reduce((sum, i) => sum + i.total, 0)
+              newTaxAmount = (nonBhstGross - cleaningTotal) * (taxConfig.rate / 100)
+            }
+            const newTaxRounded = Math.round(newTaxAmount * 100) / 100
+            const taxVatRate = taxConfig.vatType === '7' ? 7 : taxConfig.vatType === '19' ? 19 : 0
+            const newTaxVat = isKlein ? 0 : Math.round(newTaxRounded * (taxVatRate / 100) * 100) / 100
+            setLineItems(prev => prev.map((item, idx) =>
+              idx === bhstIndex
+                ? { ...item, unitPrice: newTaxRounded, vatAmount: newTaxVat, total: Math.round((newTaxRounded + newTaxVat) * 100) / 100 }
+                : item
+            ))
+            // Use updated lineItems for further calculation
+            lineItems[bhstIndex] = {
+              ...lineItems[bhstIndex],
+              unitPrice: newTaxRounded,
+              vatAmount: newTaxVat,
+              total: Math.round((newTaxRounded + newTaxVat) * 100) / 100,
+            }
+          }
+        }
+      }
+
       const subtotalNet = lineItems.reduce(
         (s, item) => s + (item.total - item.vatAmount),
         0
@@ -849,6 +890,24 @@ function RechnungenContent() {
 
       if (saved) {
         setInvoices((prev) => [saved as InvoiceRow, ...prev])
+
+        // Sync cleaning fee back to booking (non-blocking)
+        if (selectedBookingId) {
+          const cleaningLineItem = lineItems.find(i => /reinigung|cleaning|endreinigung/i.test(i.description))
+          if (cleaningLineItem) {
+            const cleaningGross = cleaningLineItem.total
+            Promise.resolve(
+              supabase.from('bookings')
+                .update({ cleaning_fee: cleaningGross, updated_at: new Date().toISOString() })
+                .eq('id', selectedBookingId)
+            ).then(() => {
+              // Update local state so booking overview reflects the change
+              setBookings(prev => prev.map(b =>
+                b.id === selectedBookingId ? { ...b, cleaning_fee: cleaningGross } : b
+              ))
+            }).catch(() => { /* non-blocking */ })
+          }
+        }
 
         // Sync guest address back to booking + Smoobu (non-blocking)
         if (selectedBookingId && (guestStreet || guestCity || guestZip || guestCountry)) {
