@@ -680,10 +680,10 @@ export function BookingDetailSheet({
   async function handleSaveEdit() {
     setSaving(true)
     try {
-      // For wizard-created direct bookings (channel_id=0), amount_gross includes cleaning.
       // If the user changes cleaning_fee, auto-adjust amount_gross to stay in sync.
+      // amount_gross includes cleaning, so changing one must update the other.
       let adjustedGross = editAmountGross
-      if (booking!.channel_id === 0 && editCleaningFee !== (booking!.cleaning_fee ?? 0)) {
+      if (editCleaningFee !== (booking!.cleaning_fee ?? 0)) {
         const oldCleaning = booking!.cleaning_fee ?? 0
         adjustedGross = editAmountGross - oldCleaning + editCleaningFee
       }
@@ -1086,7 +1086,7 @@ export function BookingDetailSheet({
               <Input type="number" step="0.01" value={editCleaningFee} onChange={(e) => setEditCleaningFee(parseFloat(e.target.value) || 0)} />
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">Hinweis: Änderungen betreffen nur die lokale Datenbank, nicht Smoobu.</p>
+          <p className="text-xs text-muted-foreground">Hinweis: Änderungen werden automatisch an Smoobu synchronisiert.</p>
 
           <Button className="w-full" onClick={handleSaveEdit} disabled={saving}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
