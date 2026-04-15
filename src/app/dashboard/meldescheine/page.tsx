@@ -66,11 +66,21 @@ interface RegistrationForm {
   booking_id: string | null
   guest_firstname: string
   guest_lastname: string
+  guest_birthdate?: string | null
+  guest_nationality?: string | null
+  guest_street?: string | null
+  guest_city?: string | null
+  guest_zip?: string | null
+  guest_country?: string | null
   check_in: string
   check_out: string
+  adults?: number | null
+  children?: number | null
   status: string
   created_at: string | null
   trip_purpose: string | null
+  co_travellers?: CoTraveller[] | null
+  guest_submitted?: boolean | null
 }
 
 interface CoTraveller {
@@ -136,7 +146,7 @@ function MeldescheineContent() {
         await Promise.all([
           supabase
             .from('registration_forms')
-            .select('id, booking_id, guest_firstname, guest_lastname, check_in, check_out, status, created_at, trip_purpose')
+            .select('id, booking_id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, status, created_at, trip_purpose, co_travellers, guest_submitted')
             .neq('status', 'deleted')
             .order('created_at', { ascending: false }),
           supabase
@@ -152,7 +162,7 @@ function MeldescheineContent() {
             .single(),
         ])
 
-      setForms(formsData ?? [])
+      setForms((formsData ?? []) as RegistrationForm[])
       setBookings((bookingsData ?? []) as BookingWithProperty[])
       setSettings(settingsData as SettingsData | null)
       setLoading(false)
@@ -202,20 +212,43 @@ function MeldescheineContent() {
 
   function fillFromBooking(booking: BookingWithProperty) {
     setSelectedBookingId(booking.id)
-    setFirstname(booking.guest_firstname ?? '')
-    setLastname(booking.guest_lastname ?? '')
-    setNationality(booking.guest_nationality ?? '')
-    setStreet(booking.guest_street ?? '')
-    setCity(booking.guest_city ?? '')
-    setZip(booking.guest_zip ?? '')
-    setCountry(booking.guest_country ?? '')
-    setTripPurpose(booking.trip_purpose ?? 'unknown')
-    setAdults(booking.adults ?? 1)
-    setChildren(booking.children ?? 0)
+
+    // Prefer guest-submitted registration form data over booking data
+    // (guest checking in may differ from booking contact, e.g. company bookings)
+    const guestForm = forms.find(
+      (f) => f.booking_id === booking.id && f.guest_submitted === true
+    )
+
+    if (guestForm) {
+      setFirstname(guestForm.guest_firstname ?? '')
+      setLastname(guestForm.guest_lastname ?? '')
+      setBirthdate(guestForm.guest_birthdate ?? '')
+      setNationality(guestForm.guest_nationality ?? '')
+      setStreet(guestForm.guest_street ?? '')
+      setCity(guestForm.guest_city ?? '')
+      setZip(guestForm.guest_zip ?? '')
+      setCountry(guestForm.guest_country ?? '')
+      setTripPurpose(guestForm.trip_purpose ?? 'unknown')
+      setAdults(guestForm.adults ?? booking.adults ?? 1)
+      setChildren(guestForm.children ?? booking.children ?? 0)
+      setCoTravellers(guestForm.co_travellers ?? [])
+    } else {
+      setFirstname(booking.guest_firstname ?? '')
+      setLastname(booking.guest_lastname ?? '')
+      setBirthdate('')
+      setNationality(booking.guest_nationality ?? '')
+      setStreet(booking.guest_street ?? '')
+      setCity(booking.guest_city ?? '')
+      setZip(booking.guest_zip ?? '')
+      setCountry(booking.guest_country ?? '')
+      setTripPurpose(booking.trip_purpose ?? 'unknown')
+      setAdults(booking.adults ?? 1)
+      setChildren(booking.children ?? 0)
+      setCoTravellers([])
+    }
+
     setCheckIn(booking.check_in)
     setCheckOut(booking.check_out)
-    setBirthdate('')
-    setCoTravellers([])
   }
 
   function resetForm() {
