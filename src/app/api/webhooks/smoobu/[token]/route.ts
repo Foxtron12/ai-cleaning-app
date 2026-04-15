@@ -208,12 +208,23 @@ export async function POST(
     if (existing) {
       const { external_id: _, trip_purpose: _tripPurpose, ...updateData } = bookingData
 
-      // Check if this booking was created via our wizard (channel_id=0)
+      // Check if this booking was recently edited by the user (< 30s ago)
+      // If so, skip the webhook update to prevent overwriting manual changes
       const { data: existingBooking } = await supabase
         .from('bookings')
-        .select('channel_id, cleaning_fee, payment_status, accommodation_tax_amount')
+        .select('channel_id, cleaning_fee, payment_status, accommodation_tax_amount, updated_at')
         .eq('id', existing.id)
         .single()
+
+      if (existingBooking?.updated_at) {
+        const updatedAt = new Date(existingBooking.updated_at).getTime()
+        const now = Date.now()
+        if (now - updatedAt < 30_000) {
+          // Recently edited — skip webhook update to preserve manual changes
+          return NextResponse.json({ status: 'skipped', reason: 'recently_edited' })
+        }
+      }
+
       const isWizardDirectBooking = existingBooking?.channel_id === 0
 
       // For wizard-created direct bookings, preserve cleaning_fee, accommodation_tax_amount,
