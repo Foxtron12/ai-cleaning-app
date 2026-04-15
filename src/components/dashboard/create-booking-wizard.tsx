@@ -582,6 +582,7 @@ export function CreateBookingWizard({
                     <Calendar
                       mode="single"
                       weekStartsOn={1}
+                      defaultMonth={checkIn ? new Date(checkIn + 'T00:00:00') : undefined}
                       selected={checkOut ? new Date(checkOut + 'T00:00:00') : undefined}
                       onSelect={(date) => {
                         if (!date) return
