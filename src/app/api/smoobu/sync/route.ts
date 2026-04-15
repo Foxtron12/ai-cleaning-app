@@ -235,11 +235,11 @@ export async function POST(request: NextRequest) {
         if (existingBooking?.payment_status) {
           delete (updateData as Record<string, unknown>).payment_status
         }
-        // Never overwrite existing guest address fields with null from Smoobu
+        // Never overwrite existing guest address fields with empty/null from Smoobu
         // (user may have entered address manually via the app)
         const addressFields = ['guest_street', 'guest_city', 'guest_zip', 'guest_country', 'guest_nationality'] as const
         for (const field of addressFields) {
-          if (updateData[field] === null || updateData[field] === undefined) {
+          if (!updateData[field]) {
             delete (updateData as Record<string, unknown>)[field]
           }
         }
