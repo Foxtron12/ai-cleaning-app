@@ -1198,7 +1198,23 @@ function RechnungenContent() {
         .from('invoices')
         .select(INVOICE_SELECT)
         .order('created_at', { ascending: false })
-      if (refreshed) setInvoices(refreshed as unknown as InvoiceRow[])
+      if (refreshed) {
+        setInvoices(refreshed as unknown as InvoiceRow[])
+
+        // Auto-attach Stornorechnung PDF to booking documents
+        if (result.storno?.id) {
+          const stornoInv = (refreshed as unknown as InvoiceRow[]).find(inv => inv.id === result.storno.id)
+          if (stornoInv?.booking_id) {
+            try {
+              const pdfData = buildPdfData(stornoInv)
+              const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
+              await attachInvoicePdfToBooking(stornoInv, blob)
+            } catch (err) {
+              console.error('Auto-attach storno PDF failed (non-fatal):', err)
+            }
+          }
+        }
+      }
       setStornoInvoice(null)
     } finally {
       setStornoLoading(false)
@@ -1250,13 +1266,29 @@ function RechnungenContent() {
         toast({ title: 'Fehler', description: result.error ?? 'Gutschrift fehlgeschlagen', variant: 'destructive' })
         return
       }
-      toast({ title: 'Gutschrift erstellt', description: result.gutschriftNumber ?? 'Gutschrift erfolgreich' })
+      toast({ title: 'Gutschrift erstellt', description: result.gutschrift?.invoice_number ?? 'Gutschrift erfolgreich' })
       // Refresh invoices list
       const { data: refreshed } = await supabase
         .from('invoices')
         .select(INVOICE_SELECT)
         .order('created_at', { ascending: false })
-      if (refreshed) setInvoices(refreshed as unknown as InvoiceRow[])
+      if (refreshed) {
+        setInvoices(refreshed as unknown as InvoiceRow[])
+
+        // Auto-attach Gutschrift PDF to booking documents
+        if (result.gutschrift?.id) {
+          const creditInv = (refreshed as unknown as InvoiceRow[]).find(inv => inv.id === result.gutschrift.id)
+          if (creditInv?.booking_id) {
+            try {
+              const pdfData = buildPdfData(creditInv)
+              const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
+              await attachInvoicePdfToBooking(creditInv, blob)
+            } catch (err) {
+              console.error('Auto-attach gutschrift PDF failed (non-fatal):', err)
+            }
+          }
+        }
+      }
       setGutschriftInvoice(null)
       // Reset form
       setGutschriftPositions([{ description: '', amount: 0, vatRate: 7 }])
