@@ -254,12 +254,24 @@ export class SmoobuClient {
     city?: string
     postalCode?: string
     country?: string
+    arrivalDate?: string
+    departureDate?: string
+    adults?: number
+    children?: number
+    price?: number
+    note?: string
   }): Promise<void> {
     const body: Record<string, unknown> = {}
     if (params.firstName !== undefined) body.firstName = params.firstName
     if (params.lastName !== undefined) body.lastName = params.lastName
     if (params.email !== undefined) body.email = params.email
     if (params.phone !== undefined) body.phone = params.phone
+    if (params.arrivalDate !== undefined) body.arrivalDate = params.arrivalDate
+    if (params.departureDate !== undefined) body.departureDate = params.departureDate
+    if (params.adults !== undefined) body.adults = params.adults
+    if (params.children !== undefined) body.children = params.children
+    if (params.price !== undefined) body.price = params.price
+    if (params.note !== undefined) body.notice = params.note
     if (params.street || params.city || params.postalCode || params.country) {
       body.address = {
         street: params.street ?? '',
