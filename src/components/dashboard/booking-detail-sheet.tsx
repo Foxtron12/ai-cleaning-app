@@ -717,6 +717,23 @@ export function BookingDetailSheet({
       }
       if (updated) {
         onBookingUpdated?.(updated as BookingWithProperty)
+
+        // Sync guest data to Smoobu (non-blocking)
+        if (booking!.external_id && (editStreet || editCity || editZip || editCountry || editFirstname || editLastname)) {
+          fetch('/api/bookings/update-guest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bookingId: booking!.id,
+              guestFirstname: editFirstname || undefined,
+              guestLastname: editLastname || undefined,
+              guestStreet: editStreet || undefined,
+              guestZip: editZip || undefined,
+              guestCity: editCity || undefined,
+              guestCountry: editCountry || undefined,
+            }),
+          }).catch(() => { /* non-blocking */ })
+        }
       }
       setEditDialogOpen(false)
     } finally {
