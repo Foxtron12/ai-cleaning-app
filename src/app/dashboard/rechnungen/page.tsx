@@ -125,6 +125,7 @@ interface SplitSegment {
   amount: number
   selected: boolean
   alreadyInvoiced: boolean
+  isCustom?: boolean
 }
 
 const INVOICE_SELECT = 'id, invoice_number, issued_date, due_date, total_gross, total_vat, subtotal_net, vat_7_net, vat_7_amount, vat_19_net, vat_19_amount, status, booking_id, property_id, is_kleinunternehmer, service_period_start, service_period_end, notes, notes_footer, payment_schedule, invoice_type, cancelled_invoice_id, landlord_snapshot, guest_snapshot, line_items'
@@ -441,53 +442,69 @@ function RechnungenContent() {
       : (fullTaxResult?.taxAmount ?? 0)
     const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 
-    // Proportional amounts based on segment ratio
-    const segAccomGross = Math.round(accommodationGross * segment.ratio * 100) / 100
-    const segClean = Math.round(cleaningFee * segment.ratio * 100) / 100
-
-    const items: InvoiceLineItem[] = []
-
-    const segAccomTotal = Math.round(segAccomGross * 100) / 100
-    const segAccomNetTotal = isKlein ? segAccomTotal : Math.round((segAccomGross / 1.07) * 100) / 100
-    const segAccomUnitPrice = segment.nights > 0 ? Math.round((segAccomNetTotal / segment.nights) * 100) / 100 : 0
-    const accomVat = isKlein ? 0 : Math.round((segAccomTotal - segAccomNetTotal) * 100) / 100
-    items.push({
-      description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${segment.monthLabel} (${segment.nights} Nächte)`,
-      quantity: segment.nights,
-      unitPrice: segAccomUnitPrice,
-      vatRate: 7,
-      vatAmount: accomVat,
-      total: segAccomTotal,
-    })
-
-    if (segClean > 0) {
-      const cleanUnitPrice = Math.round((segClean / (isKlein ? 1 : 1.07)) * 100) / 100
-      const cleanTotal = Math.round(segClean * 100) / 100
-      const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
-      items.push({
-        description: 'Endreinigung',
+    // If the user manually edited the amount (isCustom), create a single line item
+    // with the custom gross amount so the user can further adjust in the wizard
+    if (segment.isCustom) {
+      const customGross = segment.amount
+      const customNet = isKlein ? customGross : Math.round((customGross / 1.07) * 100) / 100
+      const customVat = isKlein ? 0 : Math.round((customGross - customNet) * 100) / 100
+      setLineItems([{
+        description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${segment.monthLabel} (${segment.nights} Nächte)`,
         quantity: 1,
-        unitPrice: cleanUnitPrice,
+        unitPrice: customNet,
         vatRate: 7,
-        vatAmount: cleanVat,
-        total: cleanTotal,
-      })
-    }
+        vatAmount: customVat,
+        total: customGross,
+      }])
+    } else {
+      // Proportional amounts based on segment ratio
+      const segAccomGross = Math.round(accommodationGross * segment.ratio * 100) / 100
+      const segClean = Math.round(cleaningFee * segment.ratio * 100) / 100
 
-    if (fullTaxAmount > 0) {
-      const segTax = Math.round(fullTaxAmount * segment.ratio * 100) / 100
-      const taxVatAmount = isKlein ? 0 : Math.round(segTax * (taxVatRate / 100) * 100) / 100
+      const items: InvoiceLineItem[] = []
+
+      const segAccomTotal = Math.round(segAccomGross * 100) / 100
+      const segAccomNetTotal = isKlein ? segAccomTotal : Math.round((segAccomGross / 1.07) * 100) / 100
+      const segAccomUnitPrice = segment.nights > 0 ? Math.round((segAccomNetTotal / segment.nights) * 100) / 100 : 0
+      const accomVat = isKlein ? 0 : Math.round((segAccomTotal - segAccomNetTotal) * 100) / 100
       items.push({
-        description: `Beherbergungssteuer${taxConfig?.city ? ` (${taxConfig.city})` : ''}`,
-        quantity: 1,
-        unitPrice: segTax,
-        vatRate: taxVatRate,
-        vatAmount: taxVatAmount,
-        total: Math.round((segTax + taxVatAmount) * 100) / 100,
+        description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} – ${segment.monthLabel} (${segment.nights} Nächte)`,
+        quantity: segment.nights,
+        unitPrice: segAccomUnitPrice,
+        vatRate: 7,
+        vatAmount: accomVat,
+        total: segAccomTotal,
       })
-    }
 
-    setLineItems(items)
+      if (segClean > 0) {
+        const cleanUnitPrice = Math.round((segClean / (isKlein ? 1 : 1.07)) * 100) / 100
+        const cleanTotal = Math.round(segClean * 100) / 100
+        const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
+        items.push({
+          description: 'Endreinigung',
+          quantity: 1,
+          unitPrice: cleanUnitPrice,
+          vatRate: 7,
+          vatAmount: cleanVat,
+          total: cleanTotal,
+        })
+      }
+
+      if (fullTaxAmount > 0) {
+        const segTax = Math.round(fullTaxAmount * segment.ratio * 100) / 100
+        const taxVatAmount = isKlein ? 0 : Math.round(segTax * (taxVatRate / 100) * 100) / 100
+        items.push({
+          description: `Beherbergungssteuer${taxConfig?.city ? ` (${taxConfig.city})` : ''}`,
+          quantity: 1,
+          unitPrice: segTax,
+          vatRate: taxVatRate,
+          vatAmount: taxVatAmount,
+          total: Math.round((segTax + taxVatAmount) * 100) / 100,
+        })
+      }
+
+      setLineItems(items)
+    }
 
     if (booking.external_id && !booking.guest_street) {
       syncGuestFromSmoobu(booking.id)
@@ -614,12 +631,12 @@ function RechnungenContent() {
     // Check which segments already have invoices (by matching service_period_start)
     const { data: existing } = await supabase
       .from('invoices')
-      .select('id, status, service_period_start')
+      .select('id, status, invoice_type, service_period_start')
       .eq('booking_id', booking.id)
 
     const existingPeriods = new Set(
       (existing ?? [])
-        .filter(inv => inv.status !== 'draft')
+        .filter(inv => inv.status !== 'draft' && inv.status !== 'cancelled' && inv.invoice_type === 'invoice')
         .map(inv => inv.service_period_start)
     )
 
@@ -888,22 +905,65 @@ function RechnungenContent() {
     }
   }
 
-  /** Sync guest data from Smoobu before download (always, to catch address updates) */
-  /** Generate PDF on-demand – uses the frozen guest_snapshot from invoice creation */
+  /** Generate PDF on-demand – uses the frozen guest_snapshot from invoice creation.
+   *  Also auto-attaches the PDF as a booking document (if booking_id exists). */
   async function handleDownloadPDF(inv: InvoiceRow) {
     setDownloading(inv.id)
     try {
       const pdfData = buildPdfData(inv)
       const blob = await pdf(<InvoicePDF data={pdfData} />).toBlob()
+
+      // Download to browser
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = `${inv.invoice_number}.pdf`
       a.click()
       URL.revokeObjectURL(url)
+
+      // Auto-attach PDF to booking documents (best-effort, don't block download)
+      if (inv.booking_id) {
+        attachInvoicePdfToBooking(inv, blob).catch(err =>
+          console.error('Auto-attach invoice PDF failed (non-fatal):', err)
+        )
+      }
     } finally {
       setDownloading(null)
     }
+  }
+
+  /** Upload invoice PDF to Supabase Storage and link as booking document */
+  async function attachInvoicePdfToBooking(inv: InvoiceRow, blob: Blob) {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user || !inv.booking_id) return
+
+    const fileName = `${inv.invoice_number}.pdf`
+    const storagePath = `${user.id}/${inv.booking_id}/${fileName}`
+
+    // Check if already attached (idempotent)
+    const { data: existing } = await supabase
+      .from('booking_documents')
+      .select('id')
+      .eq('booking_id', inv.booking_id)
+      .eq('file_name', fileName)
+      .maybeSingle()
+    if (existing) return
+
+    // Upload to storage (upsert in case file exists but DB record was lost)
+    const arrayBuffer = await blob.arrayBuffer()
+    await supabase.storage
+      .from('booking-documents')
+      .upload(storagePath, arrayBuffer, { contentType: 'application/pdf', upsert: true })
+
+    // Create booking_documents record
+    await supabase.from('booking_documents').insert({
+      booking_id: inv.booking_id,
+      user_id: user.id,
+      file_name: fileName,
+      file_size: blob.size,
+      mime_type: 'application/pdf',
+      storage_path: storagePath,
+    })
   }
 
   async function updateStatus(invoiceId: string, newStatus: string) {
@@ -2429,7 +2489,7 @@ function RechnungenContent() {
                 Buchung: {splitBooking.guest_firstname} {splitBooking.guest_lastname} ({splitBooking.properties?.name ?? '–'})
               </p>
             )}
-            <p className="text-sm">Wählen Sie die Monate aus, für die Rechnungen erstellt werden sollen:</p>
+            <p className="text-sm">Wählen Sie die Zeiträume aus und passen Sie ggf. die Beträge an:</p>
             <div className="space-y-2">
               {splitSegments.map((seg, i) => (
                 <div key={i} className={`flex items-center gap-3 p-3 rounded-md border ${seg.alreadyInvoiced ? 'opacity-50 bg-muted' : ''}`}>
@@ -2443,16 +2503,63 @@ function RechnungenContent() {
                       ))
                     }}
                   />
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium">{seg.monthLabel}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {format(new Date(seg.checkIn), 'dd.MM.')} – {format(new Date(seg.checkOut), 'dd.MM.yyyy')} · {seg.nights} Nächte
-                    </p>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Input
+                        type="date"
+                        value={seg.checkIn}
+                        disabled={seg.alreadyInvoiced}
+                        className="h-6 w-[120px] text-xs px-1"
+                        onChange={(e) => {
+                          const newDate = e.target.value
+                          if (!newDate) return
+                          setSplitSegments(prev => prev.map((s, idx) => {
+                            if (idx !== i) return s
+                            const nights = differenceInCalendarDays(new Date(s.checkOut), new Date(newDate))
+                            return { ...s, checkIn: newDate, nights: Math.max(nights, 1), isCustom: true,
+                              monthLabel: format(new Date(newDate + 'T00:00:00'), 'MMMM yyyy', { locale: de }) }
+                          }))
+                        }}
+                      />
+                      <span>–</span>
+                      <Input
+                        type="date"
+                        value={seg.checkOut}
+                        disabled={seg.alreadyInvoiced}
+                        className="h-6 w-[120px] text-xs px-1"
+                        onChange={(e) => {
+                          const newDate = e.target.value
+                          if (!newDate) return
+                          setSplitSegments(prev => prev.map((s, idx) => {
+                            if (idx !== i) return s
+                            const nights = differenceInCalendarDays(new Date(newDate), new Date(s.checkIn))
+                            return { ...s, checkOut: newDate, nights: Math.max(nights, 1), isCustom: true }
+                          }))
+                        }}
+                      />
+                      <span className="ml-1 whitespace-nowrap">{seg.nights} N.</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm font-medium">{formatEur(seg.amount)}</span>
-                    {seg.alreadyInvoiced && (
-                      <p className="text-xs text-muted-foreground">Bereits erstellt</p>
+                  <div className="text-right shrink-0">
+                    {seg.alreadyInvoiced ? (
+                      <>
+                        <span className="text-sm font-medium">{formatEur(seg.amount)}</span>
+                        <p className="text-xs text-muted-foreground">Bereits erstellt</p>
+                      </>
+                    ) : (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={seg.amount}
+                        className="h-7 w-[100px] text-sm text-right"
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0
+                          setSplitSegments(prev => prev.map((s, idx) =>
+                            idx === i ? { ...s, amount: val, isCustom: true } : s
+                          ))
+                        }}
+                      />
                     )}
                   </div>
                 </div>
@@ -2462,13 +2569,29 @@ function RechnungenContent() {
               <span>Neu erstellen: {splitSegments.filter(s => s.selected && !s.alreadyInvoiced).length} von {splitSegments.filter(s => !s.alreadyInvoiced).length} verfügbaren</span>
               <span>{formatEur(splitSegments.filter(s => s.selected && !s.alreadyInvoiced).reduce((sum, s) => sum + s.amount, 0))}</span>
             </div>
-            <Button
-              className="w-full"
-              disabled={splitSegments.every(s => !s.selected || s.alreadyInvoiced)}
-              onClick={startSplitWizardFlow}
-            >
-              <FileText className="mr-2 h-4 w-4" />Rechnungen im Wizard erstellen
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                disabled={splitSegments.every(s => !s.selected || s.alreadyInvoiced)}
+                onClick={startSplitWizardFlow}
+              >
+                <FileText className="mr-2 h-4 w-4" />Rechnungen erstellen
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!splitBooking) return
+                  fillFromBooking(splitBooking, settings, cityRules)
+                  setSplitPreviewOpen(false)
+                  setDialogOpen(true)
+                }}
+              >
+                Freie Rechnung
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Tipp: Beträge und Daten sind direkt editierbar. &quot;Freie Rechnung&quot; öffnet den Wizard mit allen Buchungsdaten zur freien Bearbeitung.
+            </p>
           </div>
         </DialogContent>
       </Dialog>

@@ -379,7 +379,7 @@ function MeldescheineContent() {
       // Re-fetch form data (may have been updated by sync-guest backfill)
       const { data } = await supabase
         .from('registration_forms')
-        .select('id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, trip_purpose, co_travellers, property_snapshot')
+        .select('id, guest_firstname, guest_lastname, guest_birthdate, guest_nationality, guest_street, guest_city, guest_zip, guest_country, check_in, check_out, adults, children, trip_purpose, co_travellers, property_snapshot, signature, updated_at')
         .eq('id', form.id)
         .single()
       if (!data) return
@@ -408,6 +408,40 @@ function MeldescheineContent() {
         landlordName: settings?.landlord_name ?? undefined,
         landlordAddress: buildLandlordAddress(), // BUG-1 fixed
         logoUrl: settings?.landlord_logo_url ?? undefined, // BUG-9
+        signatureDataUrl: (data as Record<string, unknown>).signature as string | undefined,
+        signaturePlace: (data.property_snapshot as Record<string, string>)?.city ?? undefined,
+        signatureDate: (data as Record<string, unknown>).updated_at
+          ? format(new Date((data as Record<string, unknown>).updated_at as string), 'dd.MM.yyyy')
+          : undefined,
+      }
+
+      // Fetch ID document scans for this booking (images only)
+      if (form.booking_id) {
+        const { data: docs } = await supabase
+          .from('booking_documents')
+          .select('file_name, storage_path, mime_type')
+          .eq('booking_id', form.booking_id)
+          .in('mime_type', ['image/jpeg', 'image/png', 'image/webp'])
+
+        if (docs && docs.length > 0) {
+          const docImages: Array<{ name: string; dataUrl: string }> = []
+          for (const doc of docs) {
+            const { data: fileData } = await supabase.storage
+              .from('booking-documents')
+              .download(doc.storage_path)
+            if (fileData) {
+              const reader = new FileReader()
+              const dataUrl = await new Promise<string>((resolve) => {
+                reader.onloadend = () => resolve(reader.result as string)
+                reader.readAsDataURL(fileData)
+              })
+              docImages.push({ name: doc.file_name, dataUrl })
+            }
+          }
+          if (docImages.length > 0) {
+            pdfData.documentImages = docImages
+          }
+        }
       }
 
       const blob = await pdf(<MeldescheinPDF data={pdfData} />).toBlob()

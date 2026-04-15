@@ -48,6 +48,7 @@ const submissionSchema = z.object({
   city: z.string().min(1),
   country: z.string().min(1),
   trip_purpose: z.enum(['leisure', 'business', 'unknown']).optional(),
+  signature: z.string().optional(),
   co_travellers: z.array(coTravellerSchema).optional(),
 })
 
@@ -239,6 +240,7 @@ export async function POST(
     guest_zip: data.zip || null,
     guest_country: data.country || null,
     trip_purpose: data.trip_purpose || null,
+    signature: data.signature || null,
     co_travellers: data.co_travellers ?? [],
     guest_submitted: true,
     updated_at: new Date().toISOString(),

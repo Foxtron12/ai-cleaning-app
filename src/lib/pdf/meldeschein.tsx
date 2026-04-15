@@ -130,6 +130,12 @@ export interface MeldescheinData {
   landlordAddress?: string
   // BUG-9: optional logo URL rendered in PDF header
   logoUrl?: string
+  // Signature from guest registration
+  signatureDataUrl?: string
+  signaturePlace?: string
+  signatureDate?: string
+  // ID document scans (data URLs)
+  documentImages?: Array<{ name: string; dataUrl: string }>
 }
 
 export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
@@ -257,12 +263,20 @@ export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
           </View>
         )}
 
-        {/* BUG-3: Signature section replaced with two plain signature lines (no digital signature) */}
+        {/* Signature section – render digital signature if available, otherwise placeholder lines */}
         <View style={styles.signatureArea}>
           <View style={styles.signatureBlock}>
+            {data.signaturePlace || data.signatureDate ? (
+              <Text style={{ fontSize: 10, marginBottom: 4 }}>
+                {[data.signaturePlace, data.signatureDate].filter(Boolean).join(', ')}
+              </Text>
+            ) : null}
             <Text style={styles.signatureLine}>Ort, Datum</Text>
           </View>
           <View style={styles.signatureBlock}>
+            {data.signatureDataUrl ? (
+              <Image src={data.signatureDataUrl} style={{ width: 180, height: 60, objectFit: 'contain', marginBottom: 2 }} />
+            ) : null}
             <Text style={styles.signatureLine}>Unterschrift des Gastes</Text>
           </View>
         </View>
@@ -280,6 +294,24 @@ export function MeldescheinPDF({ data }: { data: MeldescheinData }) {
           Erstellt am {new Date().toLocaleDateString('de-DE')}
         </Text>
       </Page>
+
+      {/* Document images (ID scans) on separate page */}
+      {data.documentImages && data.documentImages.length > 0 && (
+        <Page size="A4" style={styles.page}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Ausweisdokumente – Anlagen zum Meldeschein</Text>
+            <Text style={{ fontSize: 9, color: '#666', marginBottom: 12 }}>
+              {data.firstname} {data.lastname} · {data.checkIn} – {data.checkOut}
+            </Text>
+          </View>
+          {data.documentImages.map((doc, i) => (
+            <View key={i} style={{ marginBottom: 16 }}>
+              <Text style={{ fontSize: 9, color: '#555', marginBottom: 4 }}>{doc.name}</Text>
+              <Image src={doc.dataUrl} style={{ maxWidth: 450, maxHeight: 600, objectFit: 'contain' }} />
+            </View>
+          ))}
+        </Page>
+      )}
     </Document>
   )
 }

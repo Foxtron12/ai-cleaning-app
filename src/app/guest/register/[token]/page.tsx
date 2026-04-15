@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
-import { CheckCircle2, Loader2, AlertTriangle, XCircle, Plus, Trash2, Globe } from 'lucide-react'
+import { CheckCircle2, Loader2, AlertTriangle, XCircle, Plus, Trash2, Globe, PenLine } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -127,6 +127,124 @@ const OTHER_COUNTRIES = [
 
 const ALL_COUNTRIES = [...PRIORITY_COUNTRIES, ...OTHER_COUNTRIES]
 
+function GuestSignatureCanvas({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [hasSignature, setHasSignature] = useState(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.clientWidth
+    const h = canvas.clientHeight
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    ctx.scale(dpr, dpr)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.strokeStyle = '#e5e7eb'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(20, h - 20)
+    ctx.lineTo(w - 20, h - 20)
+    ctx.stroke()
+    ctx.strokeStyle = '#1a1a1a'
+    ctx.lineWidth = 2
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+  }, [])
+
+  function getPos(e: React.MouseEvent | React.TouchEvent) {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    if ('touches' in e) return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top }
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
+  function start(e: React.MouseEvent | React.TouchEvent) {
+    e.preventDefault()
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    setIsDrawing(true)
+    const pos = getPos(e)
+    ctx.beginPath()
+    ctx.moveTo(pos.x, pos.y)
+  }
+
+  function draw(e: React.MouseEvent | React.TouchEvent) {
+    e.preventDefault()
+    if (!isDrawing) return
+    const ctx = canvasRef.current?.getContext('2d')
+    if (!ctx) return
+    const pos = getPos(e)
+    ctx.lineTo(pos.x, pos.y)
+    ctx.stroke()
+  }
+
+  function stop() {
+    if (!isDrawing) return
+    setIsDrawing(false)
+    setHasSignature(true)
+    if (canvasRef.current) onChange(canvasRef.current.toDataURL('image/png'))
+  }
+
+  function clear() {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.clientWidth
+    const h = canvas.clientHeight
+    ctx.save()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.strokeStyle = '#e5e7eb'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(20, h - 20)
+    ctx.lineTo(w - 20, h - 20)
+    ctx.stroke()
+    ctx.strokeStyle = '#1a1a1a'
+    ctx.lineWidth = 2
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.restore()
+    setHasSignature(false)
+    onChange(null)
+  }
+
+  return (
+    <div>
+      <div className="rounded-md border border-input bg-white">
+        <canvas
+          ref={canvasRef}
+          className="w-full cursor-crosshair touch-none rounded-md"
+          style={{ height: 120 }}
+          onMouseDown={start}
+          onMouseMove={draw}
+          onMouseUp={stop}
+          onMouseLeave={stop}
+          onTouchStart={start}
+          onTouchMove={draw}
+          onTouchEnd={stop}
+        />
+      </div>
+      {hasSignature && (
+        <Button type="button" variant="ghost" size="sm" onClick={clear} className="mt-1">
+          <PenLine className="h-3 w-3 mr-1" />
+          {/* Simple clear label - no translation needed for icon button */}
+          ✕
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export default function GuestRegistrationPage() {
   const { token } = useParams<{ token: string }>()
 
@@ -148,6 +266,7 @@ export default function GuestRegistrationPage() {
   const [country, setCountry] = useState('')
   const [tripPurpose, setTripPurpose] = useState('unknown')
   const [idScanFile, setIdScanFile] = useState<File | null>(null)
+  const [signature, setSignature] = useState<string | null>(null)
   const [coTravellers, setCoTravellers] = useState<CoTraveller[]>([])
 
   // Language
@@ -204,6 +323,10 @@ export default function GuestRegistrationPage() {
     if (nationality && nationality !== 'DE' && !idScanFile) {
       return
     }
+    // Validate signature is present
+    if (!signature) {
+      return
+    }
 
     setSubmitting(true)
 
@@ -219,6 +342,7 @@ export default function GuestRegistrationPage() {
         city: city || undefined,
         country: country || undefined,
         trip_purpose: tripPurpose,
+        signature: signature || undefined,
         co_travellers: coTravellers.filter(ct => ct.firstname && ct.lastname),
       }))
       if (idScanFile) {
@@ -322,6 +446,19 @@ export default function GuestRegistrationPage() {
           <CheckCircle2 className="h-16 w-16 text-emerald-500" />
           <h2 className="text-2xl font-semibold">{t.successTitle}</h2>
           <p className="text-muted-foreground max-w-sm">{t.successMessage}</p>
+          {property && booking && (
+            <div className="mt-4 rounded-lg border bg-muted/50 p-4 text-left w-full max-w-sm space-y-2">
+              <p className="text-sm font-medium">{t.checkInInfoTitle}</p>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p>{t.propertyLabel}: <span className="font-medium text-foreground">{property.name}</span></p>
+                <p>{t.checkIn}: <span className="font-medium text-foreground">{formatDate(booking.check_in)}</span></p>
+                {property.street && (
+                  <p>{locale === 'de' ? 'Adresse' : 'Address'}: <span className="font-medium text-foreground">{property.street}, {property.zip} {property.city}</span></p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">{t.checkInInfoNote}</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     )
@@ -596,8 +733,24 @@ export default function GuestRegistrationPage() {
         </CardContent>
       </Card>
 
+      {/* Signature */}
+      <Card className="mb-4">
+        <CardContent className="pt-6">
+          <div className="space-y-2">
+            <Label>
+              {t.signatureLabel} <span className="text-destructive">*</span>
+            </Label>
+            <p className="text-xs text-muted-foreground">{t.signatureHint}</p>
+            <GuestSignatureCanvas onChange={setSignature} />
+            {!signature && submitting === false && (
+              <p className="text-xs text-destructive sr-only">{t.signatureRequired}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Submit */}
-      <Button type="submit" className="w-full" size="lg" disabled={submitting}>
+      <Button type="submit" className="w-full" size="lg" disabled={submitting || !signature}>
         {submitting ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin mr-2" />
