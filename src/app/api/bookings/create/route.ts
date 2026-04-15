@@ -151,7 +151,6 @@ export async function POST(request: NextRequest) {
         property_id: data.propertyId,
         check_in: data.checkIn,
         check_out: data.checkOut,
-        nights: Math.max(1, Math.round((new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000)),
         adults: data.adults,
         children: data.children,
         channel: 'Direct',

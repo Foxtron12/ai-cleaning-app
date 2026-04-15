@@ -220,8 +220,8 @@ export async function POST(request: NextRequest) {
           .eq('invoice_type', 'credit_note')
         if (creditNoteCount && creditNoteCount > 0 && existingBooking) {
           // Gutschrift has adjusted these values — do not overwrite with Smoobu originals
+          // (nights is a generated column, recalculated from check_out automatically)
           updateData.amount_gross = existingBooking.amount_gross
-          if (existingBooking.nights != null) updateData.nights = existingBooking.nights
           if (existingBooking.check_out) updateData.check_out = existingBooking.check_out
         }
 

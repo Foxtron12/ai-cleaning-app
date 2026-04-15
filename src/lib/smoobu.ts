@@ -646,9 +646,6 @@ export function mapSmoobuReservation(
     guest_language: reservation.language ?? null,
     check_in: reservation.arrival,
     check_out: reservation.departure,
-    nights: reservation.arrival && reservation.departure
-      ? Math.max(1, Math.round((new Date(reservation.departure).getTime() - new Date(reservation.arrival).getTime()) / 86400000))
-      : null,
     adults: reservation.adults ?? 1,
     children: reservation.children ?? 0,
     channel,

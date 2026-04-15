@@ -265,15 +265,11 @@ export async function POST(
           amount_gross: Math.max(0, newAmount),
         }
 
-        // For shortened stay: also update nights and check_out
-        if (body.type === 'shortened_stay' && body.new_nights) {
-          bookingUpdate.nights = body.new_nights
-          // Calculate new check_out from check_in + new_nights
-          if (booking.check_in) {
-            const checkInDate = new Date(booking.check_in)
-            checkInDate.setDate(checkInDate.getDate() + body.new_nights)
-            bookingUpdate.check_out = format(checkInDate, 'yyyy-MM-dd')
-          }
+        // For shortened stay: update check_out (nights is a generated column, recalculated automatically)
+        if (body.type === 'shortened_stay' && body.new_nights && booking.check_in) {
+          const checkInDate = new Date(booking.check_in)
+          checkInDate.setDate(checkInDate.getDate() + body.new_nights)
+          bookingUpdate.check_out = format(checkInDate, 'yyyy-MM-dd')
         }
 
         const { error: bookingError } = await supabase
