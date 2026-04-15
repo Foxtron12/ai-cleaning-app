@@ -59,9 +59,13 @@ export class SmoobuClient {
     })
 
     if (response.status === 429) {
-      // Rate limited – wait and retry once
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
-      return this.fetch<T>(path, init)
+      // Rate limited – wait and retry (max 3 attempts)
+      const attempt = (init as Record<string, unknown>)?._retryAttempt as number ?? 0
+      if (attempt >= 3) {
+        throw new Error('Smoobu API rate limit exceeded after 3 retries')
+      }
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)))
+      return this.fetch<T>(path, { ...init, _retryAttempt: attempt + 1 } as RequestInit)
     }
 
     if (!response.ok) {
@@ -642,6 +646,9 @@ export function mapSmoobuReservation(
     guest_language: reservation.language ?? null,
     check_in: reservation.arrival,
     check_out: reservation.departure,
+    nights: reservation.arrival && reservation.departure
+      ? Math.max(1, Math.round((new Date(reservation.departure).getTime() - new Date(reservation.arrival).getTime()) / 86400000))
+      : null,
     adults: reservation.adults ?? 1,
     children: reservation.children ?? 0,
     channel,

@@ -34,7 +34,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // API routes that handle their own auth (admin secret, webhook secret, etc.)
-  const publicApiRoutes = ['/api/admin/impersonate', '/api/webhooks/', '/api/guest-registration/']
+  const publicApiRoutes = ['/api/admin/impersonate', '/api/webhooks/', '/api/guest-registration/', '/api/messages/cron', '/api/rechnungen/auto-generate', '/api/rechnungen/bulk-generate']
 
   // API routes exempt from payment check (auth-related, webhooks, payment flow)
   const paymentExemptApiRoutes = [

@@ -19,6 +19,7 @@ interface KpiData {
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [kpi, setKpi] = useState<KpiData | null>(null)
   const [checkIns, setCheckIns] = useState<BookingWithProperty[]>([])
   const [checkOuts, setCheckOuts] = useState<BookingWithProperty[]>([])
@@ -43,6 +44,7 @@ export default function DashboardPage() {
           .neq('status', 'cancelled')
           .lte('check_in', monthEndStr)
           .gte('check_out', monthStartStr)
+          .limit(500)
 
         // Fetch upcoming check-ins (next 7 days)
         const { data: upcomingCheckIns } = await supabase
@@ -73,6 +75,7 @@ export default function DashboardPage() {
           .neq('status', 'cancelled')
           .gte('check_in', sixMonthsAgoStr)
           .lte('check_in', monthEndStr)
+          .limit(2000)
 
         // Fetch property count for occupancy calculation
         const { count: propertyCount } = await supabase
@@ -146,6 +149,7 @@ export default function DashboardPage() {
         setCheckOuts((upcomingCheckOuts ?? []) as BookingWithProperty[])
       } catch (error) {
         console.error('Dashboard fetch error:', error)
+        setError('Daten konnten nicht geladen werden. Bitte Seite neu laden.')
       } finally {
         setLoading(false)
       }
@@ -153,6 +157,20 @@ export default function DashboardPage() {
 
     fetchDashboardData()
   }, [])
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-12">
+        <p className="text-destructive">{error}</p>
+        <button
+          className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+          onClick={() => window.location.reload()}
+        >
+          Seite neu laden
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

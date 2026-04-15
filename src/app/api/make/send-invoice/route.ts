@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
       .from('invoices')
       .select('*, bookings(guest_email, guest_firstname, guest_lastname, guest_phone, check_in, check_out, adults, children, channel, external_id, properties(name))')
       .eq('id', invoiceId)
+      .eq('user_id', user.id)
       .single()
 
     if (invoiceError || !invoice) {
@@ -146,7 +147,22 @@ export async function POST(request: NextRequest) {
       vat_id: ls.vat_id ?? '',
     }
 
-    // 4. Send to Make.com webhook
+    // 4. Validate webhook URL (SSRF protection)
+    try {
+      const parsedUrl = new URL(webhookUrl)
+      const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254']
+      const blockedPrefixes = ['10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.']
+      if (parsedUrl.protocol !== 'https:') {
+        return NextResponse.json({ error: 'Webhook-URL muss HTTPS verwenden' }, { status: 400 })
+      }
+      if (blockedHosts.includes(parsedUrl.hostname) || blockedPrefixes.some(p => parsedUrl.hostname.startsWith(p))) {
+        return NextResponse.json({ error: 'Webhook-URL darf nicht auf interne Adressen zeigen' }, { status: 400 })
+      }
+    } catch {
+      return NextResponse.json({ error: 'Ungültige Webhook-URL' }, { status: 400 })
+    }
+
+    // 5. Send to Make.com webhook
     const webhookResponse = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

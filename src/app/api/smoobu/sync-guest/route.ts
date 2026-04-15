@@ -179,6 +179,7 @@ export async function POST(request: NextRequest) {
       .from('bookings')
       .update({ ...updateData, updated_at: new Date().toISOString() })
       .eq('id', bookingId)
+      .eq('user_id', user.id)
 
     if (updateError) {
       console.error('sync-guest: booking update failed', updateError)

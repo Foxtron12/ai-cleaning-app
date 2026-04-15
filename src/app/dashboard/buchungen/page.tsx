@@ -120,7 +120,7 @@ const PAGE_SIZE = 20
 
 export default function BuchungenPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div>}>
       <BuchungenContent />
     </Suspense>
   )
@@ -162,9 +162,9 @@ function BuchungenContent() {
       }
 
       const [{ data }, { data: invData }, { data: meldData }] = await Promise.all([
-        query,
-        supabase.from('invoices').select('booking_id').not('booking_id', 'is', null),
-        supabase.from('registration_forms').select('booking_id').not('booking_id', 'is', null),
+        query.limit(1000),
+        supabase.from('invoices').select('booking_id').not('booking_id', 'is', null).limit(5000),
+        supabase.from('registration_forms').select('booking_id').not('booking_id', 'is', null).limit(5000),
       ])
       setAllBookings((data ?? []) as BookingWithProperty[])
       setInvoiceBookingIds(new Set((invData ?? []).map((r) => r.booking_id as string)))

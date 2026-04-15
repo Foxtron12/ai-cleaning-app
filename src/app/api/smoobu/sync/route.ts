@@ -206,11 +206,24 @@ export async function POST(request: NextRequest) {
         // Check if this booking was created as a direct booking via our wizard (channel_id=0)
         const { data: existingBooking } = await supabase
           .from('bookings')
-          .select('channel_id, cleaning_fee, payment_status, accommodation_tax_amount')
+          .select('channel_id, cleaning_fee, payment_status, accommodation_tax_amount, amount_gross, nights, check_out')
           .eq('id', existing.id)
           .single()
         const isWizardDirectBooking = existingBooking?.channel_id === 0
         const isDirectChannel = updateData.channel === 'Direct'
+
+        // Check if booking has credit notes (Gutschrift) — if so, preserve adjusted financial values
+        const { count: creditNoteCount } = await supabase
+          .from('invoices')
+          .select('id', { count: 'exact', head: true })
+          .eq('booking_id', existing.id)
+          .eq('invoice_type', 'credit_note')
+        if (creditNoteCount && creditNoteCount > 0 && existingBooking) {
+          // Gutschrift has adjusted these values — do not overwrite with Smoobu originals
+          updateData.amount_gross = existingBooking.amount_gross
+          if (existingBooking.nights != null) updateData.nights = existingBooking.nights
+          if (existingBooking.check_out) updateData.check_out = existingBooking.check_out
+        }
 
         // Preserve manually set trip_purpose – never overwrite on sync
         // For wizard-created direct bookings, preserve the cleaning_fee, accommodation_tax_amount,

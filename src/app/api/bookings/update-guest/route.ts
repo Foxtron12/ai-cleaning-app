@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
       .from('bookings')
       .update({ ...dbUpdate, updated_at: new Date().toISOString() })
       .eq('id', bookingId)
+      .eq('user_id', user.id)
 
     if (updateError) {
       return NextResponse.json({ error: 'Buchung konnte nicht aktualisiert werden' }, { status: 500 })

@@ -1302,10 +1302,8 @@ export function CreateBookingWizard({
                       )}
                     </Button>
                   </div>
-                  <div
-                    className="text-xs bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto border"
-                    dangerouslySetInnerHTML={{
-                      __html: generateBookingEmailHtml({
+                  <iframe
+                    srcDoc={generateBookingEmailHtml({
                         guestFirstname: createdBooking.guest_firstname ?? 'Gast',
                         guestLastname: createdBooking.guest_lastname ?? '',
                         propertyName: selectedProperty?.name ?? 'Ferienwohnung',
@@ -1313,8 +1311,9 @@ export function CreateBookingWizard({
                         checkOut: createdBooking.check_out,
                         adults: (createdBooking.adults ?? 1) + (createdBooking.children ?? 0),
                         bookingId: createdBooking.id,
-                      }),
-                    }}
+                      })}
+                    sandbox=""
+                    className="text-xs bg-muted/50 rounded-md max-h-48 w-full overflow-y-auto border"
                   />
                 </div>
               </div>

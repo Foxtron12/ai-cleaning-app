@@ -156,14 +156,22 @@ export async function POST(
     // kept as-is so the original financial data remains visible in the booking overview.
     // The storno is tracked via the invoice system (storno invoice + original invoice cancelled).
 
-    // 12. Increment storno_next_number in settings
-    const { error: settingsUpdateError } = await supabase
+    // 12. Atomically increment storno_next_number (optimistic lock)
+    const { data: updatedSettings, error: settingsUpdateError } = await supabase
       .from('settings')
       .update({ storno_next_number: settings.storno_next_number + 1 })
       .eq('id', settings.id)
+      .eq('storno_next_number', settings.storno_next_number)
+      .select('id')
 
-    if (settingsUpdateError) {
-      console.error('Settings storno_next_number update error:', settingsUpdateError.message)
+    if (settingsUpdateError || !updatedSettings?.length) {
+      // Race condition: delete the storno we just created and ask user to retry
+      await supabase.from('invoices').delete().eq('id', insertedStorno.id).eq('user_id', user.id)
+      await supabase.from('invoices').update({ status: original.status }).eq('id', original.id).eq('user_id', user.id)
+      return NextResponse.json(
+        { error: 'Stornonummer-Konflikt: Bitte erneut versuchen' },
+        { status: 409 }
+      )
     }
 
     return NextResponse.json({

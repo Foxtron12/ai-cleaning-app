@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getServerUser } from '@/lib/supabase-server'
 import { SmoobuClient } from '@/lib/smoobu'
 import { decrypt } from '@/lib/encryption'
+
+const paramsSchema = z.object({
+  id: z.string().uuid(),
+})
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params
+  const rawParams = await params
+  const parsed = paramsSchema.safeParse(rawParams)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Ungültige Buchungs-ID' }, { status: 400 })
+  }
+  const { id } = parsed.data
   const { user, supabase } = await getServerUser()
   if (!user) {
     return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
@@ -63,6 +73,7 @@ export async function POST(
     .from('bookings')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', id)
+    .eq('user_id', user.id)
     .select('*, properties(*)')
     .single()
 

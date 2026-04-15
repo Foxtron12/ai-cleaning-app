@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getServerUser } from '@/lib/supabase-server'
 
-const MAX_TEXT_LENGTH = 5000
+const translateSchema = z.object({
+  text: z.string().min(1).max(5000),
+  targetLang: z.enum(['de', 'en']),
+})
 
 /**
  * POST /api/translate
@@ -17,19 +21,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Nicht authentifiziert' }, { status: 401 })
     }
 
-    const { text, targetLang } = await req.json()
-
-    if (!text || !targetLang) {
-      return NextResponse.json({ error: 'text and targetLang required' }, { status: 400 })
+    const body = await req.json()
+    const parsed = translateSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Ungültige Eingabe', details: parsed.error.issues }, { status: 400 })
     }
 
-    if (typeof text !== 'string' || text.length > MAX_TEXT_LENGTH) {
-      return NextResponse.json({ error: `Text darf maximal ${MAX_TEXT_LENGTH} Zeichen lang sein` }, { status: 400 })
-    }
-
-    if (!['de', 'en'].includes(targetLang)) {
-      return NextResponse.json({ error: 'targetLang must be de or en' }, { status: 400 })
-    }
+    const { text, targetLang } = parsed.data
 
     // Extract {{...}} placeholders and replace with numbered tokens
     const placeholders: string[] = []

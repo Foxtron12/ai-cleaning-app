@@ -239,10 +239,8 @@ function StripePaymentSection({
           </Button>
           {showEmailText && (
             <div className="space-y-2">
-              <div
-                className="text-xs bg-muted/50 rounded-md p-3 max-h-48 overflow-y-auto border"
-                dangerouslySetInnerHTML={{
-                  __html: generateBookingEmailHtml({
+              <iframe
+                srcDoc={generateBookingEmailHtml({
                     guestFirstname: booking.guest_firstname ?? 'Gast',
                     guestLastname: booking.guest_lastname ?? '',
                     propertyName: booking.properties?.name ?? 'Ferienwohnung',
@@ -250,8 +248,9 @@ function StripePaymentSection({
                     checkOut: booking.check_out,
                     adults: (booking.adults ?? 1) + (booking.children ?? 0),
                     bookingId: booking.id,
-                  }),
-                }}
+                  })}
+                sandbox=""
+                className="text-xs bg-muted/50 rounded-md max-h-48 w-full overflow-y-auto border"
               />
               <Button
                 variant="outline"

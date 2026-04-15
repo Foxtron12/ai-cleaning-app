@@ -288,14 +288,21 @@ export async function POST(
       }
     }
 
-    // 14. Increment gutschrift_next_number in settings
-    const { error: settingsUpdateError } = await supabase
+    // 14. Atomically increment gutschrift_next_number (optimistic lock)
+    const { data: updatedSettings, error: settingsUpdateError } = await supabase
       .from('settings')
       .update({ gutschrift_next_number: settings.gutschrift_next_number + 1 })
       .eq('id', settings.id)
+      .eq('gutschrift_next_number', settings.gutschrift_next_number)
+      .select('id')
 
-    if (settingsUpdateError) {
-      console.error('Settings gutschrift_next_number update error:', settingsUpdateError.message)
+    if (settingsUpdateError || !updatedSettings?.length) {
+      // Race condition: clean up and ask user to retry
+      await supabase.from('invoices').delete().eq('id', insertedCredit.id).eq('user_id', user.id)
+      return NextResponse.json(
+        { error: 'Gutschriftnummer-Konflikt: Bitte erneut versuchen' },
+        { status: 409 }
+      )
     }
 
     return NextResponse.json({

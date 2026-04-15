@@ -35,7 +35,7 @@
 
 | PROJ-19 | Gäste-Registrierungsformular (Self-Service Meldeschein) | In Review | [PROJ-19-gaeste-registrierung.md](PROJ-19-gaeste-registrierung.md) | 2026-03-23 |
 
-| PROJ-20 | Messaging-Tab (Smoobu-Nachrichten) | In Progress | [PROJ-20-messaging.md](PROJ-20-messaging.md) | 2026-03-23 |
+| PROJ-20 | Messaging-Tab (Smoobu-Nachrichten) | In Review | [PROJ-20-messaging.md](PROJ-20-messaging.md) | 2026-03-23 |
 
 <!-- Add features above this line -->
 

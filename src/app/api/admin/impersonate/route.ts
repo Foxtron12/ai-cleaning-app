@@ -7,7 +7,25 @@ const bodySchema = z.object({
   user_id: z.string().uuid(),
 })
 
+// Rate limiting for admin impersonate (brute-force protection)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+const RATE_LIMIT_WINDOW_MS = 60_000 // 1 minute
+const RATE_LIMIT_MAX = 5 // 5 attempts per minute per IP
+
 export async function POST(request: NextRequest) {
+  // Rate limiting
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const now = Date.now()
+  const entry = rateLimitMap.get(ip)
+  if (entry && now < entry.resetAt) {
+    if (entry.count >= RATE_LIMIT_MAX) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    }
+    entry.count++
+  } else {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
+  }
+
   // Validate admin secret header
   const secret = request.headers.get('x-admin-secret')
   const expectedSecret = process.env.ADMIN_SECRET
