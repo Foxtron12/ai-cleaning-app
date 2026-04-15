@@ -141,58 +141,86 @@ export async function POST(request: NextRequest) {
       console.warn('Failed to sync guest address to Smoobu reservation', smoobuResult.id)
     }
 
-    // 2. Save in Supabase
+    // 2. Save in Supabase (upsert: webhook may have already inserted this booking)
     const status = calculateBookingStatus(data.checkIn, data.checkOut)
 
-    const { data: booking, error: insertError } = await supabase
+    const bookingFields = {
+      external_id: smoobuResult.id,
+      property_id: data.propertyId,
+      check_in: data.checkIn,
+      check_out: data.checkOut,
+      adults: data.adults,
+      children: data.children,
+      channel: 'Direct',
+      channel_id: 0,
+      amount_gross: totalPrice,
+      amount_host_payout: totalPrice,
+      commission_amount: 0,
+      cleaning_fee: data.cleaningFee,
+      accommodation_tax_amount: data.accommodationTax,
+      extra_fees: 0,
+      security_deposit: 0,
+      currency: 'EUR',
+      prepayment: 0,
+      balance: totalPrice,
+      status,
+      trip_purpose: 'unknown',
+      guest_firstname: data.guestFirstname,
+      guest_lastname: data.guestLastname,
+      guest_email: data.guestEmail,
+      guest_phone: data.guestPhone ?? null,
+      guest_street: data.guestStreet,
+      guest_city: data.guestCity,
+      guest_zip: data.guestZip,
+      guest_country: data.guestCountry,
+      guest_nationality: data.guestNationality ?? null,
+      guest_note: data.guestNote ?? null,
+      company_name: data.companyName ?? null,
+      company_street: data.companyStreet ?? null,
+      company_zip: data.companyZip ?? null,
+      company_city: data.companyCity ?? null,
+      company_country: data.companyCountry ?? null,
+      company_vat_id: data.companyVatId ?? null,
+      invoice_recipient: data.invoiceRecipient ?? 'guest',
+      synced_at: new Date().toISOString(),
+      user_id: user.id,
+    }
+
+    // Check if webhook already created this booking
+    const { data: existing } = await supabase
       .from('bookings')
-      .insert({
-        external_id: smoobuResult.id,
-        property_id: data.propertyId,
-        check_in: data.checkIn,
-        check_out: data.checkOut,
-        adults: data.adults,
-        children: data.children,
-        channel: 'Direct',
-        channel_id: 0,
-        amount_gross: totalPrice,
-        amount_host_payout: totalPrice,
-        commission_amount: 0,
-        cleaning_fee: data.cleaningFee,
-        accommodation_tax_amount: data.accommodationTax,
-        extra_fees: 0,
-        security_deposit: 0,
-        currency: 'EUR',
-        prepayment: 0,
-        balance: totalPrice,
-        status,
-        trip_purpose: 'unknown',
-        guest_firstname: data.guestFirstname,
-        guest_lastname: data.guestLastname,
-        guest_email: data.guestEmail,
-        guest_phone: data.guestPhone ?? null,
-        guest_street: data.guestStreet,
-        guest_city: data.guestCity,
-        guest_zip: data.guestZip,
-        guest_country: data.guestCountry,
-        guest_nationality: data.guestNationality ?? null,
-        guest_note: data.guestNote ?? null,
-        company_name: data.companyName ?? null,
-        company_street: data.companyStreet ?? null,
-        company_zip: data.companyZip ?? null,
-        company_city: data.companyCity ?? null,
-        company_country: data.companyCountry ?? null,
-        company_vat_id: data.companyVatId ?? null,
-        invoice_recipient: data.invoiceRecipient ?? 'guest',
-        synced_at: new Date().toISOString(),
-        user_id: user.id,
-      })
-      .select('*, properties(*)')
+      .select('id')
+      .eq('external_id', smoobuResult.id)
+      .eq('user_id', user.id)
       .single()
 
-    if (insertError) {
+    let booking
+    let saveError
+
+    if (existing) {
+      // Webhook beat us — update with the wizard's authoritative data
+      const { external_id: _, user_id: _uid, ...updateFields } = bookingFields
+      const { data: updated, error } = await supabase
+        .from('bookings')
+        .update(updateFields)
+        .eq('id', existing.id)
+        .select('*, properties(*)')
+        .single()
+      booking = updated
+      saveError = error
+    } else {
+      const { data: inserted, error } = await supabase
+        .from('bookings')
+        .insert(bookingFields)
+        .select('*, properties(*)')
+        .single()
+      booking = inserted
+      saveError = error
+    }
+
+    if (saveError || !booking) {
       return NextResponse.json(
-        { error: `Buchung konnte nicht gespeichert werden: ${insertError.message}` },
+        { error: `Buchung konnte nicht gespeichert werden: ${saveError?.message ?? 'Unbekannt'}` },
         { status: 500 }
       )
     }
