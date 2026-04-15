@@ -178,7 +178,12 @@ export async function POST(request: NextRequest) {
     let updated = 0
 
     for (const reservation of reservations) {
+      // Skip blockings: explicit flag, type field, or heuristic (no guest + no price)
       if (reservation['is-blocked-booking']) continue
+      if (reservation.type?.toLowerCase() === 'blocking') continue
+      const hasGuest = !!(reservation.firstname || reservation.lastname || reservation['guest-name'])
+      const hasPrice = (reservation.price ?? 0) > 0
+      if (!hasGuest && !hasPrice) continue
 
       const propertyId = propertyMap.get(reservation.apartment?.id)
       if (!propertyId) continue

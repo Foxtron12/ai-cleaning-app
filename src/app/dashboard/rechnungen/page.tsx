@@ -925,19 +925,34 @@ function RechnungenContent() {
           }
         }
 
-        // Sync cleaning fee back to booking (non-blocking)
+        // Sync cleaning fee + recalculate BhSt back to booking (non-blocking)
         if (selectedBookingId) {
           const cleaningLineItem = lineItems.find(i => /reinigung|cleaning|endreinigung/i.test(i.description))
           if (cleaningLineItem) {
             const cleaningGross = cleaningLineItem.total
+            const selectedBooking = bookings.find(b => b.id === selectedBookingId)
+            const bookingUpdate: Record<string, unknown> = {
+              cleaning_fee: cleaningGross,
+              updated_at: new Date().toISOString(),
+            }
+            // Recalculate accommodation tax with new cleaning fee
+            if (selectedBooking?.properties) {
+              const taxConfig = getTaxConfigForProperty(selectedBooking.properties, cityRules)
+              if (taxConfig) {
+                const updatedBooking = { ...selectedBooking, cleaning_fee: cleaningGross }
+                const taxResult = calculateAccommodationTax(updatedBooking, taxConfig, selectedBooking.properties?.ota_remits_tax ?? [])
+                bookingUpdate.accommodation_tax_amount = taxResult.taxAmount
+              }
+            }
             Promise.resolve(
               supabase.from('bookings')
-                .update({ cleaning_fee: cleaningGross, updated_at: new Date().toISOString() })
+                .update(bookingUpdate)
                 .eq('id', selectedBookingId)
             ).then(() => {
-              // Update local state so booking overview reflects the change
               setBookings(prev => prev.map(b =>
-                b.id === selectedBookingId ? { ...b, cleaning_fee: cleaningGross } : b
+                b.id === selectedBookingId
+                  ? { ...b, cleaning_fee: cleaningGross, accommodation_tax_amount: bookingUpdate.accommodation_tax_amount as number ?? b.accommodation_tax_amount }
+                  : b
               ))
             }).catch(() => { /* non-blocking */ })
           }

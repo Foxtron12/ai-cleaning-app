@@ -688,6 +688,23 @@ export function BookingDetailSheet({
         adjustedGross = editAmountGross - oldCleaning + editCleaningFee
       }
 
+      // Recalculate accommodation tax with updated values
+      let newTaxAmount: number | undefined
+      if (booking!.properties) {
+        const tc = getTaxConfigForProperty(booking!.properties, [])
+        if (tc) {
+          const updatedBooking = {
+            ...booking!,
+            amount_gross: adjustedGross,
+            cleaning_fee: editCleaningFee,
+            check_in: editCheckIn || booking!.check_in,
+            check_out: editCheckOut || booking!.check_out,
+          }
+          const taxResult = calculateAccommodationTax(updatedBooking, tc, booking!.properties?.ota_remits_tax ?? [])
+          newTaxAmount = taxResult.taxAmount
+        }
+      }
+
       const { data: updated, error } = await supabase
         .from('bookings')
         .update({
@@ -704,6 +721,7 @@ export function BookingDetailSheet({
           check_out: editCheckOut || booking!.check_out,
           amount_gross: adjustedGross,
           cleaning_fee: editCleaningFee,
+          ...(newTaxAmount !== undefined ? { accommodation_tax_amount: newTaxAmount } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking!.id)
