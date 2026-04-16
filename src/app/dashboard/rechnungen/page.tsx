@@ -406,8 +406,9 @@ function RechnungenContent() {
     }
   }
 
-  /** Fill the wizard form from a split segment (proportional line items, segment dates) */
-  function fillFromSplitSegment(booking: BookingWithProperty, segment: SplitSegment, s: Settings | null) {
+  /** Fill the wizard form from a split segment (proportional line items, segment dates).
+   *  isLastSegment: only the last segment gets the full cleaning fee (Endreinigung at checkout). */
+  function fillFromSplitSegment(booking: BookingWithProperty, segment: SplitSegment, s: Settings | null, isLastSegment = false) {
     setSelectedBookingId(booking.id)
     setSelectedPropertyId(booking.property_id ?? '')
     setNotes('')
@@ -463,8 +464,9 @@ function RechnungenContent() {
       setBhstIncluded(customItems.map(() => true))
     } else {
       // Proportional amounts based on segment ratio
+      // Cleaning fee is a one-time charge (Endreinigung) → only on the last split invoice
       const segAccomGross = Math.round(accommodationGross * segment.ratio * 100) / 100
-      const segClean = Math.round(cleaningFee * segment.ratio * 100) / 100
+      const segClean = isLastSegment ? cleaningFee : 0
 
       const items: InvoiceLineItem[] = []
 
@@ -522,7 +524,7 @@ function RechnungenContent() {
     if (splitQueue.length === 0 || !splitBooking) return
     const [next, ...rest] = splitQueue
     setSplitQueue(rest)
-    fillFromSplitSegment(splitBooking, next, settings)
+    fillFromSplitSegment(splitBooking, next, settings, rest.length === 0)
     setDialogOpen(true)
   }
 
@@ -537,9 +539,10 @@ function RechnungenContent() {
     }
 
     // Queue all except the first, fill wizard with the first
+    // Cleaning fee (Endreinigung) only goes on the last segment
     const [first, ...rest] = selectedSegs
     setSplitQueue(rest)
-    fillFromSplitSegment(booking, first, settings)
+    fillFromSplitSegment(booking, first, settings, rest.length === 0)
     setSplitPreviewOpen(false)
     setDialogOpen(true)
   }
@@ -1000,7 +1003,7 @@ function RechnungenContent() {
       if (splitQueue.length > 0 && splitBooking) {
         const [next, ...rest] = splitQueue
         setSplitQueue(rest)
-        fillFromSplitSegment(splitBooking, next, settings)
+        fillFromSplitSegment(splitBooking, next, settings, rest.length === 0)
         // Small delay so the dialog close animation completes
         setTimeout(() => setDialogOpen(true), 200)
       } else {
