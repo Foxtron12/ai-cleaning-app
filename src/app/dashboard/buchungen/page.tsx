@@ -73,9 +73,9 @@ function exportXLSX(bookings: BookingWithProperty[]) {
     const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig, b.properties?.ota_remits_tax ?? []) : null
     const cityTax = taxResult?.taxAmount ?? 0
 
-    const paidByGuest = b.channel === 'Airbnb'
-      ? (b.amount_gross ?? 0) + cityTax
-      : (b.amount_gross ?? 0)
+    const paidByGuest = b.channel === 'Booking.com'
+      ? (b.amount_gross ?? 0)
+      : (b.amount_gross ?? 0) + cityTax
 
     const bruttoWithoutCityTax = b.channel === 'Booking.com'
       ? (b.amount_gross ?? 0) - cityTax

@@ -800,11 +800,11 @@ export function BookingDetailSheet({
 
   // Vom Gast bezahlt = gross incl. city tax + portal commission
   // Booking.com: amount_gross already includes city tax → use as-is
-  // Airbnb: amount_gross excludes city tax (Airbnb remits separately) → add city tax
+  // All other channels (Airbnb, Direct, etc.): amount_gross excludes city tax → add it
   const paidByGuest =
-    booking.channel === 'Airbnb'
-      ? (booking.amount_gross ?? 0) + cityTax
-      : (booking.amount_gross ?? 0)
+    booking.channel === 'Booking.com'
+      ? (booking.amount_gross ?? 0)
+      : (booking.amount_gross ?? 0) + cityTax
 
   // Bruttobetrag = booking price incl. commission, excl. city tax
   // Airbnb: amount_gross already excludes city tax → use as-is
@@ -877,6 +877,7 @@ export function BookingDetailSheet({
             <h3 className="text-sm font-semibold mb-2">Finanzdaten</h3>
             <InfoRow label="Vom Gast bezahlt" value={formatCurrency(paidByGuest)} />
             <InfoRow label="Bruttobetrag (ohne City Tax)" value={formatCurrency(bruttoWithoutCityTax)} />
+            <InfoRow label="Unterkunftspreis (ohne Reinigung)" value={formatCurrency(bruttoWithoutCityTax - getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined))} />
             <InfoRow label="Nettobetrag (ohne 7% MwSt)" value={formatCurrency(nettoAmount)} />
             <InfoRow
               label="Provision"
