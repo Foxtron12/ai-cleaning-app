@@ -152,23 +152,7 @@ export async function POST(
       console.error('Original invoice status update error:', updateOriginalError.message)
     }
 
-    // 11. If the cancelled invoice had a cleaning fee line item that was synced
-    // back to the booking, reset cleaning_fee on the booking to 0.
-    // This prevents stale cleaning fees lingering after storno.
-    if (original.booking_id) {
-      const hadCleaningLine = originalLineItems.some(
-        (i) => /reinigung|cleaning|endreinigung/i.test(i.description)
-      )
-      if (hadCleaningLine) {
-        await supabase
-          .from('bookings')
-          .update({ cleaning_fee: 0, updated_at: new Date().toISOString() })
-          .eq('id', original.booking_id)
-          .eq('user_id', user.id)
-      }
-    }
-
-    // 12. Atomically increment storno_next_number (optimistic lock)
+    // 11. Atomically increment storno_next_number (optimistic lock)
     const { data: updatedSettings, error: settingsUpdateError } = await supabase
       .from('settings')
       .update({ storno_next_number: settings.storno_next_number + 1 })

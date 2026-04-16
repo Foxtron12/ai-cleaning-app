@@ -659,6 +659,14 @@ export function BookingDetailSheet({
   const [editCheckOut, setEditCheckOut] = useState(booking.check_out ?? '')
   const [editAmountGross, setEditAmountGross] = useState(booking.amount_gross ?? 0)
   const [editCleaningFee, setEditCleaningFee] = useState(booking.cleaning_fee ?? 0)
+  // Edit form state (company / invoice recipient)
+  const [editInvoiceRecipient, setEditInvoiceRecipient] = useState<string>(booking.invoice_recipient ?? 'guest')
+  const [editCompanyName, setEditCompanyName] = useState(booking.company_name ?? '')
+  const [editCompanyStreet, setEditCompanyStreet] = useState(booking.company_street ?? '')
+  const [editCompanyZip, setEditCompanyZip] = useState(booking.company_zip ?? '')
+  const [editCompanyCity, setEditCompanyCity] = useState(booking.company_city ?? '')
+  const [editCompanyCountry, setEditCompanyCountry] = useState(booking.company_country ?? '')
+  const [editCompanyVatId, setEditCompanyVatId] = useState(booking.company_vat_id ?? '')
 
   async function handleCancel() {
     setCancelling(true)
@@ -721,6 +729,13 @@ export function BookingDetailSheet({
           check_out: editCheckOut || booking!.check_out,
           amount_gross: adjustedGross,
           cleaning_fee: editCleaningFee,
+          invoice_recipient: editInvoiceRecipient || 'guest',
+          company_name: editCompanyName || null,
+          company_street: editCompanyStreet || null,
+          company_zip: editCompanyZip || null,
+          company_city: editCompanyCity || null,
+          company_country: editCompanyCountry || null,
+          company_vat_id: editCompanyVatId || null,
           ...(newTaxAmount !== undefined ? { accommodation_tax_amount: newTaxAmount } : {}),
           updated_at: new Date().toISOString(),
         })
@@ -844,6 +859,15 @@ export function BookingDetailSheet({
             <InfoRow label="Adresse" value={guestAddress || null} />
             <InfoRow label="Nationalität" value={booking.guest_nationality} />
             <InfoRow label="Sprache" value={booking.guest_language} />
+            {booking.invoice_recipient === 'company' && booking.company_name && (
+              <>
+                <Separator className="my-2" />
+                <InfoRow label="Rechnungsempfänger" value="Firma" />
+                <InfoRow label="Firma" value={booking.company_name} />
+                <InfoRow label="Firmenadresse" value={[booking.company_street, [booking.company_zip, booking.company_city].filter(Boolean).join(' '), booking.company_country].filter(Boolean).join(', ') || null} />
+                {booking.company_vat_id && <InfoRow label="USt-IdNr." value={booking.company_vat_id} />}
+              </>
+            )}
           </div>
 
           <Separator />
@@ -980,6 +1004,13 @@ export function BookingDetailSheet({
                 setEditCheckOut(booking.check_out ?? '')
                 setEditAmountGross(booking.amount_gross ?? 0)
                 setEditCleaningFee(booking.cleaning_fee ?? 0)
+                setEditInvoiceRecipient(booking.invoice_recipient ?? 'guest')
+                setEditCompanyName(booking.company_name ?? '')
+                setEditCompanyStreet(booking.company_street ?? '')
+                setEditCompanyZip(booking.company_zip ?? '')
+                setEditCompanyCity(booking.company_city ?? '')
+                setEditCompanyCountry(booking.company_country ?? '')
+                setEditCompanyVatId(booking.company_vat_id ?? '')
                 setEditDialogOpen(true)
               }}
             >
@@ -1063,6 +1094,61 @@ export function BookingDetailSheet({
             <Label className="text-xs">Notiz</Label>
             <Input value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="Besondere Wuensche..." />
           </div>
+
+          <Separator />
+          <p className="text-xs font-medium text-muted-foreground">Rechnungsempfänger</p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={editInvoiceRecipient === 'guest' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              onClick={() => setEditInvoiceRecipient('guest')}
+            >
+              Gast
+            </Button>
+            <Button
+              type="button"
+              variant={editInvoiceRecipient === 'company' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              onClick={() => setEditInvoiceRecipient('company')}
+            >
+              Firma
+            </Button>
+          </div>
+          {editInvoiceRecipient === 'company' && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Firmenname</Label>
+                <Input value={editCompanyName} onChange={(e) => setEditCompanyName(e.target.value)} placeholder="Muster GmbH" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Straße + Hausnummer</Label>
+                <Input value={editCompanyStreet} onChange={(e) => setEditCompanyStreet(e.target.value)} placeholder="Firmenstr. 1" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">PLZ</Label>
+                  <Input value={editCompanyZip} onChange={(e) => setEditCompanyZip(e.target.value)} placeholder="01067" />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <Label className="text-xs">Ort</Label>
+                  <Input value={editCompanyCity} onChange={(e) => setEditCompanyCity(e.target.value)} placeholder="Dresden" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Land</Label>
+                  <Input value={editCompanyCountry} onChange={(e) => setEditCompanyCountry(e.target.value)} placeholder="DE" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">USt-IdNr.</Label>
+                  <Input value={editCompanyVatId} onChange={(e) => setEditCompanyVatId(e.target.value)} placeholder="DE123456789" />
+                </div>
+              </div>
+            </div>
+          )}
 
           <Separator />
           <p className="text-xs font-medium text-muted-foreground">Buchungsdaten</p>
