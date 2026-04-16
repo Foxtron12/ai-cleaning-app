@@ -214,8 +214,23 @@ export async function POST(request: NextRequest) {
         .insert(bookingFields)
         .select('*, properties(*)')
         .single()
-      booking = inserted
-      saveError = error
+
+      if (error?.code === '23505') {
+        // Race condition: webhook inserted between our check and insert — fall back to update
+        const { external_id: _, user_id: _uid, ...updateFields } = bookingFields
+        const { data: updated, error: updateError } = await supabase
+          .from('bookings')
+          .update(updateFields)
+          .eq('external_id', smoobuResult.id)
+          .eq('user_id', user.id)
+          .select('*, properties(*)')
+          .single()
+        booking = updated
+        saveError = updateError
+      } else {
+        booking = inserted
+        saveError = error
+      }
     }
 
     if (saveError || !booking) {
