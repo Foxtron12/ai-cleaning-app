@@ -26,6 +26,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Select,
@@ -178,6 +179,8 @@ export function CreateBookingWizard({
   const desiredTotalRef = useRef<number | null>(null)
   // BUG-7: track whether user manually edited cleaning fee
   const [cleaningFeeManuallySet, setCleaningFeeManuallySet] = useState(false)
+  // Brutto/Netto input mode toggle
+  const [priceMode, setPriceMode] = useState<'brutto' | 'netto'>('brutto')
 
   // Step 3 state
   const [submitting, setSubmitting] = useState(false)
@@ -255,6 +258,7 @@ export function CreateBookingWizard({
       setTotalPriceInput('')
       setTotalPriceEditing(false)
       desiredTotalRef.current = null
+      setPriceMode('brutto')
       form.reset()
     }
   }, [open, form])
@@ -687,27 +691,40 @@ export function CreateBookingWizard({
               <div className="space-y-3 rounded-lg border p-4">
                 <div className="flex items-center justify-between">
                   <h4 className="font-semibold text-sm">Preisaufstellung</h4>
-                  <Badge variant="secondary">Verfügbar</Badge>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${priceMode === 'netto' ? 'font-semibold' : 'text-muted-foreground'}`}>Netto</span>
+                    <Switch
+                      checked={priceMode === 'brutto'}
+                      onCheckedChange={(checked) => setPriceMode(checked ? 'brutto' : 'netto')}
+                    />
+                    <span className={`text-xs ${priceMode === 'brutto' ? 'font-semibold' : 'text-muted-foreground'}`}>Brutto</span>
+                    <Badge variant="secondary" className="ml-2">Verfügbar</Badge>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <Label htmlFor="acc-price" className="text-xs text-muted-foreground">
-                      Übernachtungskosten gesamt ({nights} Nächte)
+                      Übernachtungskosten gesamt ({nights} Nächte, {priceMode === 'netto' ? 'netto' : 'brutto'})
                     </Label>
                     <Input
                       id="acc-price"
                       type="number"
                       step="0.01"
                       min={0}
-                      value={accommodationPrice}
+                      value={priceMode === 'netto'
+                        ? Math.round((accommodationPrice / 1.07) * 100) / 100
+                        : accommodationPrice}
                       onChange={(e) => {
-                        const total = parseFloat(e.target.value) || 0
+                        const inputVal = parseFloat(e.target.value) || 0
+                        const grossTotal = priceMode === 'netto'
+                          ? Math.round(inputVal * 1.07 * 100) / 100
+                          : inputVal
                         desiredTotalRef.current = null
-                        setAccommodationPrice(total)
+                        setAccommodationPrice(grossTotal)
                         setLastEditedPriceField('total')
                         if (nights > 0) {
-                          setPricePerNight(Math.round((total / nights) * 100) / 100)
+                          setPricePerNight(Math.round((grossTotal / nights) * 100) / 100)
                         }
                       }}
                       placeholder={String(ratesResult.price ?? 0)}
@@ -716,21 +733,26 @@ export function CreateBookingWizard({
 
                   <div className="space-y-1">
                     <Label htmlFor="price-per-night" className="text-xs text-muted-foreground">
-                      Preis pro Nacht (brutto)
+                      Preis pro Nacht ({priceMode === 'netto' ? 'netto' : 'brutto'})
                     </Label>
                     <Input
                       id="price-per-night"
                       type="number"
                       step="0.01"
                       min={0}
-                      value={pricePerNight}
+                      value={priceMode === 'netto'
+                        ? Math.round((pricePerNight / 1.07) * 100) / 100
+                        : pricePerNight}
                       onChange={(e) => {
-                        const perNight = parseFloat(e.target.value) || 0
+                        const inputVal = parseFloat(e.target.value) || 0
+                        const grossPerNight = priceMode === 'netto'
+                          ? Math.round(inputVal * 1.07 * 100) / 100
+                          : inputVal
                         desiredTotalRef.current = null
-                        setPricePerNight(perNight)
+                        setPricePerNight(grossPerNight)
                         setLastEditedPriceField('perNight')
                         if (nights > 0) {
-                          setAccommodationPrice(Math.round(perNight * nights * 100) / 100)
+                          setAccommodationPrice(Math.round(grossPerNight * nights * 100) / 100)
                         }
                       }}
                       placeholder={nights > 0 ? String(Math.round(((ratesResult.price ?? 0) / nights) * 100) / 100) : '0'}
@@ -739,15 +761,25 @@ export function CreateBookingWizard({
 
                   <div className="space-y-1">
                     <Label htmlFor="cleaning-fee" className="text-xs text-muted-foreground">
-                      Reinigungsgebühr
+                      Reinigungsgebühr ({priceMode === 'netto' ? 'netto' : 'brutto'})
                     </Label>
                     <Input
                       id="cleaning-fee"
                       type="number"
                       step="0.01"
                       min={0}
-                      value={cleaningFee}
-                      onChange={(e) => { desiredTotalRef.current = null; setCleaningFee(parseFloat(e.target.value) || 0); setCleaningFeeManuallySet(true) }}
+                      value={priceMode === 'netto'
+                        ? Math.round((cleaningFee / 1.07) * 100) / 100
+                        : cleaningFee}
+                      onChange={(e) => {
+                        const inputVal = parseFloat(e.target.value) || 0
+                        const grossFee = priceMode === 'netto'
+                          ? Math.round(inputVal * 1.07 * 100) / 100
+                          : inputVal
+                        desiredTotalRef.current = null
+                        setCleaningFee(grossFee)
+                        setCleaningFeeManuallySet(true)
+                      }}
                       placeholder={String(ratesResult.cleaningFee ?? 0)}
                     />
                   </div>

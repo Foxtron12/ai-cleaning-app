@@ -142,16 +142,19 @@ export async function autoGenerateInvoices(
     const accommodationPerNight = nights > 0 ? accommodationGross / nights : 0
 
     // City tax – use stored value from booking if available (avoids rounding drift),
-    // otherwise calculate from scratch (OTA bookings, legacy data)
+    // otherwise calculate from scratch (OTA bookings, legacy data).
+    // If the booking is exempt (e.g. business trip), always use 0.
     const taxConfig = booking.properties
       ? getTaxConfigForProperty(booking.properties, cityRules)
       : null
     const taxResult = taxConfig
       ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
-    const cityTax = booking.accommodation_tax_amount != null
-      ? booking.accommodation_tax_amount
-      : (taxResult?.taxAmount ?? 0)
+    const cityTax = taxResult?.isExempt
+      ? 0
+      : booking.accommodation_tax_amount != null
+        ? booking.accommodation_tax_amount
+        : (taxResult?.taxAmount ?? 0)
     const taxVatRate =
       taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 

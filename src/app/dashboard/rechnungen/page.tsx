@@ -61,6 +61,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Tooltip,
@@ -205,6 +206,9 @@ function RechnungenContent() {
   const [splitQueue, setSplitQueue] = useState<SplitSegment[]>([])
   const { toast } = useToast()
 
+  // Brutto/Netto input mode for invoice line items
+  const [invoicePriceMode, setInvoicePriceMode] = useState<'brutto' | 'netto'>('netto')
+
   // Filter state
   const [searchQuery, setSearchQuery] = useState('')
   const [propertyFilter, setPropertyFilter] = useState('all')
@@ -333,7 +337,8 @@ function RechnungenContent() {
     const cleaningFee = booking.cleaning_fee ?? 0
     const isKlein = s?.is_kleinunternehmer ?? false
 
-    // Calculate accommodation tax using city_tax_rules
+    // Calculate accommodation tax using city_tax_rules.
+    // If the booking is exempt (e.g. business trip), always use 0.
     const effectiveRules = rules ?? cityRules
     const taxConfig = booking.properties
       ? getTaxConfigForProperty(booking.properties, effectiveRules)
@@ -341,9 +346,11 @@ function RechnungenContent() {
     const taxResult = taxConfig
       ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
-    const cityTax = booking.accommodation_tax_amount != null
-      ? booking.accommodation_tax_amount
-      : (taxResult?.taxAmount ?? 0)
+    const cityTax = taxResult?.isExempt
+      ? 0
+      : booking.accommodation_tax_amount != null
+        ? booking.accommodation_tax_amount
+        : (taxResult?.taxAmount ?? 0)
     const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 
     // Calculate accommodation price (gross without tax minus cleaning)
@@ -381,7 +388,7 @@ function RechnungenContent() {
       })
     }
 
-    // Beherbergungssteuer – always include so invoice total matches what guest pays
+    // Beherbergungssteuer – only include if not exempt
     if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
       const cityTaxRounded = Math.round(cityTax * 100) / 100
@@ -441,9 +448,11 @@ function RechnungenContent() {
     const fullTaxResult = taxConfig
       ? calculateAccommodationTax(booking, taxConfig, booking.properties?.ota_remits_tax ?? [])
       : null
-    const fullTaxAmount = booking.accommodation_tax_amount != null
-      ? booking.accommodation_tax_amount
-      : (fullTaxResult?.taxAmount ?? 0)
+    const fullTaxAmount = fullTaxResult?.isExempt
+      ? 0
+      : booking.accommodation_tax_amount != null
+        ? booking.accommodation_tax_amount
+        : (fullTaxResult?.taxAmount ?? 0)
     const taxVatRate = taxConfig?.vatType === '7' ? 7 : taxConfig?.vatType === '19' ? 19 : 0
 
     // If the user manually edited the amount (isCustom), create a single line item
@@ -1083,7 +1092,12 @@ function RechnungenContent() {
     if (newStatus === 'paid') {
       updates.paid_date = format(new Date(), 'yyyy-MM-dd')
     }
-    await supabase.from('invoices').update(updates).eq('id', invoiceId)
+    const { error } = await supabase.from('invoices').update(updates).eq('id', invoiceId)
+
+    if (error) {
+      toast({ title: 'Status-Änderung fehlgeschlagen', description: error.message, variant: 'destructive' })
+      return
+    }
 
     // When marking as paid, also update the linked booking's payment_status
     if (newStatus === 'paid') {
@@ -1775,10 +1789,18 @@ function RechnungenContent() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>Positionen</Label>
-                  <Button variant="outline" size="sm" onClick={addLineItem}>
-                    <Plus className="mr-1 h-3 w-3" />
-                    Position
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${invoicePriceMode === 'netto' ? 'font-semibold' : 'text-muted-foreground'}`}>Netto</span>
+                    <Switch
+                      checked={invoicePriceMode === 'brutto'}
+                      onCheckedChange={(checked) => setInvoicePriceMode(checked ? 'brutto' : 'netto')}
+                    />
+                    <span className={`text-xs ${invoicePriceMode === 'brutto' ? 'font-semibold' : 'text-muted-foreground'}`}>Brutto</span>
+                    <Button variant="outline" size="sm" onClick={addLineItem} className="ml-2">
+                      <Plus className="mr-1 h-3 w-3" />
+                      Position
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-2 overflow-x-auto">
                   {lineItems.map((item, i) => {
@@ -1806,21 +1828,22 @@ function RechnungenContent() {
                           />
                         </div>
                         <div className="col-span-2">
-                          {i === 0 && <Label className="text-xs">Netto-EP</Label>}
+                          {i === 0 && <Label className="text-xs">{invoicePriceMode === 'brutto' ? 'Brutto-EP' : 'Netto-EP'}</Label>}
                           <Input
                             type="number"
                             step="0.01"
-                            value={item.unitPrice}
-                            onChange={(e) => updateLineItem(i, 'unitPrice', Number(e.target.value))}
+                            value={invoicePriceMode === 'brutto' ? grossUnitPrice : item.unitPrice}
+                            onChange={(e) => updateLineItem(i, invoicePriceMode === 'brutto' ? 'unitPriceGross' : 'unitPrice', Number(e.target.value))}
                           />
                         </div>
                         <div className="col-span-2">
-                          {i === 0 && <Label className="text-xs">Brutto-EP</Label>}
+                          {i === 0 && <Label className="text-xs text-muted-foreground">{invoicePriceMode === 'brutto' ? 'Netto-EP' : 'Brutto-EP'}</Label>}
                           <Input
                             type="number"
                             step="0.01"
-                            value={grossUnitPrice}
-                            onChange={(e) => updateLineItem(i, 'unitPriceGross', Number(e.target.value))}
+                            value={invoicePriceMode === 'brutto' ? item.unitPrice : grossUnitPrice}
+                            onChange={(e) => updateLineItem(i, invoicePriceMode === 'brutto' ? 'unitPrice' : 'unitPriceGross', Number(e.target.value))}
+                            className="text-muted-foreground"
                           />
                         </div>
                         <div className="col-span-1">
