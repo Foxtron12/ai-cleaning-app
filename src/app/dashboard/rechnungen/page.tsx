@@ -1092,10 +1092,14 @@ function RechnungenContent() {
     if (newStatus === 'paid') {
       updates.paid_date = format(new Date(), 'yyyy-MM-dd')
     }
-    const { error } = await supabase.from('invoices').update(updates).eq('id', invoiceId)
+    const { data, error } = await supabase.from('invoices').update(updates).eq('id', invoiceId).select('id')
 
     if (error) {
       toast({ title: 'Status-Änderung fehlgeschlagen', description: error.message, variant: 'destructive' })
+      return
+    }
+    if (!data || data.length === 0) {
+      toast({ title: 'Status-Änderung fehlgeschlagen', description: 'Keine Berechtigung oder Rechnung nicht gefunden. Bitte RLS-Policy prüfen.', variant: 'destructive' })
       return
     }
 
