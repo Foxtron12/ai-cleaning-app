@@ -1088,21 +1088,17 @@ function RechnungenContent() {
   }
 
   async function updateStatus(invoiceId: string, newStatus: string) {
-    const updates: Record<string, string | null> = { status: newStatus }
-    if (newStatus === 'paid') {
-      updates.paid_date = format(new Date(), 'yyyy-MM-dd')
-    }
-    const { error } = await supabase.from('invoices').update(updates).eq('id', invoiceId)
+    try {
+      const { error } = newStatus === 'paid'
+        ? await supabase.from('invoices').update({ status: newStatus, paid_date: format(new Date(), 'yyyy-MM-dd') }).eq('id', invoiceId)
+        : await supabase.from('invoices').update({ status: newStatus }).eq('id', invoiceId)
 
-    if (error) {
-      toast({ title: 'Status-Änderung fehlgeschlagen', description: error.message, variant: 'destructive' })
-      return
-    }
-
-    // Verify the update was actually applied (RLS may silently block it)
-    const { data: verify } = await supabase.from('invoices').select('status').eq('id', invoiceId).single()
-    if (verify?.status !== newStatus) {
-      toast({ title: 'Status-Änderung fehlgeschlagen', description: 'Keine Berechtigung. Bitte RLS-Policy in Supabase prüfen.', variant: 'destructive' })
+      if (error) {
+        toast({ title: 'Status-Änderung fehlgeschlagen', description: error.message, variant: 'destructive' })
+        return
+      }
+    } catch (err) {
+      toast({ title: 'Status-Änderung fehlgeschlagen', description: String(err), variant: 'destructive' })
       return
     }
 
