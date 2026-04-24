@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle, CreditCard, Mail, CircleDollarSign, Ban, Clock, CheckCircle2, AlertCircle, Upload, Trash2, Image, FileIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -626,6 +627,109 @@ function DocumentsSection({ bookingId }: { bookingId: string }) {
   )
 }
 
+/**
+ * PROJ-21: Steuer-Block mit zwei Togglen (BhSt-Befreiung + USt-frei).
+ *
+ * BhSt-Befreiung schreibt auf das bestehende Feld `trip_purpose`
+ * (business = befreit, sonst null) — kompatibel mit PROJ-6.
+ *
+ * USt-frei schreibt auf das neue Feld `vat_exempt`.
+ * Aenderung wirkt nur auf NEU zu erstellende Rechnungen — bestehende bleiben unveraendert.
+ */
+function TaxFlagsSection({
+  booking,
+  onBookingUpdated,
+}: {
+  booking: BookingWithProperty
+  onBookingUpdated?: (updated: BookingWithProperty) => void
+}) {
+  const [bhstExempt, setBhstExempt] = useState(booking.trip_purpose === 'business')
+  const [vatExempt, setVatExempt] = useState<boolean>((booking as unknown as { vat_exempt?: boolean }).vat_exempt ?? false)
+  const [updating, setUpdating] = useState<'bhst' | 'vat' | null>(null)
+
+  async function handleToggleBhst(checked: boolean) {
+    const previous = bhstExempt
+    setBhstExempt(checked)
+    setUpdating('bhst')
+    const newPurpose = checked ? 'business' : null
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ trip_purpose: newPurpose })
+      .eq('id', booking.id)
+      .select('*, properties(*)')
+      .single()
+    setUpdating(null)
+    if (error || !data) {
+      setBhstExempt(previous)
+      toast.error('BhSt-Status konnte nicht gespeichert werden')
+      return
+    }
+    toast.success(checked ? 'Buchung als BhSt-befreit markiert' : 'BhSt-Befreiung entfernt')
+    onBookingUpdated?.(data as BookingWithProperty)
+  }
+
+  async function handleToggleVat(checked: boolean) {
+    const previous = vatExempt
+    setVatExempt(checked)
+    setUpdating('vat')
+    const { data, error } = await supabase
+      .from('bookings')
+      // vat_exempt was added in migration 20260424_proj21 — cast via unknown for type safety
+      .update({ vat_exempt: checked } as unknown as never)
+      .eq('id', booking.id)
+      .select('*, properties(*)')
+      .single()
+    setUpdating(null)
+    if (error || !data) {
+      setVatExempt(previous)
+      toast.error('USt-Status konnte nicht gespeichert werden')
+      return
+    }
+    toast.success(checked ? 'Buchung als USt-frei markiert' : 'USt-Befreiung entfernt')
+    onBookingUpdated?.(data as BookingWithProperty)
+  }
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold mb-3">Steuer-Befreiungen</h3>
+      <div className="space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <Label htmlFor={`bhst-toggle-${booking.id}`} className="text-sm font-medium cursor-pointer">
+              Beherbergungssteuer befreit
+            </Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              z. B. Dienstreise mit Nachweis — BhSt wird auf der Rechnung nicht berechnet.
+            </p>
+          </div>
+          <Switch
+            id={`bhst-toggle-${booking.id}`}
+            checked={bhstExempt}
+            disabled={updating === 'bhst'}
+            onCheckedChange={handleToggleBhst}
+          />
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <Label htmlFor={`vat-toggle-${booking.id}`} className="text-sm font-medium cursor-pointer">
+              Umsatzsteuerfrei
+            </Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Rechnung wird ohne Umsatzsteuer erstellt (Netto = Brutto). Wirkt nur auf noch nicht erstellte Rechnungen.
+            </p>
+          </div>
+          <Switch
+            id={`vat-toggle-${booking.id}`}
+            checked={vatExempt}
+            disabled={updating === 'vat'}
+            onCheckedChange={handleToggleVat}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BookingDetailSheet({
   booking,
   open,
@@ -905,6 +1009,11 @@ export function BookingDetailSheet({
             <InfoRow label="Vorauszahlung" value={formatCurrency(booking.prepayment)} />
             <InfoRow label="Restbetrag" value={formatCurrency(booking.balance)} />
           </div>
+
+          <Separator />
+
+          {/* PROJ-21: Steuer-Befreiungen (BhSt + USt) */}
+          <TaxFlagsSection booking={booking} onBookingUpdated={onBookingUpdated} />
 
           {booking.guest_note && (
             <>

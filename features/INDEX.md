@@ -37,9 +37,11 @@
 
 | PROJ-20 | Messaging-Tab (Smoobu-Nachrichten) | In Review | [PROJ-20-messaging.md](PROJ-20-messaging.md) | 2026-03-23 |
 
+| PROJ-21 | Steuerbefreiungen pro Buchung (USt + BhSt) | In Progress | [PROJ-21-steuerbefreiungen-buchung.md](PROJ-21-steuerbefreiungen-buchung.md) | 2026-04-24 |
+
 <!-- Add features above this line -->
 
-## Next Available ID: PROJ-21
+## Next Available ID: PROJ-22
 
 ## Build Order (Empfehlung)
 

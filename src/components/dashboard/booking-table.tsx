@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { BookingStatusBadge } from './booking-status-badge'
 import type { BookingWithProperty } from '@/lib/types'
@@ -119,6 +120,9 @@ export function BookingTable({
               [booking.guest_firstname, booking.guest_lastname]
                 .filter(Boolean)
                 .join(' ') || '–'
+            // PROJ-21: Steuer-Befreiungs-Badges
+            const isBhstExempt = booking.trip_purpose === 'business'
+            const isVatExempt = (booking as unknown as { vat_exempt?: boolean }).vat_exempt === true
 
             return (
               <TableRow
@@ -126,7 +130,25 @@ export function BookingTable({
                 className={onRowClick ? 'cursor-pointer' : ''}
                 onClick={() => onRowClick?.(booking)}
               >
-                <TableCell className="font-medium">{guestName}</TableCell>
+                <TableCell className="font-medium">
+                  <div className="flex flex-col gap-0.5">
+                    <span>{guestName}</span>
+                    {(isBhstExempt || isVatExempt) && (
+                      <div className="flex flex-wrap gap-1">
+                        {isBhstExempt && (
+                          <Badge variant="outline" className="text-[10px] py-0 px-1 h-4 border-blue-300 text-blue-600">
+                            BhSt befreit
+                          </Badge>
+                        )}
+                        {isVatExempt && (
+                          <Badge variant="outline" className="text-[10px] py-0 px-1 h-4 border-purple-300 text-purple-600">
+                            USt-frei
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="hidden sm:table-cell text-muted-foreground">
                   {booking.properties?.name ?? '–'}
                 </TableCell>

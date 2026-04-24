@@ -335,7 +335,9 @@ function RechnungenContent() {
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
     // In the manual invoice wizard, use the booking's actual cleaning_fee (no fallback)
     const cleaningFee = booking.cleaning_fee ?? 0
-    const isKlein = s?.is_kleinunternehmer ?? false
+    // PROJ-21: Wenn die Buchung USt-befreit ist, wie Kleinunternehmer rechnen
+    const bookingVatExempt = (booking as unknown as { vat_exempt?: boolean }).vat_exempt === true
+    const isKlein = (s?.is_kleinunternehmer ?? false) || bookingVatExempt
 
     // Calculate accommodation tax using city_tax_rules.
     // If the booking is exempt (e.g. business trip), always use 0.
@@ -438,7 +440,9 @@ function RechnungenContent() {
     setDueDate('')
     setDueDateManual(false)
 
-    const isKlein = s?.is_kleinunternehmer ?? false
+    // PROJ-21: Wenn die Buchung USt-befreit ist, wie Kleinunternehmer rechnen
+    const bookingVatExempt = (booking as unknown as { vat_exempt?: boolean }).vat_exempt === true
+    const isKlein = (s?.is_kleinunternehmer ?? false) || bookingVatExempt
     const effectiveRules = cityRules
     const taxConfig = booking.properties ? getTaxConfigForProperty(booking.properties, effectiveRules) : null
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
@@ -698,7 +702,10 @@ function RechnungenContent() {
     setLineItems((prev) => {
       const updated = [...prev]
       const item = { ...updated[index] }
-      const isKlein = settings?.is_kleinunternehmer ?? false
+      // PROJ-21: Buchung kann pro-Buchung USt-befreit sein
+      const selectedBookingForVat = bookings.find((b) => b.id === selectedBookingId)
+      const bookingVatExempt = (selectedBookingForVat as unknown as { vat_exempt?: boolean } | undefined)?.vat_exempt === true
+      const isKlein = (settings?.is_kleinunternehmer ?? false) || bookingVatExempt
 
       // Don't manually edit the BhSt line item if it's auto-calculated
       const editingBhSt = isBhStItem(item)
@@ -789,7 +796,11 @@ function RechnungenContent() {
     setGenerating(true)
     const { data: { user } } = await supabase.auth.getUser()
     try {
-      const isKlein = settings.is_kleinunternehmer ?? false
+      const baseIsKlein = settings.is_kleinunternehmer ?? false
+      // PROJ-21: Buchung kann pro-Buchung USt-befreit sein -> wie Kleinunternehmer behandeln
+      const selectedBookingForVat = bookings.find((b) => b.id === selectedBookingId)
+      const bookingVatExempt = (selectedBookingForVat as unknown as { vat_exempt?: boolean } | undefined)?.vat_exempt === true
+      const isKlein = baseIsKlein || bookingVatExempt
 
       const subtotalNet = lineItems.reduce(
         (s, item) => s + (item.total - item.vatAmount),
@@ -812,12 +823,14 @@ function RechnungenContent() {
       const selectedBooking = bookings.find((b) => b.id === selectedBookingId)
 
       // Save to database
+      // PROJ-21: Wenn USt-befreit (isKlein true durch vat_exempt), setzen wir vat_rate+vat_amount=0
+      // auf jeder Linie, damit die Rechnung persistent als "ohne USt" erkennbar ist.
       const lineItemsJson = lineItems.map((item) => ({
         description: item.description,
         quantity: item.quantity,
-        unit_price: item.unitPrice,
-        vat_rate: item.vatRate,
-        vat_amount: item.vatAmount,
+        unit_price: isKlein ? item.total / Math.max(item.quantity, 1) : item.unitPrice,
+        vat_rate: isKlein ? 0 : item.vatRate,
+        vat_amount: isKlein ? 0 : item.vatAmount,
         total: item.total,
       }))
 

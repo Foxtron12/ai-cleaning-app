@@ -134,6 +134,11 @@ export async function autoGenerateInvoices(
     const invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
     nextNumber++
 
+    // PROJ-21: USt-Befreiung pro Buchung. Wenn true, wird die Rechnung komplett ohne USt erstellt
+    // (Netto = Brutto, vat_rate = 0, vat_amount = 0). Wir behandeln das intern wie Kleinunternehmer.
+    const bookingVatExempt = (booking as unknown as { vat_exempt?: boolean }).vat_exempt === true
+    const effectiveIsKlein = isKlein || bookingVatExempt
+
     const nights = booking.nights ?? 1
     const grossWithoutTax = getAccommodationGrossWithoutCityTax(booking)
     // Use booking's actual cleaning_fee (no fallback) for invoices
@@ -171,28 +176,28 @@ export async function autoGenerateInvoices(
     // Accommodation (7% USt)
     // Use gross as anchor, derive vat from total (not per-unit) to avoid rounding errors
     const accomTotal = Math.round(accommodationGross * 100) / 100
-    const accomNetTotal = isKlein ? accomTotal : Math.round((accommodationGross / 1.07) * 100) / 100
+    const accomNetTotal = effectiveIsKlein ? accomTotal : Math.round((accommodationGross / 1.07) * 100) / 100
     const accomUnitPrice = nights > 0 ? Math.round((accomNetTotal / nights) * 100) / 100 : 0
-    const accomVat = isKlein ? 0 : Math.round((accomTotal - accomNetTotal) * 100) / 100
+    const accomVat = effectiveIsKlein ? 0 : Math.round((accomTotal - accomNetTotal) * 100) / 100
     lineItems.push({
       description: `Beherbergung in ${booking.properties?.name ?? 'Ferienwohnung'} (${nights} Nächte)`,
       quantity: nights,
       unit_price: accomUnitPrice,
-      vat_rate: isKlein ? 0 : 7,
+      vat_rate: effectiveIsKlein ? 0 : 7,
       vat_amount: accomVat,
       total: accomTotal,
     })
 
     // Cleaning (7% USt)
     if (cleaningFee > 0) {
-      const cleanUnitPrice = Math.round((cleaningFee / (isKlein ? 1 : 1.07)) * 100) / 100
+      const cleanUnitPrice = Math.round((cleaningFee / (effectiveIsKlein ? 1 : 1.07)) * 100) / 100
       const cleanTotal = Math.round(cleaningFee * 100) / 100
-      const cleanVat = isKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
+      const cleanVat = effectiveIsKlein ? 0 : Math.round((cleanTotal - cleanUnitPrice) * 100) / 100
       lineItems.push({
         description: 'Endreinigung',
         quantity: 1,
         unit_price: cleanUnitPrice,
-        vat_rate: isKlein ? 0 : 7,
+        vat_rate: effectiveIsKlein ? 0 : 7,
         vat_amount: cleanVat,
         total: cleanTotal,
       })
@@ -202,7 +207,7 @@ export async function autoGenerateInvoices(
     if (cityTax > 0) {
       const cityLabel = taxConfig?.city ? ` (${taxConfig.city})` : ''
       const cityTaxRounded = Math.round(cityTax * 100) / 100
-      const taxVatAmount = isKlein
+      const taxVatAmount = effectiveIsKlein
         ? 0
         : Math.round(cityTaxRounded * (taxVatRate / 100) * 100) / 100
       const cityTotal = Math.round((cityTaxRounded + taxVatAmount) * 100) / 100
@@ -210,7 +215,7 @@ export async function autoGenerateInvoices(
         description: `Beherbergungssteuer${cityLabel}`,
         quantity: 1,
         unit_price: cityTaxRounded,
-        vat_rate: taxVatRate,
+        vat_rate: effectiveIsKlein ? 0 : taxVatRate,
         vat_amount: taxVatAmount,
         total: cityTotal,
       })
@@ -221,11 +226,11 @@ export async function autoGenerateInvoices(
     const vat7Items = lineItems.filter((i) => i.vat_rate === 7)
     const vat19Items = lineItems.filter((i) => i.vat_rate === 19)
     const vat7Net = Math.round(vat7Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
-    const vat7Amount = isKlein
+    const vat7Amount = effectiveIsKlein
       ? 0
       : Math.round(vat7Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
     const vat19Net = Math.round(vat19Items.reduce((s, i) => s + (i.total - i.vat_amount), 0) * 100) / 100
-    const vat19Amount = isKlein
+    const vat19Amount = effectiveIsKlein
       ? 0
       : Math.round(vat19Items.reduce((s, i) => s + i.vat_amount, 0) * 100) / 100
     const totalVat = Math.round((vat7Amount + vat19Amount) * 100) / 100
@@ -270,7 +275,9 @@ export async function autoGenerateInvoices(
       vat_19_amount: Math.round(vat19Amount * 100) / 100,
       total_vat: Math.round(totalVat * 100) / 100,
       total_gross: Math.round(totalGross * 100) / 100,
-      is_kleinunternehmer: isKlein,
+      // PROJ-21: Bei Buchungs-USt-Befreiung behandeln wir die Rechnung wie Kleinunternehmer
+      // -> keine USt-Tabelle im PDF, Netto = Brutto.
+      is_kleinunternehmer: effectiveIsKlein,
       issued_date: issuedDate,
       due_date: dueDate,
       service_period_start: booking.check_in,

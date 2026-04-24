@@ -131,6 +131,7 @@ export type Database = {
           trip_purpose: string | null
           updated_at: string | null
           user_id: string | null
+          vat_exempt: boolean
         }
         Insert: {
           accommodation_tax_amount?: number | null
@@ -183,6 +184,7 @@ export type Database = {
           trip_purpose?: string | null
           updated_at?: string | null
           user_id?: string | null
+          vat_exempt?: boolean
         }
         Update: {
           accommodation_tax_amount?: number | null
@@ -235,6 +237,7 @@ export type Database = {
           trip_purpose?: string | null
           updated_at?: string | null
           user_id?: string | null
+          vat_exempt?: boolean
         }
         Relationships: [
           {

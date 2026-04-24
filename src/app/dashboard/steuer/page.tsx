@@ -67,6 +67,17 @@ function generatePeriodOptions(): PeriodOption[] {
   const now = new Date()
   const options: PeriodOption[] = []
 
+  // PROJ-21: Future months first (12 months ahead, newest → current+1)
+  // so users can mark BhSt-exempt status for bookings in upcoming months.
+  for (let i = 12; i >= 1; i--) {
+    const d = addMonths(now, i)
+    const year = d.getFullYear()
+    const month = d.getMonth()
+    const value = `${year}-${String(month + 1).padStart(2, '0')}`
+    const label = `${MONTH_NAMES_DE[month]} ${year}`
+    options.push({ value, label, group: 'month' })
+  }
+
   // Months: current + 23 past months
   for (let i = 0; i < 24; i++) {
     const d = subMonths(now, i)
