@@ -409,8 +409,10 @@ function RechnungenContent() {
     // Initialize BhSt flags: non-BhSt items are included by default
     setBhstIncluded(items.map(i => !isBhStItem(i)))
 
-    // Auto-sync guest address from Smoobu when booking has an external_id
-    if (booking.external_id && !booking.guest_street) {
+    // Auto-sync guest address from Smoobu when booking has an external_id.
+    // Skip sync for company invoices — otherwise the async response would overwrite
+    // the just-filled company billing fields with Smoobu's guest data.
+    if (booking.external_id && !booking.guest_street && !isCompany) {
       syncGuestFromSmoobu(booking.id)
     }
   }
@@ -528,7 +530,8 @@ function RechnungenContent() {
       setBhstIncluded(items.map(i => !isBhStItem(i)))
     }
 
-    if (booking.external_id && !booking.guest_street) {
+    // Skip Smoobu sync for company invoices — would overwrite company billing fields.
+    if (booking.external_id && !booking.guest_street && !isCompany) {
       syncGuestFromSmoobu(booking.id)
     }
   }
