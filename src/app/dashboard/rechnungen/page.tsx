@@ -903,7 +903,7 @@ function RechnungenContent() {
         }
       }
 
-      const { data: saved } = await supabase
+      const { data: saved, error: insertError } = await supabase
         .from('invoices')
         .insert({
           invoice_number: invoiceNumber,
@@ -933,13 +933,23 @@ function RechnungenContent() {
         .select(INVOICE_SELECT)
         .single()
 
-      // Increment invoice number
+      if (insertError || !saved) {
+        console.error('Rechnung speichern fehlgeschlagen:', insertError)
+        toast({
+          title: 'Rechnung konnte nicht gespeichert werden',
+          description: insertError?.message ?? 'Unbekannter Fehler beim Speichern.',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      // Increment invoice number only on successful save
       await supabase
         .from('settings')
         .update({ invoice_next_number: nextNumber + 1 })
         .not('id', 'is', null)
 
-      if (saved) {
+      {
         setInvoices((prev) => [saved as InvoiceRow, ...prev])
 
         // Auto-attach invoice PDF to booking documents (non-blocking)
