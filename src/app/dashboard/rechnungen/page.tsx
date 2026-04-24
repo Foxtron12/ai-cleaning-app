@@ -820,8 +820,8 @@ function RechnungenContent() {
 
       const paymentDays = settings.invoice_payment_days ?? 14
       const prefix = settings.invoice_prefix ?? 'RE'
-      const nextNumber = settings.invoice_next_number ?? 1
-      const invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
+      let nextNumber = settings.invoice_next_number ?? 1
+      let invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
 
       const selectedBooking = bookings.find((b) => b.id === selectedBookingId)
 
@@ -903,35 +903,57 @@ function RechnungenContent() {
         }
       }
 
-      const { data: saved, error: insertError } = await supabase
-        .from('invoices')
-        .insert({
-          invoice_number: invoiceNumber,
-          booking_id: selectedBookingId || null,
-          property_id: selectedBooking?.property_id ?? (selectedPropertyId || null),
-          user_id: user?.id,
-          landlord_snapshot: landlordSnapshotData,
-          guest_snapshot: guestSnapshotData,
-          line_items: lineItemsJson,
-          notes: notes.trim() || null,
-          notes_footer: notesFooter.trim() || null,
-          payment_schedule: computedSchedule as unknown as import('@/lib/database.types').Json ?? null,
-          subtotal_net: Math.round(subtotalNet * 100) / 100,
-          vat_7_net: Math.round(vat7Net * 100) / 100,
-          vat_7_amount: Math.round(vat7Amount * 100) / 100,
-          vat_19_net: Math.round(vat19Net * 100) / 100,
-          vat_19_amount: Math.round(vat19Amount * 100) / 100,
-          total_vat: Math.round(totalVat * 100) / 100,
-          total_gross: Math.round(totalGross * 100) / 100,
-          is_kleinunternehmer: isKlein,
-          issued_date: issuedDate,
-          due_date: dueDate || format(addDays(new Date(issuedDate), paymentDays), 'yyyy-MM-dd'),
-          service_period_start: servicePeriodStart || null,
-          service_period_end: servicePeriodEnd || null,
-          status: 'created',
-        })
-        .select(INVOICE_SELECT)
-        .single()
+      // Retry on unique-violation (23505) of invoice_number. Happens when the
+      // settings.invoice_next_number counter drifted behind max(invoice_number)
+      // — e.g. after earlier silent-failure bugs. Bump and retry up to 5 times.
+      let saved: InvoiceRow | null = null
+      let insertError: { message?: string; code?: string } | null = null
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const res = await supabase
+          .from('invoices')
+          .insert({
+            invoice_number: invoiceNumber,
+            booking_id: selectedBookingId || null,
+            property_id: selectedBooking?.property_id ?? (selectedPropertyId || null),
+            user_id: user?.id,
+            landlord_snapshot: landlordSnapshotData,
+            guest_snapshot: guestSnapshotData,
+            line_items: lineItemsJson,
+            notes: notes.trim() || null,
+            notes_footer: notesFooter.trim() || null,
+            payment_schedule: computedSchedule as unknown as import('@/lib/database.types').Json ?? null,
+            subtotal_net: Math.round(subtotalNet * 100) / 100,
+            vat_7_net: Math.round(vat7Net * 100) / 100,
+            vat_7_amount: Math.round(vat7Amount * 100) / 100,
+            vat_19_net: Math.round(vat19Net * 100) / 100,
+            vat_19_amount: Math.round(vat19Amount * 100) / 100,
+            total_vat: Math.round(totalVat * 100) / 100,
+            total_gross: Math.round(totalGross * 100) / 100,
+            is_kleinunternehmer: isKlein,
+            issued_date: issuedDate,
+            due_date: dueDate || format(addDays(new Date(issuedDate), paymentDays), 'yyyy-MM-dd'),
+            service_period_start: servicePeriodStart || null,
+            service_period_end: servicePeriodEnd || null,
+            status: 'created',
+          })
+          .select(INVOICE_SELECT)
+          .single()
+
+        if (!res.error && res.data) {
+          saved = res.data as InvoiceRow
+          insertError = null
+          break
+        }
+
+        insertError = res.error ?? { message: 'Unbekannter Fehler' }
+        // Only retry on unique-violation of invoice_number
+        if (res.error?.code === '23505') {
+          nextNumber += 1
+          invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(nextNumber).padStart(3, '0')}`
+          continue
+        }
+        break
+      }
 
       if (insertError || !saved) {
         console.error('Rechnung speichern fehlgeschlagen:', insertError)
@@ -943,7 +965,7 @@ function RechnungenContent() {
         return
       }
 
-      // Increment invoice number only on successful save
+      // Increment invoice number only on successful save (uses final nextNumber after retries)
       await supabase
         .from('settings')
         .update({ invoice_next_number: nextNumber + 1 })
