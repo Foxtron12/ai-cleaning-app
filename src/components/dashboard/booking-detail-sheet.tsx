@@ -747,6 +747,20 @@ export function BookingDetailSheet({
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [isKleinunternehmer, setIsKleinunternehmer] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('settings')
+      .select('is_kleinunternehmer')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setIsKleinunternehmer((data as { is_kleinunternehmer: boolean | null } | null)?.is_kleinunternehmer ?? false)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   // Edit form state (guest data)
   const [editFirstname, setEditFirstname] = useState(booking.guest_firstname ?? '')
@@ -918,8 +932,13 @@ export function BookingDetailSheet({
       ? (booking.amount_gross ?? 0) - cityTax
       : (booking.amount_gross ?? 0)
 
-  // Nettobetrag = Bruttobetrag ohne 7% MwSt (Beherbergungsleistung)
-  const nettoAmount = bruttoWithoutCityTax > 0 ? bruttoWithoutCityTax / 1.07 : null
+  // Nettobetrag = Bruttobetrag ohne 7% MwSt (Beherbergungsleistung).
+  // Bei Kleinunternehmer oder USt-befreiter Buchung: Netto = Brutto (keine USt auszurechnen).
+  const bookingVatExempt = (booking as unknown as { vat_exempt?: boolean }).vat_exempt === true
+  const isVatFree = isKleinunternehmer || bookingVatExempt
+  const nettoAmount = bruttoWithoutCityTax > 0
+    ? (isVatFree ? bruttoWithoutCityTax : bruttoWithoutCityTax / 1.07)
+    : null
 
   const commissionPercent =
     bruttoWithoutCityTax && booking.commission_amount
@@ -982,7 +1001,7 @@ export function BookingDetailSheet({
             <InfoRow label="Vom Gast bezahlt" value={formatCurrency(paidByGuest)} />
             <InfoRow label="Bruttobetrag (ohne City Tax)" value={formatCurrency(bruttoWithoutCityTax)} />
             <InfoRow label="Unterkunftspreis (ohne Reinigung)" value={formatCurrency(bruttoWithoutCityTax - getCleaningFee(booking, booking.properties?.default_cleaning_fee ?? undefined))} />
-            <InfoRow label="Nettobetrag (ohne 7% MwSt)" value={formatCurrency(nettoAmount)} />
+            <InfoRow label={isVatFree ? 'Nettobetrag (keine USt)' : 'Nettobetrag (ohne 7% MwSt)'} value={formatCurrency(nettoAmount)} />
             <InfoRow
               label="Provision"
               value={

@@ -67,7 +67,7 @@ function getDateRange(range: Exclude<TimeRange, 'custom'>): { from: string; to: 
   }
 }
 
-function exportXLSX(bookings: BookingWithProperty[]) {
+function exportXLSX(bookings: BookingWithProperty[], isKleinunternehmer: boolean) {
   const rows = bookings.map((b) => {
     const taxConfig = b.properties ? getTaxConfigForProperty(b.properties, []) : null
     const taxResult = taxConfig ? calculateAccommodationTax(b, taxConfig, b.properties?.ota_remits_tax ?? []) : null
@@ -81,8 +81,11 @@ function exportXLSX(bookings: BookingWithProperty[]) {
       ? (b.amount_gross ?? 0) - cityTax
       : (b.amount_gross ?? 0)
 
+    // Netto = Brutto bei Kleinunternehmer oder USt-befreiter Buchung (keine 7% USt rausrechnen)
+    const bookingVatExempt = (b as unknown as { vat_exempt?: boolean }).vat_exempt === true
+    const isVatFree = isKleinunternehmer || bookingVatExempt
     const nettoAmount = bruttoWithoutCityTax > 0
-      ? Math.round((bruttoWithoutCityTax / 1.07) * 100) / 100
+      ? (isVatFree ? bruttoWithoutCityTax : Math.round((bruttoWithoutCityTax / 1.07) * 100) / 100)
       : 0
 
     const hostPayout = (b.amount_host_payout ?? 0) > 0
@@ -101,7 +104,7 @@ function exportXLSX(bookings: BookingWithProperty[]) {
       'Status': b.status,
       'Vom Gast bezahlt (€)': paidByGuest,
       'Bruttobetrag ohne City Tax (€)': bruttoWithoutCityTax,
-      'Nettobetrag ohne MwSt 7% (€)': nettoAmount,
+      [isKleinunternehmer ? 'Nettobetrag (keine USt) (€)' : 'Nettobetrag ohne MwSt 7% (€)']: nettoAmount,
       'Provision (€)': b.commission_amount ?? 0,
       'Host-Auszahlung (€)': hostPayout,
       'Reinigungsgebühr (€)': getCleaningFee(b, b.properties?.default_cleaning_fee ?? undefined),
@@ -145,6 +148,18 @@ function BuchungenContent() {
   const [wizardOpen, setWizardOpen] = useState(searchParams.get('create') === 'true')
   const [sortColumn, setSortColumn] = useState<SortColumn>('check_in')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [isKleinunternehmer, setIsKleinunternehmer] = useState(false)
+
+  useEffect(() => {
+    supabase
+      .from('settings')
+      .select('is_kleinunternehmer')
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setIsKleinunternehmer((data as { is_kleinunternehmer: boolean | null } | null)?.is_kleinunternehmer ?? false)
+      })
+  }, [])
 
   useEffect(() => {
     async function fetchBookings() {
@@ -254,7 +269,7 @@ function BuchungenContent() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Buchungen</h2>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportXLSX(filtered)}>
+          <Button variant="outline" size="sm" onClick={() => exportXLSX(filtered, isKleinunternehmer)}>
             <Download className="mr-2 h-4 w-4" />
             XLSX Export
           </Button>
