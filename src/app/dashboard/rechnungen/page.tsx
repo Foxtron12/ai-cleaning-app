@@ -7,7 +7,7 @@ import { format, addDays, addMonths, startOfMonth, endOfMonth, differenceInCalen
 import { de } from 'date-fns/locale'
 import { pdf } from '@react-pdf/renderer'
 import JSZip from 'jszip'
-import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Info, Mail, Copy, Check, RotateCcw, CreditCard, ArrowUpDown } from 'lucide-react'
+import { Plus, Download, FileText, Ban, Search, Archive, Loader2, Trash2, Info, Mail, Copy, Check, RotateCcw, CreditCard, ArrowUpDown, CalendarClock, AlertCircle, RefreshCw } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase'
 import { InvoicePDF, type InvoicePDFData, type InvoiceLineItem } from '@/lib/pdf/invoice'
@@ -73,6 +73,7 @@ import {
 interface PaymentScheduleEntry {
   due_date: string
   amount: number
+  paid_at?: string | null
 }
 
 type InvoiceType = 'invoice' | 'storno' | 'credit_note'
@@ -170,6 +171,8 @@ function RechnungenContent() {
   const searchParams = useSearchParams()
   const bookingIdParam = searchParams.get('booking')
   const splitParam = searchParams.get('split') === 'true'
+  const invoiceIdParam = searchParams.get('invoice')
+  const viewParam = searchParams.get('view')
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [bookings, setBookings] = useState<BookingWithProperty[]>([])
@@ -214,6 +217,11 @@ function RechnungenContent() {
   const [propertyFilter, setPropertyFilter] = useState('all')
   const [periodFilter, setPeriodFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState<'all' | InvoiceType>('all')
+  const [openInstallmentsOnly, setOpenInstallmentsOnly] = useState(viewParam === 'raten')
+
+  // Installments dialog
+  const [installmentsInvoice, setInstallmentsInvoice] = useState<InvoiceRow | null>(null)
+  const [togglingScheduleIdx, setTogglingScheduleIdx] = useState<number | null>(null)
 
   // Sort state
   const [sortField, setSortField] = useState<'number' | 'type' | 'guest' | 'property' | 'date' | 'due' | 'period' | 'amount' | 'status'>('date')
@@ -309,6 +317,14 @@ function RechnungenContent() {
     fetchData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingIdParam, splitParam])
+
+  useEffect(() => {
+    if (!invoiceIdParam || invoices.length === 0) return
+    const target = invoices.find((i) => i.id === invoiceIdParam)
+    if (target && target.payment_schedule && target.payment_schedule.length > 0) {
+      setInstallmentsInvoice(target)
+    }
+  }, [invoiceIdParam, invoices])
 
   function fillFromBooking(booking: BookingWithProperty, s: Settings | null, rules?: CityTaxRule[]) {
     setSelectedBookingId(booking.id)
@@ -1135,6 +1151,45 @@ function RechnungenContent() {
     })
   }
 
+  async function toggleInstallmentPaid(invoiceId: string, index: number) {
+    const inv = invoices.find((i) => i.id === invoiceId)
+    if (!inv || !inv.payment_schedule) return
+    const previous = inv.payment_schedule
+    const next = previous.map((entry, i) =>
+      i === index
+        ? { ...entry, paid_at: entry.paid_at ? null : format(new Date(), 'yyyy-MM-dd') }
+        : entry,
+    )
+
+    setTogglingScheduleIdx(index)
+    setInvoices((prev) =>
+      prev.map((row) => (row.id === invoiceId ? { ...row, payment_schedule: next } : row)),
+    )
+    setInstallmentsInvoice((current) =>
+      current && current.id === invoiceId ? { ...current, payment_schedule: next } : current,
+    )
+
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ payment_schedule: next as unknown as import('@/lib/database.types').Json })
+      .eq('id', invoiceId)
+
+    setTogglingScheduleIdx(null)
+
+    if (updateError) {
+      setInvoices((prev) =>
+        prev.map((row) => (row.id === invoiceId ? { ...row, payment_schedule: previous } : row)),
+      )
+      setInstallmentsInvoice((current) =>
+        current && current.id === invoiceId ? { ...current, payment_schedule: previous } : current,
+      )
+      toast({ title: 'Speichern fehlgeschlagen', description: updateError.message, variant: 'destructive' })
+      return
+    }
+
+    toast({ title: next[index].paid_at ? 'Rate als bezahlt markiert' : 'Rate wieder geöffnet' })
+  }
+
   async function updateStatus(invoiceId: string, newStatus: string) {
     try {
       const { error } = newStatus === 'paid'
@@ -1202,6 +1257,13 @@ function RechnungenContent() {
     const range = getPeriodRange(periodFilter)
     if (range && inv.issued_date) {
       if (inv.issued_date < range.from || inv.issued_date > range.to) return false
+    }
+    // Open-installments / unpaid filter
+    if (openInstallmentsOnly) {
+      const sched = inv.payment_schedule
+      const hasOpenRate = !!sched && sched.length > 0 && sched.some((e) => !e.paid_at)
+      const isOpenInvoice = !sched && (inv.status === 'created' || inv.status === 'sent')
+      if (!hasOpenRate && !isOpenInvoice) return false
     }
     return true
   }).sort((a, b) => {
@@ -2185,6 +2247,16 @@ function RechnungenContent() {
             <SelectItem value="credit_note">Gutschriften</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="open-installments-only"
+            checked={openInstallmentsOnly}
+            onCheckedChange={setOpenInstallmentsOnly}
+          />
+          <Label htmlFor="open-installments-only" className="cursor-pointer text-sm">
+            Nur offene Zahlungen
+          </Label>
+        </div>
       </div>
 
       {/* Invoice archive */}
@@ -2328,6 +2400,22 @@ function RechnungenContent() {
                           </Button>
                           {invType === 'invoice' && inv.status !== 'cancelled' && (
                             <>
+                              {inv.payment_schedule && inv.payment_schedule.length > 0 && (() => {
+                                const open = inv.payment_schedule.filter((e) => !e.paid_at).length
+                                const total = inv.payment_schedule.length
+                                const allPaid = open === 0
+                                return (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setInstallmentsInvoice(inv)}
+                                    title={`Raten verwalten (${total - open}/${total} bezahlt)`}
+                                    className={allPaid ? 'text-green-600' : 'text-blue-600 hover:text-blue-700'}
+                                  >
+                                    <CalendarClock className="h-4 w-4" />
+                                  </Button>
+                                )
+                              })()}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2488,6 +2576,114 @@ function RechnungenContent() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Installments / Raten-Tracking Dialog */}
+      <Dialog
+        open={!!installmentsInvoice}
+        onOpenChange={(open) => { if (!open) setInstallmentsInvoice(null) }}
+      >
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Raten verwalten</DialogTitle>
+          </DialogHeader>
+          {installmentsInvoice && installmentsInvoice.payment_schedule && (() => {
+            const sched = installmentsInvoice.payment_schedule
+            const open = sched.filter((e) => !e.paid_at).length
+            const overdue = sched.filter((e) => !e.paid_at && new Date(e.due_date + 'T00:00:00') < new Date(format(new Date(), 'yyyy-MM-dd') + 'T00:00:00')).length
+            const total = sched.reduce((s, e) => s + e.amount, 0)
+            const paid = sched.filter((e) => e.paid_at).reduce((s, e) => s + e.amount, 0)
+            const allPaid = open === 0
+            const guestName = `${installmentsInvoice.guest_snapshot?.firstname ?? ''} ${installmentsInvoice.guest_snapshot?.lastname ?? ''}`.trim() || 'Unbekannter Gast'
+            return (
+              <div className="space-y-4 py-2">
+                <div className="text-sm">
+                  <p className="font-medium">{installmentsInvoice.invoice_number}</p>
+                  <p className="text-muted-foreground">{guestName} · Gesamt: {formatEur(total)}</p>
+                </div>
+
+                {allPaid ? (
+                  <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                    <Check className="h-4 w-4" />
+                    Alle Raten bezahlt ({formatEur(paid)} von {formatEur(total)})
+                  </div>
+                ) : overdue > 0 ? (
+                  <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    {overdue} {overdue === 1 ? 'Rate' : 'Raten'} überfällig
+                  </div>
+                ) : null}
+
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[50px]">#</TableHead>
+                        <TableHead>Fällig</TableHead>
+                        <TableHead className="text-right">Betrag</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Aktion</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sched.map((entry, idx) => {
+                        const dueDate = new Date(entry.due_date + 'T00:00:00')
+                        const todayStart = new Date(format(new Date(), 'yyyy-MM-dd') + 'T00:00:00')
+                        const days = differenceInCalendarDays(dueDate, todayStart)
+                        const isPaid = !!entry.paid_at
+                        const isOverdue = !isPaid && days < 0
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="font-mono text-xs">{idx + 1}</TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {format(dueDate, 'dd.MM.yyyy')}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              {formatEur(entry.amount)}
+                            </TableCell>
+                            <TableCell>
+                              {isPaid ? (
+                                <Badge className="bg-green-600 hover:bg-green-700 text-white gap-1">
+                                  <Check className="h-3 w-3" />
+                                  Bezahlt {entry.paid_at && format(new Date(entry.paid_at), 'dd.MM.yyyy')}
+                                </Badge>
+                              ) : isOverdue ? (
+                                <Badge variant="destructive">Überfällig</Badge>
+                              ) : (
+                                <Badge variant="outline">Offen</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={togglingScheduleIdx === idx}
+                                onClick={() => toggleInstallmentPaid(installmentsInvoice.id, idx)}
+                                title={isPaid ? 'Als unbezahlt markieren' : 'Als bezahlt markieren'}
+                              >
+                                {togglingScheduleIdx === idx ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : isPaid ? (
+                                  <RefreshCw className="h-4 w-4" />
+                                ) : (
+                                  <Check className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Bezahlt: {formatEur(paid)} von {formatEur(total)} · Offen: {formatEur(total - paid)}
+                </p>
+              </div>
+            )
+          })()}
         </DialogContent>
       </Dialog>
 

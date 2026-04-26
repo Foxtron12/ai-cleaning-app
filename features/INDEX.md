@@ -39,9 +39,11 @@
 
 | PROJ-21 | Steuerbefreiungen pro Buchung (USt + BhSt) | In Progress | [PROJ-21-steuerbefreiungen-buchung.md](PROJ-21-steuerbefreiungen-buchung.md) | 2026-04-24 |
 
+| PROJ-22 | Zahlungsplan-Tracking (Fällige Raten) | Planned | [PROJ-22-zahlungsplan-tracking.md](PROJ-22-zahlungsplan-tracking.md) | 2026-04-26 |
+
 <!-- Add features above this line -->
 
-## Next Available ID: PROJ-22
+## Next Available ID: PROJ-23
 
 ## Build Order (Empfehlung)
 

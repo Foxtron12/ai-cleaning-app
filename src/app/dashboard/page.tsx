@@ -9,6 +9,14 @@ import { KpiCards } from '@/components/dashboard/kpi-cards'
 import { UpcomingActivities } from '@/components/dashboard/upcoming-activities'
 import { ChannelChart, type ChannelData } from '@/components/dashboard/channel-chart'
 import { RevenueChart, type MonthlyRevenue } from '@/components/dashboard/revenue-chart'
+import { UpcomingInstallmentsCard } from '@/components/dashboard/upcoming-installments-card'
+import {
+  getUpcomingPayments,
+  setInstallmentPaid,
+  type InvoiceForInstallments,
+  type UpcomingPayment,
+} from '@/lib/installments'
+import { useToast } from '@/hooks/use-toast'
 
 interface KpiData {
   bookingsThisMonth: number
@@ -25,6 +33,10 @@ export default function DashboardPage() {
   const [checkOuts, setCheckOuts] = useState<BookingWithProperty[]>([])
   const [channelData, setChannelData] = useState<ChannelData[]>([])
   const [revenueData, setRevenueData] = useState<MonthlyRevenue[]>([])
+  const [paymentInvoices, setPaymentInvoices] = useState<InvoiceForInstallments[]>([])
+  const [propertyMap, setPropertyMap] = useState<Record<string, string>>({})
+  const [markingKey, setMarkingKey] = useState<string | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -81,6 +93,23 @@ export default function DashboardPage() {
         const { count: propertyCount } = await supabase
           .from('properties')
           .select('id', { count: 'exact', head: true })
+
+        // Fetch property names for upcoming-payments widget
+        const { data: propertyRows } = await supabase
+          .from('properties')
+          .select('id, name')
+          .limit(500)
+        const pMap: Record<string, string> = {}
+        for (const p of propertyRows ?? []) pMap[p.id] = p.name
+        setPropertyMap(pMap)
+
+        // Fetch open invoices for upcoming-payments widget
+        const { data: openInvoices } = await supabase
+          .from('invoices')
+          .select('id, invoice_number, status, invoice_type, due_date, total_gross, property_id, payment_schedule, guest_snapshot')
+          .not('status', 'in', '(paid,cancelled,draft)')
+          .limit(500)
+        setPaymentInvoices((openInvoices ?? []) as unknown as InvoiceForInstallments[])
 
         // Calculate KPIs
         const bookings = monthBookings ?? []
@@ -158,6 +187,52 @@ export default function DashboardPage() {
     fetchDashboardData()
   }, [])
 
+  const upcomingPayments: UpcomingPayment[] = getUpcomingPayments({
+    invoices: paymentInvoices,
+    propertyMap,
+  })
+
+  async function handleMarkInstallmentPaid(payment: UpcomingPayment) {
+    if (payment.source !== 'installment' || payment.installmentIndex == null) return
+    const idx = payment.installmentIndex - 1
+    const invoice = paymentInvoices.find((i) => i.id === payment.invoiceId)
+    if (!invoice || !invoice.payment_schedule) return
+
+    const todayStr = format(new Date(), 'yyyy-MM-dd')
+    const updated = setInstallmentPaid(invoice.payment_schedule, idx, todayStr)
+    const previous = invoice.payment_schedule
+
+    setMarkingKey(payment.key)
+    setPaymentInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === invoice.id ? { ...inv, payment_schedule: updated } : inv,
+      ),
+    )
+
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ payment_schedule: updated as unknown as import('@/lib/database.types').Json })
+      .eq('id', invoice.id)
+
+    setMarkingKey(null)
+
+    if (updateError) {
+      setPaymentInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === invoice.id ? { ...inv, payment_schedule: previous } : inv,
+        ),
+      )
+      toast({
+        title: 'Speichern fehlgeschlagen',
+        description: updateError.message,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    toast({ title: 'Rate als bezahlt markiert' })
+  }
+
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-12">
@@ -175,6 +250,12 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <KpiCards data={kpi} loading={loading} />
+      <UpcomingInstallmentsCard
+        payments={upcomingPayments}
+        loading={loading}
+        onMarkPaid={handleMarkInstallmentPaid}
+        markingKey={markingKey}
+      />
       <UpcomingActivities
         checkIns={checkIns}
         checkOuts={checkOuts}
