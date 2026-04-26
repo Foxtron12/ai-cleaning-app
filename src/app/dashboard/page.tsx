@@ -10,11 +10,16 @@ import { UpcomingActivities } from '@/components/dashboard/upcoming-activities'
 import { ChannelChart, type ChannelData } from '@/components/dashboard/channel-chart'
 import { RevenueChart, type MonthlyRevenue } from '@/components/dashboard/revenue-chart'
 import { UpcomingInstallmentsCard } from '@/components/dashboard/upcoming-installments-card'
+import { PendingCreationsCard } from '@/components/dashboard/pending-creations-card'
 import {
   getUpcomingPayments,
+  getPendingInvoiceCreations,
   setInstallmentPaid,
   type InvoiceForInstallments,
   type UpcomingPayment,
+  type BookingForSegments,
+  type InvoicedPeriod,
+  type PendingInvoiceCreation,
 } from '@/lib/installments'
 import { useToast } from '@/hooks/use-toast'
 
@@ -36,6 +41,8 @@ export default function DashboardPage() {
   const [paymentInvoices, setPaymentInvoices] = useState<InvoiceForInstallments[]>([])
   const [propertyMap, setPropertyMap] = useState<Record<string, string>>({})
   const [markingKey, setMarkingKey] = useState<string | null>(null)
+  const [pendingBookings, setPendingBookings] = useState<BookingForSegments[]>([])
+  const [invoicedPeriods, setInvoicedPeriods] = useState<InvoicedPeriod[]>([])
   const { toast } = useToast()
 
   useEffect(() => {
@@ -110,6 +117,29 @@ export default function DashboardPage() {
           .not('status', 'in', '(paid,cancelled,draft)')
           .limit(500)
         setPaymentInvoices((openInvoices ?? []) as unknown as InvoiceForInstallments[])
+
+        // Fetch active long-stay bookings for pending-creations widget
+        // Window: bookings overlapping (today - 90d) .. (today + 60d)
+        const pendingFromStr = format(addDays(now, -90), 'yyyy-MM-dd')
+        const pendingToStr = format(addDays(now, 60), 'yyyy-MM-dd')
+        const { data: pendingBookingRows } = await supabase
+          .from('bookings')
+          .select('id, check_in, check_out, amount_gross, nights, status, guest_firstname, guest_lastname, property_id')
+          .neq('status', 'cancelled')
+          .lte('check_in', pendingToStr)
+          .gte('check_out', pendingFromStr)
+          .limit(500)
+        setPendingBookings((pendingBookingRows ?? []) as BookingForSegments[])
+
+        // Fetch invoiced segments to detect which months are already billed
+        const { data: invoicedRows } = await supabase
+          .from('invoices')
+          .select('booking_id, service_period_start, status, invoice_type')
+          .not('booking_id', 'is', null)
+          .not('status', 'in', '(draft,cancelled)')
+          .eq('invoice_type', 'invoice')
+          .limit(2000)
+        setInvoicedPeriods((invoicedRows ?? []) as InvoicedPeriod[])
 
         // Calculate KPIs
         const bookings = monthBookings ?? []
@@ -192,6 +222,12 @@ export default function DashboardPage() {
     propertyMap,
   })
 
+  const pendingCreations: PendingInvoiceCreation[] = getPendingInvoiceCreations({
+    bookings: pendingBookings,
+    invoicedPeriods,
+    propertyMap,
+  })
+
   async function handleMarkInstallmentPaid(payment: UpcomingPayment) {
     if (payment.source !== 'installment' || payment.installmentIndex == null) return
     const idx = payment.installmentIndex - 1
@@ -250,6 +286,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <KpiCards data={kpi} loading={loading} />
+      <PendingCreationsCard items={pendingCreations} loading={loading} />
       <UpcomingInstallmentsCard
         payments={upcomingPayments}
         loading={loading}
