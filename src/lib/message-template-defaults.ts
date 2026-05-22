@@ -97,10 +97,7 @@ Wenn du noch Fragen hast, sind wir jederzeit per Nachricht oder Anruf für dich 
 Und denk dran: Bei {{companyName}} bist du jederzeit wieder willkommen – ein Apartment ist immer bereit für dich. ✨
 
 Bis hoffentlich ganz bald
-dein Team von {{companyName}} 👋
-
-PS: Wenn du später auschecken möchtest, kannst du – je nach Verfügbarkeit – ganz einfach über dein Gäste-Portal einen Late-Check-out buchen:
-{{guestAreaLateCheckOutLink}}`,
+dein Team von {{companyName}} 👋`,
     language: 'de',
     sort_order: 5,
   },
@@ -134,7 +131,12 @@ export const TEMPLATE_VARIABLES = [
   { key: '{{checkOutDate}}', label: 'Check-out', description: 'Check-out Datum (TT.MM.JJJJ)' },
   { key: '{{numberOfGuests}}', label: 'Gäste', description: 'Anzahl der Gäste' },
   { key: '{{preCheckInLink}}', label: 'Online Check-In Link', description: 'Link zum Online Check-In Formular' },
-  { key: '{{guestAreaLateCheckOutLink}}', label: 'Late-Checkout Link', description: 'Link zum Late-Checkout im Gästeportal' },
+  // DEPRECATED: kept for backward compatibility with user-customized templates that
+  // still reference {{guestAreaLateCheckOutLink}}. The /guest/area/[token] route is
+  // not yet built; the placeholder is replaced with an empty string at render time
+  // (see replaceTemplateVariables). Do not surface this in newly created templates.
+  // PROJ-19 N2 decision (2026-05-06).
+  { key: '{{guestAreaLateCheckOutLink}}', label: 'Late-Checkout Link (veraltet)', description: 'VERALTET — Gäste-Portal noch nicht verfügbar; Variable wird leer ersetzt.' },
   { key: '{{companyName}}', label: 'Markenname', description: 'Markenname Ihres Unternehmens (aus Profil)' },
   { key: '{{bookingNumber}}', label: 'Buchungsnummer', description: 'Smoobu Buchungsnummer' },
 ] as const

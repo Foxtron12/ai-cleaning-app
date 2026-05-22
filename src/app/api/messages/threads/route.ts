@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getServerUser } from '@/lib/supabase-server'
 import { SmoobuClient } from '@/lib/smoobu'
 import { decrypt } from '@/lib/encryption'
+
+const querySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100).default(1),
+  apartmentId: z.coerce.number().int().positive().optional(),
+})
 
 /**
  * GET /api/messages/threads
@@ -15,9 +21,18 @@ export async function GET(request: NextRequest) {
   }
 
   const searchParams = request.nextUrl.searchParams
-  const page = parseInt(searchParams.get('page') ?? '1', 10)
-  const apartmentIdParam = searchParams.get('apartmentId')
-  const apartmentIds = apartmentIdParam ? [parseInt(apartmentIdParam, 10)] : undefined
+  const parsed = querySchema.safeParse({
+    page: searchParams.get('page') ?? undefined,
+    apartmentId: searchParams.get('apartmentId') ?? undefined,
+  })
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid query parameters', details: parsed.error.issues },
+      { status: 400 }
+    )
+  }
+  const { page, apartmentId } = parsed.data
+  const apartmentIds = apartmentId !== undefined ? [apartmentId] : undefined
 
   // Get Smoobu API key
   const { data: integration } = await supabase

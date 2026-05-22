@@ -54,6 +54,7 @@ const EVENT_LABELS: Record<string, { label: string; description: string; conditi
   new_booking: {
     label: 'Buchungsbestätigung',
     description: 'Wenn eine neue Buchung über Smoobu eingeht.',
+    condition: 'Nur für ab jetzt neu eintreffende Buchungen — bereits bestehende Buchungen lösen diesen Trigger nicht rückwirkend aus.',
   },
   checkin_reminder: {
     label: 'Online Check-In Erinnerung',
@@ -61,9 +62,9 @@ const EVENT_LABELS: Record<string, { label: string; description: string; conditi
     condition: 'Nur wenn der Online Check-In noch NICHT abgeschlossen ist.',
   },
   guest_checkin_completed: {
-    label: 'Anreise-Info (Check-In abgeschlossen)',
-    description: 'Wenn der Gast den Online Check-In abgeschlossen hat.',
-    condition: 'Nur wenn der Online Check-In abgeschlossen ist.',
+    label: 'Online-Check-In abgeschlossen',
+    description: 'Sofort nachdem der Gast das Registrierungsformular abgesendet hat (kann vor der Anreise sein).',
+    condition: 'Wird unabhängig vom tatsächlichen Anreisedatum direkt beim Absenden des Formulars ausgelöst.',
   },
   follow_up: {
     label: 'Follow-up (Tag nach Check-in)',
@@ -85,6 +86,10 @@ const DELAY_OPTIONS = [
   { value: 180, label: '3 Stunden später' },
   { value: 1440, label: '24 Stunden später' },
 ]
+
+// Event-based triggers cannot honor a delay (no job queue). The UI hides the
+// delay selector for these and the server enforces delay_minutes = 0 anyway.
+const EVENT_BASED_NO_DELAY = new Set<string>(['new_booking', 'guest_checkin_completed'])
 
 
 export default function NachrichtenPage() {
@@ -409,8 +414,28 @@ export default function NachrichtenPage() {
       return
     }
 
-    await supabase.from('message_templates').delete().eq('id', t.id)
+    // Defense-in-depth: warn if a trigger currently references this template.
+    // FK is `ON DELETE SET NULL`, so the trigger would silently lose its template.
+    const referencingTriggers = triggers.filter((tr) => tr.template_id === t.id && tr.is_enabled)
+    if (referencingTriggers.length > 0) {
+      const eventNames = referencingTriggers
+        .map((tr) => EVENT_LABELS[tr.event_type]?.label ?? tr.event_type)
+        .join(', ')
+      const confirmed = window.confirm(
+        `Diese Vorlage ist mit ${referencingTriggers.length} aktivem Auto-Trigger verknüpft (${eventNames}).\n\n` +
+        `Wenn du löschst, werden diese Trigger ohne Vorlage zurückbleiben und keine Nachrichten mehr versenden.\n\n` +
+        `Trotzdem löschen?`
+      )
+      if (!confirmed) return
+    }
+
+    const { error } = await supabase.from('message_templates').delete().eq('id', t.id)
+    if (error) {
+      toast({ title: 'Fehler beim Löschen', description: error.message, variant: 'destructive' })
+      return
+    }
     await loadTemplates()
+    await loadTriggers()
     toast({ title: 'Vorlage gelöscht' })
   }
 
@@ -830,6 +855,20 @@ export default function NachrichtenPage() {
               </p>
             </div>
 
+            {/* Warning: enabled triggers without a template */}
+            {triggers.some((t) => t.is_enabled && !t.template_id) && (
+              <Alert variant="destructive">
+                <AlertTriangle className="size-4" />
+                <AlertTitle>Aktive Trigger ohne Vorlage</AlertTitle>
+                <AlertDescription>
+                  Mindestens ein Trigger ist aktiviert, aber es ist keine Vorlage zugeordnet
+                  (z.&nbsp;B. weil die ursprüngliche Vorlage gelöscht wurde). Diese Trigger
+                  versenden keine Nachrichten. Bitte wähle unten eine Vorlage aus oder deaktiviere
+                  den Trigger.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {Object.entries(EVENT_LABELS).map(([eventType, { label, description, condition }]) => {
               const trigger = triggers.find((t) => t.event_type === eventType)
               const isEnabled = trigger?.is_enabled ?? false
@@ -859,6 +898,12 @@ export default function NachrichtenPage() {
                       </div>
                     )}
 
+                    {isEnabled && !trigger?.template_id && (
+                      <div className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded border border-destructive/20">
+                        ⚠ Kein Template ausgewählt – dieser Trigger sendet aktuell keine Nachrichten.
+                      </div>
+                    )}
+
                     {isEnabled && (
                       <div className="space-y-3 border-l-2 border-primary/20 ml-1 pl-4">
                         {/* Template selection */}
@@ -885,28 +930,35 @@ export default function NachrichtenPage() {
                           </Select>
                         </div>
 
-                        {/* Delay selection */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Verzögerung</Label>
-                          <Select
-                            value={String(delayMinutes)}
-                            onValueChange={(v) => {
-                              saveTrigger(eventType, { delay_minutes: parseInt(v, 10) })
-                            }}
-                            disabled={isSaving}
-                          >
-                            <SelectTrigger className="w-48">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DELAY_OPTIONS.map((o) => (
-                                <SelectItem key={o.value} value={String(o.value)}>
-                                  {o.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        {/* Delay selection — hidden for event-based triggers (no queue available) */}
+                        {!EVENT_BASED_NO_DELAY.has(eventType) && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Verzögerung</Label>
+                            <Select
+                              value={String(delayMinutes)}
+                              onValueChange={(v) => {
+                                saveTrigger(eventType, { delay_minutes: parseInt(v, 10) })
+                              }}
+                              disabled={isSaving}
+                            >
+                              <SelectTrigger className="w-48">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DELAY_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={String(o.value)}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        {EVENT_BASED_NO_DELAY.has(eventType) && (
+                          <p className="text-xs text-muted-foreground">
+                            Diese Nachricht wird sofort beim Eintreten des Ereignisses gesendet (keine Verzögerung möglich).
+                          </p>
+                        )}
 
                         {/* Template preview */}
                         {templateId !== 'none' && (

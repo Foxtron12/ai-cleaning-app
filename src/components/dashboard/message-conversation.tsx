@@ -69,6 +69,10 @@ export function MessageConversation({
   const [messageText, setMessageText] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [registrationLink, setRegistrationLink] = useState<string | undefined>(undefined)
+  // BUG-1 fix: pagination for messages ("Ältere laden")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageCount, setPageCount] = useState(1)
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -114,9 +118,10 @@ export function MessageConversation({
     async function loadMessages() {
       setIsLoading(true)
       setError(null)
+      setCurrentPage(1)
 
       try {
-        const res = await fetch(`/api/messages/${thread.booking_id}`)
+        const res = await fetch(`/api/messages/${thread.booking_id}?page=1`)
         if (!res.ok) {
           const data = await res.json()
           throw new Error(data.error ?? 'Fehler beim Laden der Nachrichten')
@@ -129,6 +134,8 @@ export function MessageConversation({
             (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
           )
           setMessages(sorted)
+          setPageCount(typeof data.page_count === 'number' ? data.page_count : 1)
+          setCurrentPage(typeof data.page === 'number' ? data.page : 1)
         }
       } catch (err) {
         if (!cancelled) {
@@ -144,6 +151,35 @@ export function MessageConversation({
     loadMessages()
     return () => { cancelled = true }
   }, [thread.booking_id])
+
+  // BUG-1 fix: load older messages on demand
+  const loadOlderMessages = useCallback(async () => {
+    if (isLoadingOlder || currentPage >= pageCount) return
+    setIsLoadingOlder(true)
+    try {
+      const nextPage = currentPage + 1
+      const res = await fetch(`/api/messages/${thread.booking_id}?page=${nextPage}`)
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error ?? 'Fehler beim Laden älterer Nachrichten')
+      }
+      const data = await res.json()
+      const older = (data.messages as SmoobuMessage[]).sort(
+        (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
+      )
+      // Prepend older messages, dedup by id to be safe
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id))
+        const filtered = older.filter((m) => !existingIds.has(m.id))
+        return [...filtered, ...prev]
+      })
+      setCurrentPage(nextPage)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Fehler beim Laden')
+    } finally {
+      setIsLoadingOlder(false)
+    }
+  }, [thread.booking_id, currentPage, pageCount, isLoadingOlder])
 
   // Scroll to bottom when messages load or change
   useEffect(() => {
@@ -181,6 +217,17 @@ export function MessageConversation({
       })
 
       if (!res.ok) {
+        // BUG-2 fix: Surface 429 (rate-limit) with retry hint instead of generic error
+        if (res.status === 429) {
+          const data = await res.json().catch(() => ({}))
+          const retryAfter =
+            data.retryAfterSec ??
+            parseInt(res.headers.get('Retry-After') ?? '60', 10)
+          const seconds = Number.isFinite(retryAfter) ? retryAfter : 60
+          throw new Error(
+            `Zu viele Nachrichten – bitte in ${seconds} Sekunden erneut versuchen.`
+          )
+        }
         const data = await res.json()
         throw new Error(data.error ?? 'Nachricht konnte nicht gesendet werden')
       }
@@ -224,7 +271,8 @@ export function MessageConversation({
     checkOutDate: thread.departure ? format(new Date(thread.departure), 'dd.MM.yyyy') : '',
     numberOfGuests: String(thread.adults ?? 1),
     preCheckInLink: registrationLink,
-    guestAreaLateCheckOutLink: registrationLink ? registrationLink.replace('/register/', '/area/') : undefined,
+    // PROJ-19 N2: /guest/area/[token] not implemented; placeholder is rendered empty.
+    guestAreaLateCheckOutLink: undefined,
     companyName,
     bookingNumber: String(thread.booking_id),
   }
@@ -278,6 +326,25 @@ export function MessageConversation({
         ) : (
           <ScrollArea className="h-full" ref={scrollRef}>
             <div className="flex flex-col gap-2 p-4">
+              {currentPage < pageCount && (
+                <div className="flex items-center justify-center mb-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadOlderMessages}
+                    disabled={isLoadingOlder}
+                  >
+                    {isLoadingOlder ? (
+                      <>
+                        <Loader2 className="size-3 animate-spin mr-2" />
+                        Lade älter Nachrichten...
+                      </>
+                    ) : (
+                      'Ältere laden'
+                    )}
+                  </Button>
+                </div>
+              )}
               {messages.map((msg, index) => {
                 const msgDate = new Date(msg.sent_at)
                 const prevMsg = index > 0 ? messages[index - 1] : null

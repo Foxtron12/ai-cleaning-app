@@ -43,11 +43,42 @@ export async function fireAutoMessageTrigger(
 
     if (!trigger?.template_id) return
 
-    // If delay > 0 and not called from cron, skip (would need a job queue for delayed sends)
-    // Cron-based triggers (checkin_reminder, follow_up, etc.) handle timing via schedule
+    // Event-based triggers (`new_booking`, `guest_checkin_completed`) cannot honor a delay
+    // because we have no job queue. Server-side ENFORCE delay=0 for these by ignoring it
+    // (rather than silently dropping the message).
+    const EVENT_BASED_TRIGGERS = ['new_booking', 'guest_checkin_completed'] as const
+    const isEventBased = (EVENT_BASED_TRIGGERS as readonly string[]).includes(eventType)
+
+    // Dedup: don't re-send the same event_type for the same booking if a successful send
+    // has already been logged. The cron path has its own dedup against auto_message_logs;
+    // this guards the event-based path against webhook retries / double-submissions.
+    if (!params.skipDelayCheck) {
+      const { data: priorLogs } = await supabase
+        .from('auto_message_logs')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('booking_id', bookingId)
+        .eq('event_type', eventType)
+        .eq('success', true)
+        .limit(1)
+
+      if (priorLogs && priorLogs.length > 0) {
+        console.log(`Auto-message dedup: ${eventType} already sent successfully for booking ${bookingId}, skipping`)
+        return
+      }
+    }
+
+    // BUG-10 fix: previously, non-event-based triggers (legacy `days_before_checkin`,
+    // `days_after_checkout`) with delay_minutes > 0 were silently dropped — no log row,
+    // no UI signal. These event types are not exposed in the current UI but may still
+    // exist on legacy rows. Rather than silently dropping the message, we now IGNORE
+    // delay_minutes uniformly (we have no job queue) and send immediately, with a
+    // server-side warning. The cron path (skipDelayCheck=true) bypasses this.
     if (trigger.delay_minutes > 0 && !params.skipDelayCheck) {
-      console.log(`Auto-message for ${eventType}: delay=${trigger.delay_minutes}min, skipping (not yet supported)`)
-      return
+      console.warn(
+        `Auto-message for ${eventType}: delay_minutes=${trigger.delay_minutes} ignored ` +
+          `(no job queue available; ${isEventBased ? 'event-based trigger' : 'legacy time-based trigger'}) — sending immediately`
+      )
     }
 
     // Load template
@@ -86,7 +117,10 @@ export async function fireAutoMessageTrigger(
       checkOutDate: checkOut ? format(new Date(checkOut), 'dd.MM.yyyy', { locale: de }) : '',
       numberOfGuests: String(params.numberOfGuests ?? 1),
       preCheckInLink: registrationLink,
-      guestAreaLateCheckOutLink: registrationLink ? registrationLink.replace('/register/', '/area/') : undefined,
+      // PROJ-19 N2 (2026-05-06): /guest/area/[token] route does not exist.
+      // Pass undefined → replaceTemplateVariables substitutes empty string for any
+      // legacy templates that still reference {{guestAreaLateCheckOutLink}}.
+      guestAreaLateCheckOutLink: undefined,
       companyName: profile?.brand_name || profile?.company_name || '',
       bookingNumber: String(externalId),
     })
@@ -97,12 +131,19 @@ export async function fireAutoMessageTrigger(
       await client.sendMessage(externalId, template.name, messageBody)
       success = true
     } catch (sendErr) {
-      error = sendErr instanceof Error ? sendErr.message : String(sendErr)
+      const rawMessage = sendErr instanceof Error ? sendErr.message : String(sendErr)
+      // Sanitize: Smoobu errors include the raw HTTP body (`Smoobu API error 4xx: <body>`)
+      // which may contain API-key fragments or guest details. Truncate to a safe length
+      // and strip anything after a likely API-key/header marker before persisting.
+      error = rawMessage
+        .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')
+        .replace(/api[-_]?key[\s:=]+[A-Za-z0-9._-]+/gi, 'api_key=[REDACTED]')
+        .slice(0, 500)
       console.error(`Auto-message send failed for ${eventType} (non-fatal):`, sendErr)
     }
 
-    // Log
-    await supabase.from('auto_message_logs').insert({
+    // Log (fire-and-forget but surface insert errors to server console)
+    const { error: logErr } = await supabase.from('auto_message_logs').insert({
       user_id: userId,
       booking_id: bookingId,
       trigger_id: trigger.id,
@@ -112,6 +153,9 @@ export async function fireAutoMessageTrigger(
       success,
       error,
     })
+    if (logErr) {
+      console.error(`Auto-message log insert failed for ${eventType} (non-fatal):`, logErr)
+    }
   } catch (err) {
     console.error(`Auto-message trigger check failed for ${eventType} (non-fatal):`, err)
   }

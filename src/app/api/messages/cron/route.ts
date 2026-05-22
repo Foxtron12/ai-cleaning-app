@@ -12,9 +12,13 @@ import { addDays, format } from 'date-fns'
  * - checkin_reminder: 1 day before check-in (only if online check-in NOT completed)
  * - follow_up: 1 day after check-in
  * - checkout_reminder: 1 day before check-out
- * - review_request: on check-out day (intended for 15:00, run cron at that time)
+ * - review_request: on check-out day (afternoon)
  *
- * Protected by CRON_SECRET or the service role key.
+ * Schedule (vercel.json): runs twice daily at 09:00 UTC and 15:00 UTC.
+ * Per-booking dedup via auto_message_logs ensures the same event_type cannot fire
+ * twice for the same booking on the same day across the two runs.
+ *
+ * Protected by CRON_SECRET via Authorization header.
  */
 export async function GET(req: NextRequest) {
   // Auth: accept CRON_SECRET header or query param
@@ -64,8 +68,15 @@ export async function GET(req: NextRequest) {
       triggersByUser.set(t.user_id, list)
     }
 
-    // Process each user
-    for (const [userId, userTriggers] of triggersByUser) {
+    // Process each user with a per-user time budget so a single slow Smoobu key
+    // can't starve later users (BUG #N10).
+    // Vercel Pro: 5min total → cap each user at 25s, run users in parallel batches.
+    const PER_USER_TIMEOUT_MS = 25_000
+    const PARALLEL_USERS = 5
+
+    const userIds = Array.from(triggersByUser.keys())
+    const processUser = async (userId: string) => {
+      const userTriggers = triggersByUser.get(userId)!
       const eventTypes = userTriggers.map((t) => t.event_type)
 
       // Determine which dates we need to query
@@ -79,7 +90,7 @@ export async function GET(req: NextRequest) {
       if (needsYesterday) dates.push(yesterday)
       if (needsToday) dates.push(today)
 
-      if (dates.length === 0) continue
+      if (dates.length === 0) return
 
       // Fetch relevant bookings for this user
       const { data: bookings } = await supabase
@@ -90,7 +101,7 @@ export async function GET(req: NextRequest) {
         .not('status', 'eq', 'cancelled')
         .limit(200)
 
-      if (!bookings || bookings.length === 0) continue
+      if (!bookings || bookings.length === 0) return
 
       // Load check-in status for all bookings (for checkin_reminder condition)
       const bookingIds = bookings.map((b) => b.id)
@@ -203,10 +214,15 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // review_request: check_out is today
+        // review_request: check_out is today AND it's the afternoon run (>=14:00 UTC).
+        // BUG #N5 fix: only fire review request after the guest has plausibly
+        // checked out. The morning run (09:00 UTC) is too early — most guests are
+        // still in the apartment. The 15:00 UTC cron run (added under #N4) handles
+        // this correctly. Booking status is already filtered to non-cancelled above.
         if (
           eventTypes.includes('review_request') &&
           booking.check_out === today &&
+          now.getUTCHours() >= 14 &&
           !sentSet.has(`${booking.id}:review_request`)
         ) {
           try {
@@ -229,6 +245,28 @@ export async function GET(req: NextRequest) {
           }
         }
       }
+    }
+
+    // Run users in parallel batches with a per-user timeout (BUG #N10).
+    // Promise.allSettled ensures one rejection cannot abort the whole run.
+    for (let i = 0; i < userIds.length; i += PARALLEL_USERS) {
+      const batch = userIds.slice(i, i + PARALLEL_USERS)
+      await Promise.allSettled(
+        batch.map((uid) =>
+          Promise.race([
+            processUser(uid),
+            new Promise<void>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`User ${uid} timed out after ${PER_USER_TIMEOUT_MS}ms`)),
+                PER_USER_TIMEOUT_MS
+              )
+            ),
+          ]).catch((err) => {
+            console.error(`Auto-message cron: user ${uid} failed:`, err)
+            results.errors++
+          })
+        )
+      )
     }
 
     return NextResponse.json({

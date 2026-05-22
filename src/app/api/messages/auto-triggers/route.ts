@@ -58,7 +58,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.issues }, { status: 400 })
   }
 
-  const { event_type, template_id, is_enabled, delay_minutes, days_offset } = parsed.data
+  const { event_type, template_id, is_enabled, days_offset } = parsed.data
+  let { delay_minutes } = parsed.data
+
+  // Event-based triggers (`new_booking`, `guest_checkin_completed`) fire from webhooks /
+  // form submissions and cannot honor a delay (no job queue). Force delay_minutes = 0
+  // server-side so the UI cannot create a "silently dropped" trigger configuration.
+  const EVENT_BASED_NO_DELAY = new Set(['new_booking', 'guest_checkin_completed'])
+  if (EVENT_BASED_NO_DELAY.has(event_type) && delay_minutes !== 0) {
+    delay_minutes = 0
+  }
+
+  // NOTE: We allow `is_enabled=true && template_id=null` because the UI flow is:
+  // (1) flip switch ON → (2) reveal template select → (3) pick a template.
+  // The dashboard surfaces a prominent warning while this state persists, and the
+  // backend `fireAutoMessageTrigger` short-circuits when template_id is null.
+  // See PROJ-20 #N1 / #N9 — the silent-no-op is mitigated by UI warnings, not by
+  // rejecting the API call (which would break the natural user flow).
 
   // Check if trigger already exists (upsert)
   const { data: existing } = await supabase

@@ -343,6 +343,12 @@ export class SmoobuClient {
 
       const details = reservationDetails.get(t.booking.id)
 
+      // Smoobu /threads does not expose a per-thread unread counter.
+      // Heuristic: if the latest message is from the guest (type=1 / 'guest'),
+      // the host has not yet replied → mark as 1 unread. Otherwise 0.
+      // BUG-7 fix: previously hardcoded to 0; this surfaces "needs reply" threads.
+      const unreadCount = lastMsg?.type === 'guest' ? 1 : 0
+
       return {
         booking_id: t.booking.id,
         guest_name: t.booking.guest_name ?? 'Unbekannter Gast',
@@ -352,7 +358,7 @@ export class SmoobuClient {
         },
         channel: details?.channel ?? 'Direct',
         last_message: lastMsg,
-        unread_count: 0,
+        unread_count: unreadCount,
         arrival: details?.arrival ?? '',
         departure: details?.departure ?? '',
         adults: details?.adults ?? 1,
@@ -373,11 +379,14 @@ export class SmoobuClient {
     const map = new Map<number, { channel: string; arrival: string; departure: string; adults: number }>()
     if (bookingIds.length === 0) return map
 
-    // Fetch reservations for a wide date range to cover all threads
-    const sixMonthsAgo = new Date()
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
-    const from = sixMonthsAgo.toISOString().split('T')[0]
-    const to = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    // Fetch reservations for a wide date range to cover all threads.
+    // BUG-9 fix: previously ±6 months / +90 days lost enrichment for older threads.
+    // Threads can persist long after a stay, so we widen to ±2 years which still
+    // bounds the API call but covers virtually all active conversations.
+    const twoYearsAgo = new Date()
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2)
+    const from = twoYearsAgo.toISOString().split('T')[0]
+    const to = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
     try {
       const reservations = await this.getReservations({ from, to, pageSize: 100 })
@@ -398,8 +407,13 @@ export class SmoobuClient {
     return map
   }
 
-  /** Fetch messages for a specific reservation from Smoobu */
-  async getMessages(reservationId: number, page?: number): Promise<SmoobuMessage[]> {
+  /** Fetch messages for a specific reservation from Smoobu.
+   *  Returns messages plus pagination metadata (BUG-1: enables "Ältere laden" UX).
+   */
+  async getMessages(
+    reservationId: number,
+    page?: number
+  ): Promise<{ messages: SmoobuMessage[]; page: number; page_count: number }> {
     const searchParams = new URLSearchParams()
     if (page) searchParams.set('page', String(page))
 
@@ -418,9 +432,9 @@ export class SmoobuClient {
       }>
     }>(`/reservations/${reservationId}/messages${searchParams.toString() ? `?${searchParams}` : ''}`)
 
-    const messages = response.messages ?? []
+    const rawMessages = response.messages ?? []
 
-    return messages.map((msg, index) => {
+    const messages = rawMessages.map((msg, index) => {
       // Smoobu uses type: 1 = inbox (guest), 2 = outbox (host)
       const isHost = msg.type === 2
 
@@ -432,6 +446,12 @@ export class SmoobuClient {
         type: (isHost ? 'host' : 'guest') as 'guest' | 'host',
       }
     })
+
+    return {
+      messages,
+      page: response.page ?? page ?? 1,
+      page_count: response.page_count ?? 1,
+    }
   }
 
   /** Send a message to a guest via Smoobu (routed to OTA channel: Airbnb, Booking.com, or email for direct bookings) */
