@@ -13,6 +13,7 @@ import { CreateBookingWizard } from '@/components/dashboard/create-booking-wizar
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { calculateAccommodationTax, getTaxConfigForProperty, getCleaningFee } from '@/lib/calculators/accommodation-tax'
+import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
 import {
   Select,
   SelectContent,
@@ -77,9 +78,7 @@ function exportXLSX(bookings: BookingWithProperty[], isKleinunternehmer: boolean
       ? (b.amount_gross ?? 0)
       : (b.amount_gross ?? 0) + cityTax
 
-    const bruttoWithoutCityTax = b.channel === 'Booking.com'
-      ? (b.amount_gross ?? 0) - cityTax
-      : (b.amount_gross ?? 0)
+    const bruttoWithoutCityTax = getAccommodationGrossWithoutCityTax(b)
 
     // Netto = Brutto bei Kleinunternehmer oder USt-befreiter Buchung (keine 7% USt rausrechnen)
     const bookingVatExempt = (b as unknown as { vat_exempt?: boolean }).vat_exempt === true

@@ -26,7 +26,8 @@ import { Separator } from '@/components/ui/separator'
 import type { Booking, Property, CityTaxRule, Settings } from '@/lib/types'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
-import { startOfMonth, endOfMonth, differenceInCalendarDays, addMonths, format } from 'date-fns'
+import { splitBookingByMonth } from '@/lib/calculators/booking-month-split'
+import { endOfMonth, format } from 'date-fns'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -147,53 +148,6 @@ function getDateRangeForChemnitz(
   }
 }
 
-function splitBookingByMonth(booking: BookingWithProp, rangeFrom: string, rangeTo: string): BookingWithProp[] {
-  const checkIn = new Date(booking.check_in + 'T00:00:00')
-  const checkOut = new Date(booking.check_out + 'T00:00:00')
-  const totalNights = booking.nights ?? differenceInCalendarDays(checkOut, checkIn)
-  if (totalNights <= 0) return [booking]
-
-  if (checkIn.getMonth() === checkOut.getMonth() && checkIn.getFullYear() === checkOut.getFullYear()) {
-    if (booking.check_out > rangeFrom && booking.check_in <= rangeTo) {
-      return [booking]
-    }
-    return []
-  }
-
-  const segments: BookingWithProp[] = []
-  let current = startOfMonth(checkIn)
-
-  while (current <= checkOut) {
-    const segStart = checkIn > current ? checkIn : current
-    const nextMonthStart = addMonths(current, 1)
-    const segNightsActual = differenceInCalendarDays(checkOut < nextMonthStart ? checkOut : nextMonthStart, segStart)
-
-    if (segNightsActual > 0) {
-      const segCheckIn = format(segStart, 'yyyy-MM-dd')
-      const segCheckOut = format(checkOut < nextMonthStart ? checkOut : nextMonthStart, 'yyyy-MM-dd')
-
-      if (segCheckOut > rangeFrom && segCheckIn <= rangeTo) {
-        const ratio = segNightsActual / totalNights
-        segments.push({
-          ...booking,
-          check_in: segCheckIn,
-          check_out: segCheckOut,
-          nights: segNightsActual,
-          amount_gross: booking.amount_gross !== null ? Math.round(booking.amount_gross * ratio * 100) / 100 : null,
-          cleaning_fee: booking.cleaning_fee !== null ? Math.round(booking.cleaning_fee * ratio * 100) / 100 : null,
-          amount_host_payout: booking.amount_host_payout !== null ? Math.round(booking.amount_host_payout * ratio * 100) / 100 : null,
-          commission_amount: booking.commission_amount !== null ? Math.round(booking.commission_amount * ratio * 100) / 100 : null,
-        })
-      }
-    }
-
-    current = nextMonthStart
-    if (current > checkOut) break
-  }
-
-  return segments.length > 0 ? segments : []
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function VordruckDialog({ city, bookings, cityRules, properties, settings }: VordruckDialogProps) {
@@ -267,7 +221,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
         : null
       if (booking.check_out <= dateRange.from || booking.check_in > dateRange.to) continue
 
-      const segments = splitBookingByMonth(booking, dateRange.from, dateRange.to)
+      const segments = splitBookingByMonth(booking, dateRange.from, dateRange.to, true)
       for (const seg of segments) {
         const tax = config
           ? calculateAccommodationTax(seg, config, booking.properties?.ota_remits_tax ?? [])

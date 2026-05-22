@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input'
 import { BookingStatusBadge } from './booking-status-badge'
 import { GuestRegistrationLinkManager } from './guest-registration-link-manager'
 import type { BookingWithProperty } from '@/lib/types'
-import { getCleaningFee } from '@/lib/calculators/booking-price'
+import { getCleaningFee, getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
 import { calculateAccommodationTax, getTaxConfigForProperty } from '@/lib/calculators/accommodation-tax'
 
 function formatCurrency(value: number | null): string {
@@ -925,12 +925,7 @@ export function BookingDetailSheet({
       : (booking.amount_gross ?? 0) + cityTax
 
   // Bruttobetrag = booking price incl. commission, excl. city tax
-  // Airbnb: amount_gross already excludes city tax → use as-is
-  // Booking.com: subtract city tax from amount_gross
-  const bruttoWithoutCityTax =
-    booking.channel === 'Booking.com'
-      ? (booking.amount_gross ?? 0) - cityTax
-      : (booking.amount_gross ?? 0)
+  const bruttoWithoutCityTax = getAccommodationGrossWithoutCityTax(booking)
 
   // Nettobetrag = Bruttobetrag ohne 7% MwSt (Beherbergungsleistung).
   // Bei Kleinunternehmer oder USt-befreiter Buchung: Netto = Brutto (keine USt auszurechnen).
