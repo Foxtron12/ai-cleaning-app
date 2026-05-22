@@ -45,8 +45,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Booking has no Smoobu ID – cannot send message' }, { status: 400 })
   }
 
-  // Get or create token
+  // Get or create token — capture id for both branches so status update works either way
   let token: string
+  let tokenId: string
   const { data: existingToken } = await supabase
     .from('guest_registration_tokens')
     .select('id, token')
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
 
   if (existingToken) {
     token = existingToken.token
+    tokenId = existingToken.id
   } else {
     const expiresAt = new Date(booking.check_out)
     expiresAt.setDate(expiresAt.getDate() + 30)
@@ -73,6 +75,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create token' }, { status: 500 })
     }
     token = newToken.token
+    tokenId = newToken.id
   }
 
   // Build registration URL
@@ -108,14 +111,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to send message via Smoobu' }, { status: 502 })
   }
 
-  // Update token status to 'sent'
-  const tokenId = existingToken?.id
-  if (tokenId) {
-    await supabase
-      .from('guest_registration_tokens')
-      .update({ status: 'sent' })
-      .eq('id', tokenId)
-  }
+  // Update token status to 'sent' (works for both freshly created and existing tokens)
+  await supabase
+    .from('guest_registration_tokens')
+    .update({ status: 'sent' })
+    .eq('id', tokenId)
 
   return NextResponse.json({
     success: true,

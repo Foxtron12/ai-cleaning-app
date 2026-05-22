@@ -28,28 +28,79 @@ setInterval(() => {
   }
 }, 60_000)
 
+// ─── CSRF protection for public POST (BUG-5) ────────────────────────────────
+// Risk model: a UUID-v4 token in the URL acts as the bearer credential, so an
+// attacker who already has the token could spoof a submission. To raise the
+// bar against drive-by CSRF (where the token is somehow leaked into the
+// referrer chain or copy-pasted into a malicious form) we additionally
+// require the Origin or Referer to match our own host. Same-site cookies
+// are not used here (no session), so this is purely defense in depth.
+function isAllowedOrigin(request: NextRequest): boolean {
+  const origin = request.headers.get('origin')
+  const referer = request.headers.get('referer')
+
+  // Allow when neither header is present (e.g. server-side curl tests, mobile
+  // webviews that strip the headers). The token UUID alone still gates access.
+  if (!origin && !referer) return true
+
+  const expectedHost = request.headers.get('host')
+  if (!expectedHost) return true
+
+  const allowedHosts = new Set<string>()
+  allowedHosts.add(expectedHost)
+  // NEXT_PUBLIC_SITE_URL is the canonical public URL — also allow it.
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+  if (siteUrl) {
+    try {
+      allowedHosts.add(new URL(siteUrl).host)
+    } catch {
+      // ignore malformed env
+    }
+  }
+
+  const checkUrl = (raw: string | null): boolean => {
+    if (!raw) return true
+    try {
+      const u = new URL(raw)
+      return allowedHosts.has(u.host)
+    } catch {
+      return false
+    }
+  }
+
+  return checkUrl(origin) && checkUrl(referer)
+}
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // ─── Zod schema for form submission ─────────────────────────────────────────
+// ISO date format YYYY-MM-DD (or empty/undefined). Anything else is rejected
+// to prevent arbitrary strings (incl. XSS-y payloads) being stored in the DB.
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (expected YYYY-MM-DD)')
+
 const coTravellerSchema = z.object({
-  firstname: z.string().min(1),
-  lastname: z.string().min(1),
-  birthdate: z.string().optional(),
-  nationality: z.string().optional(),
+  firstname: z.string().min(1).max(100),
+  lastname: z.string().min(1).max(100),
+  birthdate: z.union([isoDate, z.literal('')]).optional(),
+  nationality: z.string().max(100).optional(),
 })
 
 const submissionSchema = z.object({
-  firstname: z.string().min(1),
-  lastname: z.string().min(1),
-  birthdate: z.string().optional(),
-  nationality: z.string().optional(),
-  street: z.string().optional(),
-  zip: z.string().min(1),
-  city: z.string().min(1),
-  country: z.string().min(1),
+  firstname: z.string().min(1).max(100),
+  lastname: z.string().min(1).max(100),
+  birthdate: z.union([isoDate, z.literal('')]).optional(),
+  // BUG-6: client form marks these as required; align Zod with HTML form
+  nationality: z.string().min(1).max(100),
+  street: z.string().min(1).max(200),
+  zip: z.string().min(1).max(20),
+  city: z.string().min(1).max(100),
+  country: z.string().min(1).max(100),
   trip_purpose: z.enum(['leisure', 'business', 'unknown']).optional(),
-  signature: z.string().optional(),
-  co_travellers: z.array(coTravellerSchema).optional(),
+  signature: z.string().max(500_000).optional(),
+  // BUG-3: cap co_travellers length to prevent DoS via huge payloads.
+  co_travellers: z.array(coTravellerSchema).max(50).optional(),
 })
 
 /**
@@ -169,6 +220,12 @@ export async function POST(
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 
+  // BUG-5 fix: CSRF defense-in-depth — reject cross-origin Origin/Referer.
+  // Risk model documented above and in PROJ-19 spec.
+  if (!isAllowedOrigin(request)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const { token } = await params
   if (!UUID_REGEX.test(token)) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 400 })
@@ -248,13 +305,17 @@ export async function POST(
 
   if (existingForm) {
     // Update existing form
-    await supabase
+    const { error: updateErr } = await supabase
       .from('registration_forms')
       .update(formData)
       .eq('id', existingForm.id)
+    if (updateErr) {
+      console.error('Guest registration: failed to update registration_forms:', updateErr)
+      return NextResponse.json({ error: 'Failed to save registration data' }, { status: 500 })
+    }
   } else {
     // Insert new form
-    await supabase
+    const { error: insertErr } = await supabase
       .from('registration_forms')
       .insert({
         ...formData,
@@ -272,6 +333,10 @@ export async function POST(
           zip: property?.zip ?? '',
         },
       })
+    if (insertErr) {
+      console.error('Guest registration: failed to insert registration_forms:', insertErr)
+      return NextResponse.json({ error: 'Failed to save registration data' }, { status: 500 })
+    }
   }
 
   // Upload ID scan to storage if provided (non-German guests)
@@ -315,20 +380,28 @@ export async function POST(
 
   if (Object.keys(bookingUpdate).length > 0) {
     bookingUpdate.updated_at = new Date().toISOString()
-    await supabase
+    const { error: bookingErr } = await supabase
       .from('bookings')
       .update(bookingUpdate)
       .eq('id', regToken.booking_id)
+    if (bookingErr) {
+      // Non-fatal — guest registration was saved; booking enrichment failed.
+      console.error('Guest registration: failed to update booking (non-fatal):', bookingErr)
+    }
   }
 
   // Update token status
-  await supabase
+  const { error: tokenStatusErr } = await supabase
     .from('guest_registration_tokens')
     .update({
       status: 'completed',
       completed_at: new Date().toISOString(),
     })
     .eq('id', regToken.id)
+  if (tokenStatusErr) {
+    // Non-fatal — registration was saved; status update failed.
+    console.error('Guest registration: failed to update token status (non-fatal):', tokenStatusErr)
+  }
 
   // Sync to Smoobu (best-effort, don't fail if this errors)
   if (booking.external_id) {
@@ -360,6 +433,8 @@ export async function POST(
 
   // ─── Auto-message trigger: send message after check-in completion ──────────
   if (booking.external_id) {
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+    const registrationLink = `${siteUrl}/guest/register/${token}`
     await fireAutoMessageTrigger(supabase, {
       userId: regToken.user_id,
       bookingId: regToken.booking_id,
@@ -370,6 +445,7 @@ export async function POST(
       checkIn: booking.check_in,
       checkOut: booking.check_out,
       numberOfGuests: booking.adults ?? 1,
+      registrationLink,
     })
   }
 
