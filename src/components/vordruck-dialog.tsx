@@ -27,7 +27,7 @@ import type { Booking, Property, CityTaxRule, Settings } from '@/lib/types'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
 import { splitBookingByMonth } from '@/lib/calculators/booking-month-split'
-import { endOfMonth, format } from 'date-fns'
+import { startOfMonth, endOfMonth, format } from 'date-fns'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
