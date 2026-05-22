@@ -33,9 +33,9 @@
 | PROJ-17 | Buchungs-Dokumenten-Upload (BhSt-Befreiungsbelege, Supabase Storage) | In Review | [PROJ-17-buchungs-dokumenten-upload.md](PROJ-17-buchungs-dokumenten-upload.md) | 2026-03-15 |
 | PROJ-18 | Stornorechnung & Gutschrift | In Progress | [PROJ-18-stornorechnung-gutschrift.md](PROJ-18-stornorechnung-gutschrift.md) | 2026-03-19 |
 
-| PROJ-19 | Gäste-Registrierungsformular (Self-Service Meldeschein) | In Review | [PROJ-19-gaeste-registrierung.md](PROJ-19-gaeste-registrierung.md) | 2026-03-23 |
+| PROJ-19 | Gäste-Registrierungsformular (Self-Service Meldeschein) | In Review – Ready for re-QA (2026-05-06 fixes applied) | [PROJ-19-gaeste-registrierung.md](PROJ-19-gaeste-registrierung.md) | 2026-03-23 |
 
-| PROJ-20 | Messaging-Tab (Smoobu-Nachrichten) | In Review | [PROJ-20-messaging.md](PROJ-20-messaging.md) | 2026-03-23 |
+| PROJ-20 | Messaging-Tab (Smoobu-Nachrichten) | In Review – Ready for re-QA (2026-05-06 fixes applied) | [PROJ-20-messaging.md](PROJ-20-messaging.md) | 2026-03-23 |
 
 | PROJ-21 | Steuerbefreiungen pro Buchung (USt + BhSt) | In Progress | [PROJ-21-steuerbefreiungen-buchung.md](PROJ-21-steuerbefreiungen-buchung.md) | 2026-04-24 |
 
