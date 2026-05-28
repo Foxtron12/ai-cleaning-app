@@ -65,7 +65,7 @@ interface RatesResult {
 const guestFormSchema = z.object({
   guestFirstname: z.string().min(1, 'Vorname ist erforderlich'),
   guestLastname: z.string().min(1, 'Nachname ist erforderlich'),
-  guestEmail: z.string().email('Ungültige E-Mail-Adresse'),
+  guestEmail: z.string().email('Ungültige E-Mail-Adresse').optional().or(z.literal('')),
   guestPhone: z.string().optional(),
   guestStreet: z.string().optional(),
   guestZip: z.string().optional(),
@@ -927,7 +927,7 @@ export function CreateBookingWizard({
                   name="guestEmail"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>E-Mail *</FormLabel>
+                      <FormLabel>E-Mail</FormLabel>
                       <FormControl>
                         <Input {...field} type="email" placeholder="max@beispiel.de" />
                       </FormControl>
@@ -1206,7 +1206,7 @@ export function CreateBookingWizard({
                 label="Name"
                 value={`${form.getValues('guestFirstname')} ${form.getValues('guestLastname')}`}
               />
-              <SummaryRow label="E-Mail" value={form.getValues('guestEmail')} />
+              <SummaryRow label="E-Mail" value={form.getValues('guestEmail') ?? ''} />
               <SummaryRow label="Telefon" value={form.getValues('guestPhone') ?? ''} />
               <SummaryRow
                 label="Adresse"
