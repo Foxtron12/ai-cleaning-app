@@ -93,6 +93,11 @@ export async function POST(request: NextRequest) {
 
     const client = new SmoobuClient({ apiKey })
 
+    // Smoobu's /reservations endpoint requires a valid email (else HTTP 400).
+    // When the host leaves it blank, send a non-deliverable placeholder to Smoobu
+    // but keep our own guest_email null.
+    const smoobuEmail = data.guestEmail || (process.env.BOOKING_PLACEHOLDER_EMAIL || 'noreply@norastays.com')
+
     // 1. Create reservation in Smoobu
     const totalPrice = data.accommodationPrice + data.cleaningFee
     let smoobuResult: { id: number }
@@ -104,7 +109,7 @@ export async function POST(request: NextRequest) {
         departureDate: data.checkOut,
         firstName: data.guestFirstname,
         lastName: data.guestLastname,
-        email: data.guestEmail ?? '',
+        email: smoobuEmail,
         phone: data.guestPhone ?? '',
         adults: data.adults,
         children: data.children,
@@ -129,7 +134,7 @@ export async function POST(request: NextRequest) {
       await client.updateReservation(smoobuResult.id, {
         firstName: data.guestFirstname,
         lastName: data.guestLastname,
-        email: data.guestEmail ?? '',
+        email: smoobuEmail,
         phone: data.guestPhone ?? '',
         street: data.guestStreet,
         city: data.guestCity,
