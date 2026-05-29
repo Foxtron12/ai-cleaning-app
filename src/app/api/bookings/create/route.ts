@@ -3,7 +3,7 @@ import Stripe from 'stripe'
 import { SmoobuClient, calculateBookingStatus } from '@/lib/smoobu'
 import { getServerUser, createServiceClient } from '@/lib/supabase-server'
 import { decrypt } from '@/lib/encryption'
-import { fireAutoMessageTrigger } from '@/lib/auto-message'
+import { fireAutoMessageTrigger, fireDueTimeBasedTriggers } from '@/lib/auto-message'
 import { z } from 'zod'
 
 
@@ -345,6 +345,21 @@ export async function POST(request: NextRequest) {
         bookingId: booking.id,
         externalId: smoobuResult.id,
         eventType: 'new_booking',
+        guestName,
+        propertyName,
+        checkIn: data.checkIn,
+        checkOut: data.checkOut,
+        numberOfGuests: data.adults + data.children,
+        registrationLink,
+      })
+
+      // Catch-up: fire any time-based reminder already due today for this booking
+      // (e.g. check-out tomorrow), so a booking created after the last cron run isn't
+      // skipped. Dedup prevents a later double-send by the cron.
+      await fireDueTimeBasedTriggers(serviceClient, {
+        userId: user.id,
+        bookingId: booking.id,
+        externalId: smoobuResult.id,
         guestName,
         propertyName,
         checkIn: data.checkIn,

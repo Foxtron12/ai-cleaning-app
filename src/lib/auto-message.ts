@@ -1,7 +1,7 @@
 import { SmoobuClient } from '@/lib/smoobu'
 import { decrypt } from '@/lib/encryption'
 import { replaceTemplateVariables } from '@/lib/message-template-defaults'
-import { format } from 'date-fns'
+import { format, addDays } from 'date-fns'
 import { de } from 'date-fns/locale'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -158,5 +158,101 @@ export async function fireAutoMessageTrigger(
     }
   } catch (err) {
     console.error(`Auto-message trigger check failed for ${eventType} (non-fatal):`, err)
+  }
+}
+
+/**
+ * Fires time-based reminders that are ALREADY DUE for a single booking, right when
+ * the booking is created.
+ *
+ * The cron (/api/messages/cron) only evaluates time-based triggers at its fixed run
+ * times (09:00 / 15:00 UTC). A booking that arrives AFTER the last run of the day with
+ * check-out the next day would otherwise miss its checkout_reminder entirely (the next
+ * morning check_out === today, not tomorrow). This runs the same date conditions for the
+ * one new booking so a due reminder is not lost.
+ *
+ * NOT "send immediately for every booking": a booking with check-out weeks away triggers
+ * nothing here. It only fires what the cron itself would have fired today. Dedup in
+ * fireAutoMessageTrigger (skipDelayCheck omitted) prevents a double-send if the cron later
+ * runs over the same booking.
+ */
+export async function fireDueTimeBasedTriggers(
+  supabase: SupabaseClient,
+  params: {
+    userId: string
+    bookingId: string
+    externalId: number
+    guestName: string
+    propertyName: string
+    checkIn: string
+    checkOut: string
+    numberOfGuests?: number
+    registrationLink?: string
+  }
+): Promise<void> {
+  const { userId, bookingId, externalId, guestName, propertyName, checkIn, checkOut } = params
+
+  try {
+    const now = new Date()
+    const today = format(now, 'yyyy-MM-dd')
+    const tomorrow = format(addDays(now, 1), 'yyyy-MM-dd')
+    const yesterday = format(addDays(now, -1), 'yyyy-MM-dd')
+
+    const { data: triggers } = await supabase
+      .from('auto_message_triggers')
+      .select('event_type')
+      .eq('user_id', userId)
+      .eq('is_enabled', true)
+      .in('event_type', ['checkin_reminder', 'follow_up', 'checkout_reminder', 'review_request'])
+      .not('template_id', 'is', null)
+
+    if (!triggers || triggers.length === 0) return
+    const eventTypes = new Set(triggers.map((t) => t.event_type))
+
+    const fire = (eventType: string) =>
+      fireAutoMessageTrigger(supabase, {
+        userId,
+        bookingId,
+        externalId,
+        eventType,
+        guestName,
+        propertyName,
+        checkIn,
+        checkOut,
+        numberOfGuests: params.numberOfGuests,
+        registrationLink: params.registrationLink,
+        // skipDelayCheck omitted on purpose: fireAutoMessageTrigger's dedup against
+        // auto_message_logs must run so the cron can't re-send the same reminder later.
+      })
+
+    // checkin_reminder: check-in is tomorrow AND online check-in NOT completed
+    if (eventTypes.has('checkin_reminder') && checkIn === tomorrow) {
+      const { data: token } = await supabase
+        .from('guest_registration_tokens')
+        .select('status')
+        .eq('booking_id', bookingId)
+        .maybeSingle()
+      if (!token || token.status !== 'completed') {
+        await fire('checkin_reminder')
+      }
+    }
+
+    // follow_up: check-in was yesterday
+    if (eventTypes.has('follow_up') && checkIn === yesterday) {
+      await fire('follow_up')
+    }
+
+    // checkout_reminder: check-out is tomorrow
+    if (eventTypes.has('checkout_reminder') && checkOut === tomorrow) {
+      await fire('checkout_reminder')
+    }
+
+    // review_request: check-out is today AND it's the afternoon (>=14:00 UTC), matching
+    // the cron's guard so reviews are not requested while the guest is still checking out.
+    if (eventTypes.has('review_request') && checkOut === today && now.getUTCHours() >= 14) {
+      await fire('review_request')
+    }
+  } catch (err) {
+    console.error('fireDueTimeBasedTriggers failed (non-fatal):', err)
   }
 }

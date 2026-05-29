@@ -4,7 +4,7 @@ import {
   mapSmoobuReservation,
   calculateBookingStatus,
 } from '@/lib/smoobu'
-import { fireAutoMessageTrigger } from '@/lib/auto-message'
+import { fireAutoMessageTrigger, fireDueTimeBasedTriggers } from '@/lib/auto-message'
 import type { SmoobuReservation } from '@/lib/types'
 import type { Json } from '@/lib/database.types'
 import { z } from 'zod'
@@ -298,6 +298,21 @@ export async function POST(
           bookingId: inserted.id,
           externalId: reservation.id,
           eventType: 'new_booking',
+          guestName,
+          propertyName: property.name,
+          checkIn: reservation.arrival,
+          checkOut: reservation.departure,
+          numberOfGuests: reservation.adults ?? 1,
+          registrationLink: registrationToken,
+        })
+
+        // Catch-up: a booking arriving after the last cron run could otherwise miss a
+        // reminder that is already due today (e.g. check-out tomorrow). Fire any due
+        // time-based reminder now; dedup prevents a later double-send by the cron.
+        await fireDueTimeBasedTriggers(supabase, {
+          userId,
+          bookingId: inserted.id,
+          externalId: reservation.id,
           guestName,
           propertyName: property.name,
           checkIn: reservation.arrival,
