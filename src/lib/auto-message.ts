@@ -123,6 +123,7 @@ export async function fireAutoMessageTrigger(
       guestAreaLateCheckOutLink: undefined,
       companyName: profile?.brand_name || profile?.company_name || '',
       bookingNumber: String(externalId),
+      propertyName,
     })
 
     let success = false

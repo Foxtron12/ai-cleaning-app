@@ -139,10 +139,14 @@ export const TEMPLATE_VARIABLES = [
   { key: '{{guestAreaLateCheckOutLink}}', label: 'Late-Checkout Link (veraltet)', description: 'VERALTET — Gäste-Portal noch nicht verfügbar; Variable wird leer ersetzt.' },
   { key: '{{companyName}}', label: 'Markenname', description: 'Markenname Ihres Unternehmens (aus Profil)' },
   { key: '{{bookingNumber}}', label: 'Buchungsnummer', description: 'Smoobu Buchungsnummer' },
+  { key: '{{propertyName}}', label: 'Objekt', description: 'Name der gebuchten Unterkunft' },
 ] as const
 
 /**
  * Replace template variables with actual booking data.
+ *
+ * Missing variables are replaced with an empty string rather than left as a raw
+ * `{{key}}` token, so half-rendered templates never reach the guest.
  */
 export function replaceTemplateVariables(
   template: string,
@@ -155,40 +159,25 @@ export function replaceTemplateVariables(
     guestAreaLateCheckOutLink?: string
     companyName?: string
     bookingNumber?: string
+    propertyName?: string
   }
 ): string {
+  const replacements: Record<string, string | undefined> = {
+    guestFirstName: variables.guestFirstName,
+    checkInDate: variables.checkInDate,
+    checkOutDate: variables.checkOutDate,
+    numberOfGuests: variables.numberOfGuests,
+    preCheckInLink: variables.preCheckInLink,
+    guestAreaLateCheckOutLink: variables.guestAreaLateCheckOutLink,
+    companyName: variables.companyName,
+    bookingNumber: variables.bookingNumber,
+    propertyName: variables.propertyName,
+  }
+
   let result = template
-
-  if (variables.companyName) {
-    result = result.replace(/\{\{companyName\}\}/g, variables.companyName)
+  for (const [key, value] of Object.entries(replacements)) {
+    const pattern = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g')
+    result = result.replace(pattern, value ?? '')
   }
-  if (variables.guestFirstName) {
-    result = result.replace(/\{\{guestFirstName\}\}/g, variables.guestFirstName)
-  }
-  if (variables.checkInDate) {
-    result = result.replace(/\{\{checkInDate\}\}/g, variables.checkInDate)
-  }
-  if (variables.checkOutDate) {
-    result = result.replace(/\{\{checkOutDate\}\}/g, variables.checkOutDate)
-  }
-  if (variables.numberOfGuests) {
-    result = result.replace(/\{\{numberOfGuests\}\}/g, variables.numberOfGuests)
-  }
-  if (variables.preCheckInLink) {
-    result = result.replace(/\{\{preCheckInLink\}\}/g, variables.preCheckInLink)
-  } else {
-    result = result.replace(/\{\{preCheckInLink\}\}/g, '')
-  }
-  if (variables.guestAreaLateCheckOutLink) {
-    result = result.replace(/\{\{guestAreaLateCheckOutLink\}\}/g, variables.guestAreaLateCheckOutLink)
-  } else {
-    result = result.replace(/\{\{guestAreaLateCheckOutLink\}\}/g, '')
-  }
-  if (variables.bookingNumber) {
-    result = result.replace(/\{\{bookingNumber\}\}/g, variables.bookingNumber)
-  } else {
-    result = result.replace(/\{\{bookingNumber\}\}/g, '')
-  }
-
   return result
 }
