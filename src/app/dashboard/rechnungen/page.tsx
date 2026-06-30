@@ -637,6 +637,54 @@ function RechnungenContent() {
     if (totalNights <= 0) return []
 
     const grossTotal = booking.amount_gross ?? 0
+
+    // Gekuerzte Buchung: alte Monate mit Original-Anteilen einfrieren,
+    // letzter Monat behaelt seinen Original-Anteil (ueber neue Naechte-Anzahl verteilt).
+    const originalCheckOutStr = booking.original_check_out
+    if (originalCheckOutStr && originalCheckOutStr > booking.check_out) {
+      const originalCheckOut = new Date(originalCheckOutStr + 'T00:00:00')
+      const originalNights = differenceInCalendarDays(originalCheckOut, checkIn)
+      if (originalNights > 0) {
+        const segments: SplitSegment[] = []
+        let current = startOfMonth(checkIn)
+        while (current < originalCheckOut) {
+          const nextMonth = addMonths(current, 1)
+          const segStart = checkIn > current ? checkIn : current
+          const segEndOriginal = originalCheckOut < nextMonth ? originalCheckOut : nextMonth
+          const segNightsOriginal = differenceInCalendarDays(segEndOriginal, segStart)
+          if (segNightsOriginal > 0) {
+            const ratio = segNightsOriginal / originalNights
+            if (segEndOriginal <= checkOut) {
+              segments.push({
+                checkIn: format(segStart, 'yyyy-MM-dd'),
+                checkOut: format(segEndOriginal, 'yyyy-MM-dd'),
+                nights: segNightsOriginal,
+                ratio,
+                monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
+                amount: Math.round(grossTotal * ratio * 100) / 100,
+                selected: false,
+                alreadyInvoiced: false,
+              })
+            } else if (segStart < checkOut) {
+              const newNights = differenceInCalendarDays(checkOut, segStart)
+              segments.push({
+                checkIn: format(segStart, 'yyyy-MM-dd'),
+                checkOut: format(checkOut, 'yyyy-MM-dd'),
+                nights: newNights,
+                ratio,
+                monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
+                amount: Math.round(grossTotal * ratio * 100) / 100,
+                selected: false,
+                alreadyInvoiced: false,
+              })
+            }
+          }
+          current = nextMonth
+        }
+        return segments
+      }
+    }
+
     const segments: SplitSegment[] = []
     let current = startOfMonth(checkIn)
     while (current < checkOut) {

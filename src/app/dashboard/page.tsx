@@ -124,7 +124,7 @@ export default function DashboardPage() {
         const pendingToStr = format(addDays(now, 60), 'yyyy-MM-dd')
         const { data: pendingBookingRows } = await supabase
           .from('bookings')
-          .select('id, check_in, check_out, amount_gross, nights, status, guest_firstname, guest_lastname, property_id')
+          .select('id, check_in, check_out, amount_gross, nights, status, guest_firstname, guest_lastname, property_id, original_check_out')
           .neq('status', 'cancelled')
           .lte('check_in', pendingToStr)
           .gte('check_out', pendingFromStr)

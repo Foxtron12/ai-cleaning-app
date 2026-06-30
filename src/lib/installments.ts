@@ -152,6 +152,7 @@ export interface BookingForSegments {
   guest_firstname: string | null
   guest_lastname: string | null
   property_id: string | null
+  original_check_out?: string | null
 }
 
 export interface InvoicedPeriod {
@@ -186,6 +187,43 @@ function calculateSegments(booking: BookingForSegments): Array<{
   if (totalNights <= 0) return []
 
   const grossTotal = booking.amount_gross ?? 0
+
+  const originalCheckOutStr = booking.original_check_out
+  if (originalCheckOutStr && originalCheckOutStr > booking.check_out) {
+    const originalCheckOut = parseISO(originalCheckOutStr + 'T00:00:00')
+    const originalNights = differenceInCalendarDays(originalCheckOut, checkIn)
+    if (originalNights > 0) {
+      const segments: Array<{ checkIn: string; checkOut: string; monthLabel: string; amount: number }> = []
+      let current = startOfMonth(checkIn)
+      while (current < originalCheckOut) {
+        const nextMonth = addMonths(current, 1)
+        const segStart = checkIn > current ? checkIn : current
+        const segEndOriginal = originalCheckOut < nextMonth ? originalCheckOut : nextMonth
+        const segNightsOriginal = differenceInCalendarDays(segEndOriginal, segStart)
+        if (segNightsOriginal > 0) {
+          const ratio = segNightsOriginal / originalNights
+          if (segEndOriginal <= checkOut) {
+            segments.push({
+              checkIn: format(segStart, 'yyyy-MM-dd'),
+              checkOut: format(segEndOriginal, 'yyyy-MM-dd'),
+              monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
+              amount: Math.round(grossTotal * ratio * 100) / 100,
+            })
+          } else if (segStart < checkOut) {
+            segments.push({
+              checkIn: format(segStart, 'yyyy-MM-dd'),
+              checkOut: format(checkOut, 'yyyy-MM-dd'),
+              monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
+              amount: Math.round(grossTotal * ratio * 100) / 100,
+            })
+          }
+        }
+        current = nextMonth
+      }
+      return segments
+    }
+  }
+
   const segments: Array<{ checkIn: string; checkOut: string; monthLabel: string; amount: number }> = []
   let current = startOfMonth(checkIn)
   while (current < checkOut) {

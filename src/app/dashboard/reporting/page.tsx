@@ -113,6 +113,46 @@ function getProRataSegments(
 
   const rangeStart = new Date(rangeFrom + 'T00:00:00')
   const rangeEndExclusive = addDays(new Date(rangeTo + 'T00:00:00'), 1)
+
+  // Gekuerzte Buchung: Segmente mit Original-Anteilen, letzter Monat behaelt Original-Anteil ueber neue Naechte.
+  const originalCheckOutStr = b.original_check_out
+  if (originalCheckOutStr && originalCheckOutStr > b.check_out) {
+    const originalCheckOut = new Date(originalCheckOutStr + 'T00:00:00')
+    const originalNights = differenceInCalendarDays(originalCheckOut, checkIn)
+    if (originalNights > 0) {
+      const segments: Array<{ monthKey: string; nights: number; ratio: number }> = []
+      let current = startOfMonth(checkIn)
+      while (current < originalCheckOut) {
+        const nextMonth = addMonths(current, 1)
+        const segStart = checkIn > current ? checkIn : current
+        const segEndOriginal = originalCheckOut < nextMonth ? originalCheckOut : nextMonth
+        const segNightsOriginal = differenceInCalendarDays(segEndOriginal, segStart)
+        if (segNightsOriginal > 0) {
+          const ratio = segNightsOriginal / originalNights
+          let segNights = segNightsOriginal
+          let segEnd = segEndOriginal
+          if (segEndOriginal > checkOut) {
+            if (segStart >= checkOut) {
+              current = nextMonth
+              continue
+            }
+            segNights = differenceInCalendarDays(checkOut, segStart)
+            segEnd = checkOut
+          }
+          if (segEnd > rangeStart && segStart < rangeEndExclusive) {
+            segments.push({
+              monthKey: format(current, 'yyyy-MM'),
+              nights: segNights,
+              ratio,
+            })
+          }
+        }
+        current = nextMonth
+      }
+      return segments
+    }
+  }
+
   const effectiveStart = checkIn < rangeStart ? rangeStart : checkIn
   const effectiveEnd = checkOut < rangeEndExclusive ? checkOut : rangeEndExclusive
 
