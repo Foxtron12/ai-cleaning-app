@@ -119,6 +119,7 @@ export type Database = {
           invoice_recipient: string | null
           is_ready: boolean
           nights: number | null
+          original_check_out: string | null
           payment_status: string | null
           prepayment: number | null
           price_details: string | null
@@ -172,6 +173,7 @@ export type Database = {
           invoice_recipient?: string | null
           is_ready?: boolean
           nights?: number | null
+          original_check_out?: string | null
           payment_status?: string | null
           prepayment?: number | null
           price_details?: string | null
@@ -225,6 +227,7 @@ export type Database = {
           invoice_recipient?: string | null
           is_ready?: boolean
           nights?: number | null
+          original_check_out?: string | null
           payment_status?: string | null
           prepayment?: number | null
           price_details?: string | null
