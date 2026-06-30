@@ -132,27 +132,6 @@ export function calculateAccommodationTax(
   let taxableAmount: number
   let taxAmount: number
 
-  // Segment-Override: splitBookingByMonth setzt `_bhst_basis` auf gekuerzten
-  // Segmenten, weil dort `amount_gross` der Anzeige-Wert (ohne anteilige
-  // Reinigung) ist und die BhSt-Basis davon abweicht.
-  const overrideBasis = (booking as Booking & { _bhst_basis?: number })._bhst_basis
-  if (overrideBasis !== undefined && config.model === 'gross_percentage') {
-    taxableAmount = Math.round(overrideBasis * 100) / 100
-    taxAmount = Math.round(overrideBasis * (config.rate / 100) * 100) / 100
-    const result: TaxResult = {
-      taxableAmount,
-      taxAmount,
-      isExempt: false,
-      ...baseResult,
-    }
-    const matchedOta = isRemittedByOta(booking.channel, otaRemitsTax)
-    if (matchedOta) {
-      result.remittedByOta = true
-      result.remittedByOtaName = matchedOta
-    }
-    return result
-  }
-
   switch (config.model) {
     case 'gross_percentage': {
       // Dresden model: % of gross price including cleaning fee
