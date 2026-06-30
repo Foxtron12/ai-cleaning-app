@@ -64,21 +64,29 @@ function inRange(seg: BookingWithProp, rangeFrom: string, rangeTo: string): bool
  * landen alte Monate exakt auf ihren Original-Werten und der neue letzte
  * Monat behält ebenfalls seinen Original-Wert (über weniger Tage verteilt).
  */
+type SegmentWithBhstBasis = BookingWithProp & { _bhst_basis?: number }
+
 function buildShortenedSegments(
   booking: BookingWithProp,
   checkIn: Date,
   newCheckOut: Date,
   originalCheckOut: Date,
-): BookingWithProp[] {
+): SegmentWithBhstBasis[] {
   const originalNights = differenceInCalendarDays(originalCheckOut, checkIn)
   if (originalNights <= 0) return []
 
-  const frozen: BookingWithProp[] = []
-  let frozenAmountSum = 0
-  let frozenCleaningSum = 0
-  let frozenCommissionSum = 0
-  let frozenHostPayoutSum = 0
-  let newLastSegStart: Date | null = null
+  const fullGross = booking.amount_gross ?? 0
+  const fullCleaning = booking.cleaning_fee ?? 0
+  const accomExclCleaning = fullGross - fullCleaning
+
+  type SegSpec = {
+    segStart: Date
+    segEnd: Date
+    segNights: number
+    originalRatio: number
+    isLast: boolean
+  }
+  const specs: SegSpec[] = []
 
   let current = startOfMonth(checkIn)
   while (current <= originalCheckOut) {
@@ -88,16 +96,12 @@ function buildShortenedSegments(
     const segNightsOriginal = differenceInCalendarDays(segEndOriginal, segStart)
 
     if (segNightsOriginal > 0) {
+      const originalRatio = segNightsOriginal / originalNights
       if (segEndOriginal <= newCheckOut) {
-        const ratio = segNightsOriginal / originalNights
-        const seg = makeSegment(booking, segStart, segEndOriginal, segNightsOriginal, ratio)
-        frozen.push(seg)
-        frozenAmountSum += seg.amount_gross ?? 0
-        frozenCleaningSum += seg.cleaning_fee ?? 0
-        frozenCommissionSum += seg.commission_amount ?? 0
-        frozenHostPayoutSum += seg.amount_host_payout ?? 0
+        specs.push({ segStart, segEnd: segEndOriginal, segNights: segNightsOriginal, originalRatio, isLast: false })
       } else if (segStart < newCheckOut) {
-        newLastSegStart = segStart
+        const newNights = differenceInCalendarDays(newCheckOut, segStart)
+        specs.push({ segStart, segEnd: newCheckOut, segNights: newNights, originalRatio, isLast: true })
       }
     }
 
@@ -105,37 +109,32 @@ function buildShortenedSegments(
     if (originalCheckOut <= nextMonthStart) break
   }
 
-  const segments = [...frozen]
-
-  if (newLastSegStart) {
-    const newNights = differenceInCalendarDays(newCheckOut, newLastSegStart)
-    const totalGross = booking.amount_gross ?? 0
-    const remainderAmount = Math.round((totalGross - frozenAmountSum) * 100) / 100
-    const remainderCleaning = booking.cleaning_fee !== null
-      ? Math.round(((booking.cleaning_fee ?? 0) - frozenCleaningSum) * 100) / 100
-      : null
-    const remainderCommission = booking.commission_amount !== null
-      ? Math.round(((booking.commission_amount ?? 0) - frozenCommissionSum) * 100) / 100
-      : null
-    const remainderHostPayout = booking.amount_host_payout !== null
-      ? Math.round(((booking.amount_host_payout ?? 0) - frozenHostPayoutSum) * 100) / 100
-      : null
-    const remainderRatio = totalGross > 0 ? remainderAmount / totalGross : 0
-
-    segments.push({
-      ...booking,
-      check_in: format(newLastSegStart, 'yyyy-MM-dd'),
-      check_out: format(newCheckOut, 'yyyy-MM-dd'),
-      nights: newNights,
-      amount_gross: booking.amount_gross !== null ? remainderAmount : null,
-      cleaning_fee: remainderCleaning,
-      commission_amount: remainderCommission,
-      amount_host_payout: remainderHostPayout,
-      price_details: scaleCityTaxInPriceDetails(booking.price_details, remainderRatio),
-    })
+  if (specs.length === 0) return []
+  if (!specs.some((s) => s.isLast)) {
+    specs[specs.length - 1].isLast = true
   }
 
-  return segments
+  return specs.map((s) => {
+    const ratio = s.originalRatio
+    const segAccom = Math.round(accomExclCleaning * ratio * 100) / 100
+    const segCleaning = s.isLast ? fullCleaning : 0
+    const segGrossDisplay = Math.round((segAccom + segCleaning) * 100) / 100
+    const bhstBasis = Math.round(fullGross * ratio * 100) / 100
+
+    const seg: SegmentWithBhstBasis = {
+      ...booking,
+      check_in: format(s.segStart, 'yyyy-MM-dd'),
+      check_out: format(s.segEnd, 'yyyy-MM-dd'),
+      nights: s.segNights,
+      amount_gross: booking.amount_gross !== null ? segGrossDisplay : null,
+      cleaning_fee: booking.cleaning_fee !== null ? Math.round(segCleaning * 100) / 100 : null,
+      amount_host_payout: booking.amount_host_payout !== null ? Math.round(booking.amount_host_payout * ratio * 100) / 100 : null,
+      commission_amount: booking.commission_amount !== null ? Math.round(booking.commission_amount * ratio * 100) / 100 : null,
+      price_details: scaleCityTaxInPriceDetails(booking.price_details, ratio),
+    }
+    seg._bhst_basis = bhstBasis
+    return seg
+  })
 }
 
 /**
