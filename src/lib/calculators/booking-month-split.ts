@@ -92,8 +92,13 @@ function buildShortenedSegments(
     specs[specs.length - 1].isLast = true
   }
 
+  const frozenRatioSum = specs
+    .filter((s) => !s.isLast)
+    .reduce((sum, s) => sum + s.originalRatio, 0)
+  const newLastRatio = Math.max(0, 1 - frozenRatioSum)
+
   return specs.map((s) => {
-    const ratio = s.originalRatio
+    const ratio = s.isLast ? newLastRatio : s.originalRatio
     const segAccom = Math.round(accomExclCleaning * ratio * 100) / 100
     const segCleaning = s.isLast ? fullCleaning : 0
     const segGrossDisplay = Math.round((segAccom + segCleaning) * 100) / 100

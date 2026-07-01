@@ -120,7 +120,8 @@ function getProRataSegments(
     const originalCheckOut = new Date(originalCheckOutStr + 'T00:00:00')
     const originalNights = differenceInCalendarDays(originalCheckOut, checkIn)
     if (originalNights > 0) {
-      const segments: Array<{ monthKey: string; nights: number; ratio: number }> = []
+      type Spec = { monthKey: string; segStart: Date; segEnd: Date; segNights: number; originalRatio: number; isLast: boolean }
+      const specs: Spec[] = []
       let current = startOfMonth(checkIn)
       while (current < originalCheckOut) {
         const nextMonth = addMonths(current, 1)
@@ -128,28 +129,28 @@ function getProRataSegments(
         const segEndOriginal = originalCheckOut < nextMonth ? originalCheckOut : nextMonth
         const segNightsOriginal = differenceInCalendarDays(segEndOriginal, segStart)
         if (segNightsOriginal > 0) {
-          const ratio = segNightsOriginal / originalNights
-          let segNights = segNightsOriginal
-          let segEnd = segEndOriginal
-          if (segEndOriginal > checkOut) {
-            if (segStart >= checkOut) {
-              current = nextMonth
-              continue
-            }
-            segNights = differenceInCalendarDays(checkOut, segStart)
-            segEnd = checkOut
-          }
-          if (segEnd > rangeStart && segStart < rangeEndExclusive) {
-            segments.push({
-              monthKey: format(current, 'yyyy-MM'),
-              nights: segNights,
-              ratio,
-            })
+          const originalRatio = segNightsOriginal / originalNights
+          if (segEndOriginal <= checkOut) {
+            specs.push({ monthKey: format(current, 'yyyy-MM'), segStart, segEnd: segEndOriginal, segNights: segNightsOriginal, originalRatio, isLast: false })
+          } else if (segStart < checkOut) {
+            const newNights = differenceInCalendarDays(checkOut, segStart)
+            specs.push({ monthKey: format(current, 'yyyy-MM'), segStart, segEnd: checkOut, segNights: newNights, originalRatio, isLast: true })
           }
         }
         current = nextMonth
       }
-      return segments
+      if (specs.length > 0 && !specs.some((s) => s.isLast)) {
+        specs[specs.length - 1].isLast = true
+      }
+      const frozenRatioSum = specs.filter((s) => !s.isLast).reduce((sum, s) => sum + s.originalRatio, 0)
+      const newLastRatio = Math.max(0, 1 - frozenRatioSum)
+      return specs
+        .filter((s) => s.segEnd > rangeStart && s.segStart < rangeEndExclusive)
+        .map((s) => ({
+          monthKey: s.monthKey,
+          nights: s.segNights,
+          ratio: s.isLast ? newLastRatio : s.originalRatio,
+        }))
     }
   }
 

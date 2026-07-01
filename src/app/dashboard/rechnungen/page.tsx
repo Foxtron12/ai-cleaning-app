@@ -645,7 +645,8 @@ function RechnungenContent() {
       const originalCheckOut = new Date(originalCheckOutStr + 'T00:00:00')
       const originalNights = differenceInCalendarDays(originalCheckOut, checkIn)
       if (originalNights > 0) {
-        const segments: SplitSegment[] = []
+        type Spec = { segStart: Date; segEnd: Date; segNights: number; originalRatio: number; isLast: boolean }
+        const specs: Spec[] = []
         let current = startOfMonth(checkIn)
         while (current < originalCheckOut) {
           const nextMonth = addMonths(current, 1)
@@ -653,35 +654,34 @@ function RechnungenContent() {
           const segEndOriginal = originalCheckOut < nextMonth ? originalCheckOut : nextMonth
           const segNightsOriginal = differenceInCalendarDays(segEndOriginal, segStart)
           if (segNightsOriginal > 0) {
-            const ratio = segNightsOriginal / originalNights
+            const originalRatio = segNightsOriginal / originalNights
             if (segEndOriginal <= checkOut) {
-              segments.push({
-                checkIn: format(segStart, 'yyyy-MM-dd'),
-                checkOut: format(segEndOriginal, 'yyyy-MM-dd'),
-                nights: segNightsOriginal,
-                ratio,
-                monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
-                amount: Math.round(grossTotal * ratio * 100) / 100,
-                selected: false,
-                alreadyInvoiced: false,
-              })
+              specs.push({ segStart, segEnd: segEndOriginal, segNights: segNightsOriginal, originalRatio, isLast: false })
             } else if (segStart < checkOut) {
               const newNights = differenceInCalendarDays(checkOut, segStart)
-              segments.push({
-                checkIn: format(segStart, 'yyyy-MM-dd'),
-                checkOut: format(checkOut, 'yyyy-MM-dd'),
-                nights: newNights,
-                ratio,
-                monthLabel: format(segStart, 'MMMM yyyy', { locale: de }),
-                amount: Math.round(grossTotal * ratio * 100) / 100,
-                selected: false,
-                alreadyInvoiced: false,
-              })
+              specs.push({ segStart, segEnd: checkOut, segNights: newNights, originalRatio, isLast: true })
             }
           }
           current = nextMonth
         }
-        return segments
+        if (specs.length > 0 && !specs.some((s) => s.isLast)) {
+          specs[specs.length - 1].isLast = true
+        }
+        const frozenRatioSum = specs.filter((s) => !s.isLast).reduce((sum, s) => sum + s.originalRatio, 0)
+        const newLastRatio = Math.max(0, 1 - frozenRatioSum)
+        return specs.map((s) => {
+          const ratio = s.isLast ? newLastRatio : s.originalRatio
+          return {
+            checkIn: format(s.segStart, 'yyyy-MM-dd'),
+            checkOut: format(s.segEnd, 'yyyy-MM-dd'),
+            nights: s.segNights,
+            ratio,
+            monthLabel: format(s.segStart, 'MMMM yyyy', { locale: de }),
+            amount: Math.round(grossTotal * ratio * 100) / 100,
+            selected: false,
+            alreadyInvoiced: false,
+          }
+        })
       }
     }
 
