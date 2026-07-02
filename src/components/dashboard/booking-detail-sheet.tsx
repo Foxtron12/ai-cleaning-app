@@ -11,6 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { FileText, Receipt, Copy, Check, ExternalLink, Loader2, Pencil, XCircle, CreditCard, Mail, CircleDollarSign, Ban, Clock, CheckCircle2, AlertCircle, Upload, Trash2, Image, FileIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -781,6 +782,7 @@ export function BookingDetailSheet({
   const [taxManuallyEdited, setTaxManuallyEdited] = useState(false)
   const [editCommission, setEditCommission] = useState(booking.commission_amount ?? 0)
   const [commissionManuallyEdited, setCommissionManuallyEdited] = useState(false)
+  const [editStatus, setEditStatus] = useState<string>(booking.status ?? 'upcoming')
   // Edit form state (company / invoice recipient)
   const [editInvoiceRecipient, setEditInvoiceRecipient] = useState<string>(booking.invoice_recipient ?? 'guest')
   const [editCompanyName, setEditCompanyName] = useState(booking.company_name ?? '')
@@ -875,6 +877,7 @@ export function BookingDetailSheet({
           cleaning_fee: editCleaningFee,
           ...(adjustedCommission !== booking!.commission_amount ? { commission_amount: adjustedCommission } : {}),
           ...(adjustedHostPayout !== booking!.amount_host_payout ? { amount_host_payout: adjustedHostPayout } : {}),
+          ...(editStatus !== booking!.status ? { status: editStatus } : {}),
           invoice_recipient: editInvoiceRecipient || 'guest',
           company_name: editCompanyName || null,
           company_street: editCompanyStreet || null,
@@ -1359,6 +1362,26 @@ export function BookingDetailSheet({
               Skaliert standardmäßig proportional mit dem Bruttobetrag (Prozentsatz bleibt konstant).
               Manuell überschreiben z.B. bei OTA-Storno mit angepasster Provisionshöhe.
               Host-Auszahlung wird automatisch neu berechnet (Brutto − Provision).
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Status</Label>
+            <Select value={editStatus} onValueChange={setEditStatus}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="upcoming">Anstehend</SelectItem>
+                <SelectItem value="active">Aktiv (Gast eingecheckt)</SelectItem>
+                <SelectItem value="completed">Abgeschlossen</SelectItem>
+                <SelectItem value="mid_stay_cancelled">Mid-Stay-Storno</SelectItem>
+                <SelectItem value="cancelled">Storniert</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground leading-tight">
+              Standardmäßig automatisch anhand der Daten berechnet. „Mid-Stay-Storno"
+              nutzen wenn der Gast einen Teil der Nächte hatte und dann storniert hat —
+              Buchung bleibt in der Steuer-Übersicht (City Tax anteilig fällig).
             </p>
           </div>
           <p className="text-xs text-muted-foreground">Hinweis: Änderungen werden automatisch an Smoobu synchronisiert.</p>

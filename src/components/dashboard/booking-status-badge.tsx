@@ -7,6 +7,7 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   active: { label: 'Aktiv', variant: 'secondary' },
   completed: { label: 'Abgeschlossen', variant: 'outline' },
   cancelled: { label: 'Storniert', variant: 'destructive' },
+  mid_stay_cancelled: { label: 'Mid-Stay-Storno', variant: 'destructive' },
 }
 
 export function BookingStatusBadge({ status }: { status: string }) {

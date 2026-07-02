@@ -36,7 +36,7 @@ export type BookingWithProperty = Booking & {
 export type BookingChannel = 'Airbnb' | 'Booking.com' | 'VRBO' | 'Expedia' | 'Direct' | 'Google' | 'Other'
 
 // Booking status
-export type BookingStatus = 'upcoming' | 'active' | 'completed' | 'cancelled'
+export type BookingStatus = 'upcoming' | 'active' | 'completed' | 'cancelled' | 'mid_stay_cancelled'
 
 // Trip purpose
 export type TripPurpose = 'leisure' | 'business' | 'unknown'
