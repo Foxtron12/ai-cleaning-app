@@ -779,6 +779,8 @@ export function BookingDetailSheet({
   const [editCleaningFee, setEditCleaningFee] = useState(booking.cleaning_fee ?? 0)
   const [editAccommodationTax, setEditAccommodationTax] = useState(booking.accommodation_tax_amount ?? 0)
   const [taxManuallyEdited, setTaxManuallyEdited] = useState(false)
+  const [editCommission, setEditCommission] = useState(booking.commission_amount ?? 0)
+  const [commissionManuallyEdited, setCommissionManuallyEdited] = useState(false)
   // Edit form state (company / invoice recipient)
   const [editInvoiceRecipient, setEditInvoiceRecipient] = useState<string>(booking.invoice_recipient ?? 'guest')
   const [editCompanyName, setEditCompanyName] = useState(booking.company_name ?? '')
@@ -816,12 +818,17 @@ export function BookingDetailSheet({
         adjustedGross = editAmountGross - oldCleaning + editCleaningFee
       }
 
-      // Scale OTA commission proportionally with amount_gross change so the
-      // effective commission rate stays constant.
+      // Provision: manueller Override hat Vorrang, sonst proportional mit
+      // amount_gross skalieren (Prozentsatz bleibt konstant).
       const oldGross = booking!.amount_gross ?? 0
-      let adjustedCommission = booking!.commission_amount
+      let adjustedCommission: number | null | undefined = booking!.commission_amount
       let adjustedHostPayout = booking!.amount_host_payout
-      if (oldGross > 0 && adjustedGross !== oldGross) {
+      if (commissionManuallyEdited) {
+        adjustedCommission = editCommission
+        // Host-Auszahlung mit manuellem Wert konsistent halten:
+        // Auszahlung = Brutto - Provision.
+        adjustedHostPayout = Math.round((adjustedGross - editCommission) * 100) / 100
+      } else if (oldGross > 0 && adjustedGross !== oldGross) {
         const scale = adjustedGross / oldGross
         if (booking!.commission_amount !== null && booking!.commission_amount !== undefined) {
           adjustedCommission = Math.round(booking!.commission_amount * scale * 100) / 100
@@ -1335,6 +1342,23 @@ export function BookingDetailSheet({
             <p className="text-[11px] text-muted-foreground leading-tight">
               Standardmäßig automatisch berechnet. Manuell überschreiben z.B. bei
               Mid-Stay-Storno über OTA (Gast bereits Nächte gehabt, City Tax bleibt fällig).
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Provision (EUR)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={editCommission}
+              onChange={(e) => {
+                setEditCommission(parseFloat(e.target.value) || 0)
+                setCommissionManuallyEdited(true)
+              }}
+            />
+            <p className="text-[11px] text-muted-foreground leading-tight">
+              Skaliert standardmäßig proportional mit dem Bruttobetrag (Prozentsatz bleibt konstant).
+              Manuell überschreiben z.B. bei OTA-Storno mit angepasster Provisionshöhe.
+              Host-Auszahlung wird automatisch neu berechnet (Brutto − Provision).
             </p>
           </div>
           <p className="text-xs text-muted-foreground">Hinweis: Änderungen werden automatisch an Smoobu synchronisiert.</p>
