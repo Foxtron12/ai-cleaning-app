@@ -258,7 +258,7 @@ function SteuerPageContent() {
       supabase
         .from('bookings')
         .select('*, properties(*)')
-        .neq('status', 'cancelled')
+        .or('status.neq.cancelled,accommodation_tax_manual.eq.true')
         .lte('check_in', range.to)
         .gte('check_out', range.from)
         .order('check_in', { ascending: true }),
