@@ -814,6 +814,21 @@ export function BookingDetailSheet({
         adjustedGross = editAmountGross - oldCleaning + editCleaningFee
       }
 
+      // Scale OTA commission proportionally with amount_gross change so the
+      // effective commission rate stays constant.
+      const oldGross = booking!.amount_gross ?? 0
+      let adjustedCommission = booking!.commission_amount
+      let adjustedHostPayout = booking!.amount_host_payout
+      if (oldGross > 0 && adjustedGross !== oldGross) {
+        const scale = adjustedGross / oldGross
+        if (booking!.commission_amount !== null && booking!.commission_amount !== undefined) {
+          adjustedCommission = Math.round(booking!.commission_amount * scale * 100) / 100
+        }
+        if (booking!.amount_host_payout !== null && booking!.amount_host_payout !== undefined) {
+          adjustedHostPayout = Math.round(booking!.amount_host_payout * scale * 100) / 100
+        }
+      }
+
       // Recalculate accommodation tax with updated values
       let newTaxAmount: number | undefined
       if (booking!.properties) {
@@ -847,6 +862,8 @@ export function BookingDetailSheet({
           check_out: editCheckOut || booking!.check_out,
           amount_gross: adjustedGross,
           cleaning_fee: editCleaningFee,
+          ...(adjustedCommission !== booking!.commission_amount ? { commission_amount: adjustedCommission } : {}),
+          ...(adjustedHostPayout !== booking!.amount_host_payout ? { amount_host_payout: adjustedHostPayout } : {}),
           invoice_recipient: editInvoiceRecipient || 'guest',
           company_name: editCompanyName || null,
           company_street: editCompanyStreet || null,
