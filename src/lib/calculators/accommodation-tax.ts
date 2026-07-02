@@ -128,6 +128,24 @@ export function calculateAccommodationTax(
     return { taxableAmount: 0, taxAmount: 0, isExempt: false, ...baseResult }
   }
 
+  // Manueller Override: wenn der Nutzer die City Tax im Buchung-Bearbeiten-Dialog
+  // haendisch gesetzt hat, verwenden wir den gespeicherten Wert statt neu zu rechnen.
+  if (booking.accommodation_tax_manual === true && booking.accommodation_tax_amount != null) {
+    const manualAmount = booking.accommodation_tax_amount
+    const result: TaxResult = {
+      taxableAmount: manualAmount,
+      taxAmount: manualAmount,
+      isExempt: false,
+      ...baseResult,
+    }
+    const matchedOta = isRemittedByOta(booking.channel, otaRemitsTax)
+    if (matchedOta) {
+      result.remittedByOta = true
+      result.remittedByOtaName = matchedOta
+    }
+    return result
+  }
+
   const cleaningFee = getCleaningFee(booking, config.defaultCleaningFee)
   let taxableAmount: number
   let taxAmount: number

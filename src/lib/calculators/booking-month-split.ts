@@ -97,6 +97,10 @@ function buildShortenedSegments(
     .reduce((sum, s) => sum + s.originalRatio, 0)
   const newLastRatio = Math.max(0, 1 - frozenRatioSum)
 
+  const manualTaxTotal = booking.accommodation_tax_manual && booking.accommodation_tax_amount != null
+    ? booking.accommodation_tax_amount
+    : null
+
   return specs.map((s) => {
     const ratio = s.isLast ? newLastRatio : s.originalRatio
     const segAccom = Math.round(accomExclCleaning * ratio * 100) / 100
@@ -112,6 +116,7 @@ function buildShortenedSegments(
       cleaning_fee: booking.cleaning_fee !== null ? Math.round(segCleaning * 100) / 100 : null,
       amount_host_payout: booking.amount_host_payout !== null ? Math.round(booking.amount_host_payout * ratio * 100) / 100 : null,
       commission_amount: booking.commission_amount !== null ? Math.round(booking.commission_amount * ratio * 100) / 100 : null,
+      accommodation_tax_amount: manualTaxTotal !== null ? Math.round(manualTaxTotal * ratio * 100) / 100 : booking.accommodation_tax_amount,
       price_details: scaleCityTaxInPriceDetails(booking.price_details, ratio),
     }
   })
@@ -188,6 +193,10 @@ export function splitBookingByMonth(
   if (specs.length === 0) return rangeOnlyFilter ? [] : [booking]
   specs[specs.length - 1].isLast = true
 
+  const manualTaxTotal = booking.accommodation_tax_manual && booking.accommodation_tax_amount != null
+    ? booking.accommodation_tax_amount
+    : null
+
   const segments: BookingWithProp[] = []
   for (const s of specs) {
     const segCheckIn = format(s.segStart, 'yyyy-MM-dd')
@@ -207,6 +216,7 @@ export function splitBookingByMonth(
       cleaning_fee: booking.cleaning_fee !== null ? Math.round(segCleaning * 100) / 100 : null,
       amount_host_payout: booking.amount_host_payout !== null ? Math.round(booking.amount_host_payout * s.ratio * 100) / 100 : null,
       commission_amount: booking.commission_amount !== null ? Math.round(booking.commission_amount * s.ratio * 100) / 100 : null,
+      accommodation_tax_amount: manualTaxTotal !== null ? Math.round(manualTaxTotal * s.ratio * 100) / 100 : booking.accommodation_tax_amount,
       price_details: scaleCityTaxInPriceDetails(booking.price_details, s.ratio),
     })
   }

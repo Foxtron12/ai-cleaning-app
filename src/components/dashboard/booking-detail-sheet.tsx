@@ -876,6 +876,7 @@ export function BookingDetailSheet({
           company_country: editCompanyCountry || null,
           company_vat_id: editCompanyVatId || null,
           ...(newTaxAmount !== undefined ? { accommodation_tax_amount: newTaxAmount } : {}),
+          ...(taxManuallyEdited ? { accommodation_tax_manual: true } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq('id', booking!.id)

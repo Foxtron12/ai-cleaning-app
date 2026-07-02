@@ -82,6 +82,7 @@ export type Database = {
       bookings: {
         Row: {
           accommodation_tax_amount: number | null
+          accommodation_tax_manual: boolean
           adults: number | null
           amount_gross: number | null
           amount_host_payout: number | null
@@ -136,6 +137,7 @@ export type Database = {
         }
         Insert: {
           accommodation_tax_amount?: number | null
+          accommodation_tax_manual?: boolean
           adults?: number | null
           amount_gross?: number | null
           amount_host_payout?: number | null
@@ -190,6 +192,7 @@ export type Database = {
         }
         Update: {
           accommodation_tax_amount?: number | null
+          accommodation_tax_manual?: boolean
           adults?: number | null
           amount_gross?: number | null
           amount_host_payout?: number | null
