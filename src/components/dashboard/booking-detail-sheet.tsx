@@ -777,6 +777,8 @@ export function BookingDetailSheet({
   const [editCheckOut, setEditCheckOut] = useState(booking.check_out ?? '')
   const [editAmountGross, setEditAmountGross] = useState(booking.amount_gross ?? 0)
   const [editCleaningFee, setEditCleaningFee] = useState(booking.cleaning_fee ?? 0)
+  const [editAccommodationTax, setEditAccommodationTax] = useState(booking.accommodation_tax_amount ?? 0)
+  const [taxManuallyEdited, setTaxManuallyEdited] = useState(false)
   // Edit form state (company / invoice recipient)
   const [editInvoiceRecipient, setEditInvoiceRecipient] = useState<string>(booking.invoice_recipient ?? 'guest')
   const [editCompanyName, setEditCompanyName] = useState(booking.company_name ?? '')
@@ -829,9 +831,11 @@ export function BookingDetailSheet({
         }
       }
 
-      // Recalculate accommodation tax with updated values
+      // City Tax: manueller Override hat Vorrang, sonst Auto-Berechnung
       let newTaxAmount: number | undefined
-      if (booking!.properties) {
+      if (taxManuallyEdited) {
+        newTaxAmount = editAccommodationTax
+      } else if (booking!.properties) {
         const tc = getTaxConfigForProperty(booking!.properties, [])
         if (tc) {
           const updatedBooking = {
@@ -1307,11 +1311,30 @@ export function BookingDetailSheet({
             <div className="space-y-1.5">
               <Label className="text-xs">Bruttobetrag (EUR)</Label>
               <Input type="number" step="0.01" value={editAmountGross} onChange={(e) => setEditAmountGross(parseFloat(e.target.value) || 0)} />
+              <p className="text-[11px] text-muted-foreground leading-tight">
+                Was der Gast bezahlt hat (inkl. City Tax / Beherbergungssteuer).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Reinigungsgebühr (EUR)</Label>
               <Input type="number" step="0.01" value={editCleaningFee} onChange={(e) => setEditCleaningFee(parseFloat(e.target.value) || 0)} />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">City Tax / Beherbergungssteuer (EUR)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={editAccommodationTax}
+              onChange={(e) => {
+                setEditAccommodationTax(parseFloat(e.target.value) || 0)
+                setTaxManuallyEdited(true)
+              }}
+            />
+            <p className="text-[11px] text-muted-foreground leading-tight">
+              Standardmäßig automatisch berechnet. Manuell überschreiben z.B. bei
+              Mid-Stay-Storno über OTA (Gast bereits Nächte gehabt, City Tax bleibt fällig).
+            </p>
           </div>
           <p className="text-xs text-muted-foreground">Hinweis: Änderungen werden automatisch an Smoobu synchronisiert.</p>
 
