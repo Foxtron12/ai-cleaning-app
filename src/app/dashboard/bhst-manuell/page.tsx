@@ -1,17 +1,27 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { Loader2, Download } from 'lucide-react'
+import { Loader2, Download, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Rhythm = 'monthly' | 'quarterly' | 'half-yearly'
 type FormType = 'anmeldung' | 'berichtigt'
+
+const STORAGE_KEY = 'bhst-manuell-operator'
+
+type StoredOperator = {
+  operatorName: string
+  operatorStreet: string
+  operatorZip: string
+  operatorCity: string
+  kassenzeichen: string
+}
 
 export default function BhStManuellPage() {
   const currentYear = new Date().getFullYear()
@@ -21,6 +31,32 @@ export default function BhStManuellPage() {
   const [operatorZip, setOperatorZip] = useState('')
   const [operatorCity, setOperatorCity] = useState('')
   const [kassenzeichen, setKassenzeichen] = useState('')
+
+  // Betreiber-Daten aus LocalStorage laden (nur einmal beim Mount)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+      const stored = JSON.parse(raw) as StoredOperator
+      if (stored.operatorName) setOperatorName(stored.operatorName)
+      if (stored.operatorStreet) setOperatorStreet(stored.operatorStreet)
+      if (stored.operatorZip) setOperatorZip(stored.operatorZip)
+      if (stored.operatorCity) setOperatorCity(stored.operatorCity)
+      if (stored.kassenzeichen) setKassenzeichen(stored.kassenzeichen)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  // Betreiber-Daten bei jeder Aenderung speichern
+  useEffect(() => {
+    try {
+      const payload: StoredOperator = { operatorName, operatorStreet, operatorZip, operatorCity, kassenzeichen }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    } catch {
+      // ignore
+    }
+  }, [operatorName, operatorStreet, operatorZip, operatorCity, kassenzeichen])
 
   const [year, setYear] = useState(currentYear)
   const [rhythm, setRhythm] = useState<Rhythm>('monthly')
@@ -100,6 +136,28 @@ export default function BhStManuellPage() {
     } finally {
       setGenerating(false)
     }
+  }
+
+  function resetValues() {
+    setTotalNights(0)
+    setAirbnbNights(0)
+    setRemainingNights(0)
+    setRevenueD(0)
+    setExemptRevenueE(0)
+    setTaxableRevenueF(0)
+    setTaxAmountG(0)
+    toast.success('Werte zurückgesetzt (Betreiber bleibt)')
+  }
+
+  function nextPeriod() {
+    const maxPeriod = rhythm === 'monthly' ? 12 : rhythm === 'quarterly' ? 4 : 2
+    if (period < maxPeriod) {
+      setPeriod(period + 1)
+    } else {
+      setPeriod(1)
+      setYear(year + 1)
+    }
+    resetValues()
   }
 
   return (
@@ -236,10 +294,23 @@ export default function BhStManuellPage() {
         </CardContent>
       </Card>
 
-      <Button className="w-full" onClick={handleGenerate} disabled={generating}>
-        {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-        PDF erzeugen
-      </Button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button className="flex-1" onClick={handleGenerate} disabled={generating}>
+          {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+          PDF erzeugen
+        </Button>
+        <Button variant="outline" onClick={resetValues} disabled={generating}>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Nur Werte zurücksetzen
+        </Button>
+        <Button variant="secondary" onClick={nextPeriod} disabled={generating}>
+          Nächster Zeitraum →
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground -mt-4">
+        Betreiber-Daten werden lokal im Browser gespeichert und bleiben beim Reload erhalten.
+        „Nächster Zeitraum" erhöht den Monat/Quartal automatisch und leert nur die Werte.
+      </p>
     </div>
   )
 }
