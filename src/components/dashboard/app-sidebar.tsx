@@ -69,6 +69,11 @@ const navItems = [
     icon: Calculator,
   },
   {
+    title: 'BhSt manuell',
+    href: '/dashboard/bhst-manuell',
+    icon: Calculator,
+  },
+  {
     title: 'Nachrichten',
     href: '/dashboard/nachrichten',
     icon: MessageSquare,
