@@ -125,7 +125,7 @@ export default function BhStManuellPage() {
         rhythm === 'monthly' ? monthNames[period - 1].slice(0, 3)
         : rhythm === 'quarterly' ? `Q${period}`
         : `H${period}`
-      a.download = `BhSt_Dresden_${year}_${periodLabel}_manuell.pdf`
+      a.download = `BhSt_Dresden_${year}_${periodLabel}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
