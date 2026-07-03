@@ -893,6 +893,7 @@ export type Database = {
           landlord_country: string | null
           landlord_email: string | null
           landlord_logo_url: string | null
+          landlord_signature_url: string | null
           landlord_name: string | null
           landlord_phone: string | null
           landlord_street: string | null
@@ -929,6 +930,7 @@ export type Database = {
           landlord_country?: string | null
           landlord_email?: string | null
           landlord_logo_url?: string | null
+          landlord_signature_url?: string | null
           landlord_name?: string | null
           landlord_phone?: string | null
           landlord_street?: string | null
@@ -965,6 +967,7 @@ export type Database = {
           landlord_country?: string | null
           landlord_email?: string | null
           landlord_logo_url?: string | null
+          landlord_signature_url?: string | null
           landlord_name?: string | null
           landlord_phone?: string | null
           landlord_street?: string | null

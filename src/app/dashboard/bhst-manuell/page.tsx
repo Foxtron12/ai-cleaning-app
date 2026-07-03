@@ -255,15 +255,15 @@ export default function BhStManuellPage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Insgesamt</Label>
-                <Input type="number" value={totalNights} onChange={(e) => setTotalNights(parseInt(e.target.value) || 0)} />
+                <Input type="number" value={totalNights} onFocus={(e) => e.target.select()} onChange={(e) => setTotalNights(parseInt(e.target.value) || 0)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Airbnb</Label>
-                <Input type="number" value={airbnbNights} onChange={(e) => setAirbnbNights(parseInt(e.target.value) || 0)} />
+                <Input type="number" value={airbnbNights} onFocus={(e) => e.target.select()} onChange={(e) => setAirbnbNights(parseInt(e.target.value) || 0)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Verbleibend</Label>
-                <Input type="number" value={remainingNights} onChange={(e) => setRemainingNights(parseInt(e.target.value) || 0)} />
+                <Input type="number" value={remainingNights} onFocus={(e) => e.target.select()} onChange={(e) => setRemainingNights(parseInt(e.target.value) || 0)} />
               </div>
             </div>
           </div>
@@ -275,19 +275,19 @@ export default function BhStManuellPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Umsätze verbleibende Übernachtungen (D)</Label>
-                <Input type="number" step="0.01" value={revenueD} onChange={(e) => setRevenueD(parseFloat(e.target.value) || 0)} />
+                <Input type="number" step="0.01" value={revenueD} onFocus={(e) => e.target.select()} onChange={(e) => setRevenueD(parseFloat(e.target.value) || 0)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Befreite Umsätze (E)</Label>
-                <Input type="number" step="0.01" value={exemptRevenueE} onChange={(e) => setExemptRevenueE(parseFloat(e.target.value) || 0)} />
+                <Input type="number" step="0.01" value={exemptRevenueE} onFocus={(e) => e.target.select()} onChange={(e) => setExemptRevenueE(parseFloat(e.target.value) || 0)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Verbleibende steuerpflichtige Umsätze (F)</Label>
-                <Input type="number" step="0.01" value={taxableRevenueF} onChange={(e) => setTaxableRevenueF(parseFloat(e.target.value) || 0)} />
+                <Input type="number" step="0.01" value={taxableRevenueF} onFocus={(e) => e.target.select()} onChange={(e) => setTaxableRevenueF(parseFloat(e.target.value) || 0)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Eingezogene Beherbergungssteuer (G)</Label>
-                <Input type="number" step="0.01" value={taxAmountG} onChange={(e) => setTaxAmountG(parseFloat(e.target.value) || 0)} />
+                <Input type="number" step="0.01" value={taxAmountG} onFocus={(e) => e.target.select()} onChange={(e) => setTaxAmountG(parseFloat(e.target.value) || 0)} />
               </div>
             </div>
           </div>

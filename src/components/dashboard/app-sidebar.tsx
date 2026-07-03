@@ -15,6 +15,8 @@ import {
   Building2,
   LogOut,
   User,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 
 import {
@@ -29,6 +31,7 @@ import {
   SidebarMenuItem,
   SidebarFooter,
   SidebarSeparator,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { supabase } from '@/lib/supabase'
 
@@ -90,6 +93,8 @@ const bottomItems = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const { toggleSidebar, state } = useSidebar()
+  const isCollapsed = state === 'collapsed'
   const [userDisplayName, setUserDisplayName] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
@@ -196,6 +201,16 @@ export function AppSidebar() {
             >
               <LogOut />
               <span>Abmelden</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarSeparator />
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip={isCollapsed ? 'Einklappen aufheben' : 'Seitenleiste einklappen'}
+              onClick={toggleSidebar}
+            >
+              {isCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+              <span>{isCollapsed ? 'Ausklappen' : 'Einklappen'}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

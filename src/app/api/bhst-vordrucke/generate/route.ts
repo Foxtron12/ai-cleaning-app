@@ -68,6 +68,17 @@ function formatDate(date: Date): string {
   return `${d}.${m}.${y}`
 }
 
+async function loadSignatureImage(pdfDoc: PDFDocument, url: string) {
+  const res = await fetch(url)
+  if (!res.ok) return null
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  const contentType = res.headers.get('content-type') ?? ''
+  if (contentType.includes('jpeg') || contentType.includes('jpg') || url.toLowerCase().endsWith('.jpg') || url.toLowerCase().endsWith('.jpeg')) {
+    return pdfDoc.embedJpg(bytes)
+  }
+  return pdfDoc.embedPng(bytes)
+}
+
 // ─── Route handler ───────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -234,8 +245,34 @@ export async function POST(request: NextRequest) {
       setFieldRight('verbleibene steuerpflichtige umsätze', formatEuro(data.taxableRevenueF))
       setFieldRight('eingezogene Beherbergungssteuer', formatEuro(data.taxAmountG))
 
-      // Datum (Page 2)
-      setField('Datum eigenhändige Unterschrift des Betreibers oder eines Bevollmächtigten', today)
+      // Datum + Unterschrift (Page 2)
+      const signatureFieldName = 'Datum eigenhändige Unterschrift des Betreibers oder eines Bevollmächtigten'
+      setField(signatureFieldName, today)
+
+      // Unterschrift-Bild einbetten, falls in Einstellungen hinterlegt
+      if (settings.landlord_signature_url) {
+        try {
+          const sigField = form.getTextField(signatureFieldName)
+          const sigRect = sigField.acroField.getWidgets()[0].getRectangle()
+          const sigPage = pdfDoc.getPage(1) // Datum-Feld liegt auf Seite 2 (Index 1)
+          const sigImage = await loadSignatureImage(pdfDoc, settings.landlord_signature_url)
+          if (sigImage) {
+            // Rechts im Feld platzieren (neben Datum), passend skaliert
+            const maxHeight = sigRect.height * 2
+            const dims = sigImage.scaleToFit(sigRect.width * 0.5, maxHeight)
+            const drawX = sigRect.x + sigRect.width - dims.width - 4
+            const drawY = sigRect.y - (dims.height - sigRect.height) / 2
+            sigPage.drawImage(sigImage, {
+              x: drawX,
+              y: drawY,
+              width: dims.width,
+              height: dims.height,
+            })
+          }
+        } catch (e) {
+          console.warn('Signature embed failed:', e)
+        }
+      }
 
       // Update all field appearances with consistent font, then flatten
       form.updateFieldAppearances(font)
@@ -307,6 +344,29 @@ export async function POST(request: NextRequest) {
 
       // Datum
       setField('Datum', today)
+
+      // Unterschrift-Bild einbetten, falls in Einstellungen hinterlegt
+      if (settings.landlord_signature_url) {
+        try {
+          const sigField = form.getTextField('Datum')
+          const sigRect = sigField.acroField.getWidgets()[0].getRectangle()
+          const sigImage = await loadSignatureImage(pdfDoc, settings.landlord_signature_url)
+          if (sigImage) {
+            const maxHeight = sigRect.height * 2
+            const dims = sigImage.scaleToFit(sigRect.width * 0.5, maxHeight)
+            const drawX = sigRect.x + sigRect.width - dims.width - 4
+            const drawY = sigRect.y - (dims.height - sigRect.height) / 2
+            chPage.drawImage(sigImage, {
+              x: drawX,
+              y: drawY,
+              width: dims.width,
+              height: dims.height,
+            })
+          }
+        } catch (e) {
+          console.warn('Signature embed failed (Chemnitz):', e)
+        }
+      }
 
       // Update all field appearances with consistent font, then flatten
       form.updateFieldAppearances(font)

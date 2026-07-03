@@ -24,7 +24,9 @@ export default function EinstellungenPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [logoUploading, setLogoUploading] = useState(false)
+  const [signatureUploading, setSignatureUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const signatureInputRef = useRef<HTMLInputElement>(null)
 
   // Profile state
   const [profile, setProfile] = useState<Partial<Profile>>({})
@@ -45,7 +47,7 @@ export default function EinstellungenPage() {
           id, created_at, updated_at,
           landlord_name, landlord_street, landlord_zip, landlord_city,
           landlord_phone, landlord_email, landlord_website, landlord_country,
-          landlord_logo_url,
+          landlord_logo_url, landlord_signature_url,
           tax_number, vat_id, finanzamt, is_kleinunternehmer,
           bank_iban, bank_bic, bank_name,
           company_register, managing_director, invoice_thank_you_text,
@@ -221,6 +223,78 @@ export default function EinstellungenPage() {
     setSettings({ ...settings, landlord_logo_url: null })
     setLogoUploading(false)
     toast({ title: 'Logo entfernt' })
+  }
+
+  async function handleSignatureUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !settings) return
+
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Nur Bilddateien erlaubt', variant: 'destructive' })
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: 'Datei zu groß (max. 2 MB)', variant: 'destructive' })
+      return
+    }
+
+    setSignatureUploading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setSignatureUploading(false); return }
+
+    const ext = file.name.split('.').pop()
+    const filePath = `${user.id}/signature.${ext}`
+
+    if (settings.landlord_signature_url) {
+      const oldPath = settings.landlord_signature_url.split('/logos/')[1]
+      if (oldPath) await supabase.storage.from('logos').remove([oldPath])
+    }
+
+    const { error } = await supabase.storage
+      .from('logos')
+      .upload(filePath, file, { upsert: true })
+
+    if (error) {
+      toast({ title: 'Upload fehlgeschlagen', description: error.message, variant: 'destructive' })
+      setSignatureUploading(false)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('logos').getPublicUrl(filePath)
+    const signatureUrl = urlData.publicUrl
+
+    await supabase
+      .from('settings')
+      .update({ landlord_signature_url: signatureUrl, updated_at: new Date().toISOString() })
+      .eq('id', settings.id)
+      .eq('user_id', user.id)
+
+    setSettings({ ...settings, landlord_signature_url: signatureUrl })
+    setSignatureUploading(false)
+    toast({ title: 'Unterschrift hochgeladen' })
+
+    if (signatureInputRef.current) signatureInputRef.current.value = ''
+  }
+
+  async function handleSignatureDelete() {
+    if (!settings?.landlord_signature_url) return
+    setSignatureUploading(true)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setSignatureUploading(false); return }
+
+    const oldPath = settings.landlord_signature_url.split('/logos/')[1]
+    if (oldPath) await supabase.storage.from('logos').remove([oldPath])
+
+    await supabase
+      .from('settings')
+      .update({ landlord_signature_url: null, updated_at: new Date().toISOString() })
+      .eq('id', settings.id)
+      .eq('user_id', user.id)
+
+    setSettings({ ...settings, landlord_signature_url: null })
+    setSignatureUploading(false)
+    toast({ title: 'Unterschrift entfernt' })
   }
 
   if (loading) {
@@ -445,6 +519,57 @@ export default function EinstellungenPage() {
                     >
                       <Upload className="mr-2 h-4 w-4" />
                       {logoUploading ? 'Wird hochgeladen...' : 'Logo hochladen'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Unterschrift für BhSt-PDFs */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Unterschrift</CardTitle>
+                  <CardDescription>
+                    Wird automatisch in die Beherbergungssteuer-PDFs eingefügt.
+                    Am besten PNG mit transparentem Hintergrund, max. 2 MB.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {settings.landlord_signature_url ? (
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={settings.landlord_signature_url}
+                        alt="Unterschrift"
+                        className="h-16 max-w-[200px] object-contain border rounded p-1 bg-white"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSignatureDelete}
+                        disabled={signatureUploading}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Entfernen
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Keine Unterschrift hochgeladen</p>
+                  )}
+                  <div>
+                    <input
+                      ref={signatureInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleSignatureUpload}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => signatureInputRef.current?.click()}
+                      disabled={signatureUploading}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      {signatureUploading ? 'Wird hochgeladen...' : 'Unterschrift hochladen'}
                     </Button>
                   </div>
                 </CardContent>
