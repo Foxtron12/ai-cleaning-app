@@ -62,6 +62,7 @@ export default function BhStManuellPage() {
   const [rhythm, setRhythm] = useState<Rhythm>('monthly')
   const [period, setPeriod] = useState(1)
   const [type, setType] = useState<FormType>('anmeldung')
+  const [filenameSuffix, setFilenameSuffix] = useState('')
 
   const [totalNights, setTotalNights] = useState(0)
   const [airbnbNights, setAirbnbNights] = useState(0)
@@ -125,7 +126,10 @@ export default function BhStManuellPage() {
         rhythm === 'monthly' ? monthNames[period - 1].slice(0, 3)
         : rhythm === 'quarterly' ? `Q${period}`
         : `H${period}`
-      a.download = `BhSt_Dresden_${year}_${periodLabel}.pdf`
+      const suffix = filenameSuffix.trim().replace(/[^a-zA-Z0-9._-]/g, '_')
+      a.download = suffix
+        ? `BhSt_Dresden_${year}_${periodLabel}_${suffix}.pdf`
+        : `BhSt_Dresden_${year}_${periodLabel}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -243,6 +247,14 @@ export default function BhStManuellPage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Kürzel für Dateiname (optional)</Label>
+            <Input value={filenameSuffix} onChange={(e) => setFilenameSuffix(e.target.value)} placeholder="z.B. TR55 oder Objekt-3" />
+            <p className="text-[11px] text-muted-foreground leading-tight">
+              Wird ans Ende des Dateinamens gehängt, z.B. „BhSt_Dresden_2026_Jan_TR55.pdf".
+              Nützlich bei mehreren Wohnungen für dasselbe Betreiber-Profil.
+            </p>
           </div>
         </CardContent>
       </Card>
