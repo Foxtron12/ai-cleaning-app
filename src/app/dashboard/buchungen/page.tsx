@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { calculateAccommodationTax, getTaxConfigForProperty, getCleaningFee } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
+import { calculateBookingStatus } from '@/lib/smoobu'
 import {
   Select,
   SelectContent,
@@ -203,7 +204,12 @@ function BuchungenContent() {
   }, [allBookings])
 
   const filtered = useMemo(() => {
-    let result = allBookings
+    // Status wird live aus check_in / check_out abgeleitet — die DB-Spalte
+    // wird nur beim Sync/Webhook/Create aktualisiert und veraltet sonst.
+    let result = allBookings.map((b) => ({
+      ...b,
+      status: calculateBookingStatus(b.check_in, b.check_out, b.status === 'cancelled'),
+    }))
 
     if (channel !== 'Alle') {
       result = result.filter((b) => b.channel === channel)
