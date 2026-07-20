@@ -2363,7 +2363,7 @@ function RechnungenContent() {
               {invoices.length === 0 ? 'Noch keine Rechnungen erstellt' : 'Keine Rechnungen für diesen Filter'}
             </p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
+            <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -2386,7 +2386,7 @@ function RechnungenContent() {
                     <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('due')}>
                       <span className="inline-flex items-center gap-1">Fällig am <ArrowUpDown className={`h-3 w-3 ${sortField === 'due' ? 'opacity-100' : 'opacity-30'}`} /></span>
                     </TableHead>
-                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('period')}>
+                    <TableHead className="cursor-pointer select-none hidden xl:table-cell" onClick={() => toggleSort('period')}>
                       <span className="inline-flex items-center gap-1">Zeitraum <ArrowUpDown className={`h-3 w-3 ${sortField === 'period' ? 'opacity-100' : 'opacity-30'}`} /></span>
                     </TableHead>
                     <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('amount')}>
@@ -2422,15 +2422,14 @@ function RechnungenContent() {
                       <TableCell>
                         {inv.guest_snapshot?.firstname} {inv.guest_snapshot?.lastname}
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="text-sm whitespace-nowrap">
                         {(() => {
                           const raw =
                             inv.guest_snapshot?.payment_channel ||
                             (inv.booking_id ? bookingChannels[inv.booking_id] : '') ||
                             ''
                           if (!raw) return <span className="text-muted-foreground">–</span>
-                          const label = raw === 'Direct' ? 'Direkt' : raw
-                          return <Badge variant="outline" className="font-normal">{label}</Badge>
+                          return raw === 'Direct' ? 'Direkt' : raw
                         })()}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
@@ -2446,7 +2445,7 @@ function RechnungenContent() {
                           ? format(new Date(inv.due_date), 'dd.MM.yyyy')
                           : '–'}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap hidden xl:table-cell">
                         {inv.service_period_start && inv.service_period_end
                           ? `${format(new Date(inv.service_period_start), 'dd.MM.')} – ${format(new Date(inv.service_period_end), 'dd.MM.yyyy')}`
                           : '–'}
