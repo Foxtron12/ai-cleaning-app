@@ -176,6 +176,10 @@ function RechnungenContent() {
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [bookings, setBookings] = useState<BookingWithProperty[]>([])
+  // Booking-id → channel (Airbnb, Booking.com, Direct, ...) fuer die Kanal-Spalte.
+  // Neue Rechnungen speichern den Kanal in guest_snapshot.payment_channel; fuer
+  // Alt-Rechnungen ohne diesen Snapshot dient diese Map als Fallback.
+  const [bookingChannels, setBookingChannels] = useState<Record<string, string>>({})
   const [properties, setProperties] = useState<PropertyInfo[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [cityRules, setCityRules] = useState<CityTaxRule[]>([])
@@ -277,12 +281,40 @@ function RechnungenContent() {
         ])
 
       const rules = (rulesData ?? []) as CityTaxRule[]
-      setInvoices((invoicesData ?? []) as InvoiceRow[])
+      const invoicesLoaded = (invoicesData ?? []) as InvoiceRow[]
+      setInvoices(invoicesLoaded)
       setBookings((bookingsData ?? []) as BookingWithProperty[])
       setProperties((propsData ?? []) as PropertyInfo[])
       setSettings(settingsData as Settings | null)
       setCityRules(rules)
       setLoading(false)
+
+      // Kanal-Fallback fuer Alt-Rechnungen: hole Channel fuer alle Buchungen,
+      // deren id in einer Rechnung referenziert wird aber nicht in den
+      // vorgeladenen bookings (limit 100) auftaucht.
+      const referencedIds = Array.from(
+        new Set(
+          invoicesLoaded
+            .map((i) => i.booking_id)
+            .filter((id): id is string => !!id),
+        ),
+      )
+      const alreadyLoaded = new Set((bookingsData ?? []).map((b) => b.id))
+      const missingIds = referencedIds.filter((id) => !alreadyLoaded.has(id))
+      const initialMap: Record<string, string> = {}
+      for (const b of bookingsData ?? []) {
+        if (b.channel) initialMap[b.id] = b.channel
+      }
+      if (missingIds.length > 0) {
+        const { data: chanRows } = await supabase
+          .from('bookings')
+          .select('id, channel')
+          .in('id', missingIds)
+        for (const row of chanRows ?? []) {
+          if (row.channel) initialMap[row.id as string] = row.channel as string
+        }
+      }
+      setBookingChannels(initialMap)
 
 
       if (bookingIdParam) {
@@ -2344,6 +2376,7 @@ function RechnungenContent() {
                     <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('guest')}>
                       <span className="inline-flex items-center gap-1">Gast <ArrowUpDown className={`h-3 w-3 ${sortField === 'guest' ? 'opacity-100' : 'opacity-30'}`} /></span>
                     </TableHead>
+                    <TableHead>Kanal</TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => toggleSort('property')}>
                       <span className="inline-flex items-center gap-1">Wohnung <ArrowUpDown className={`h-3 w-3 ${sortField === 'property' ? 'opacity-100' : 'opacity-30'}`} /></span>
                     </TableHead>
@@ -2388,6 +2421,17 @@ function RechnungenContent() {
                       </TableCell>
                       <TableCell>
                         {inv.guest_snapshot?.firstname} {inv.guest_snapshot?.lastname}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {(() => {
+                          const raw =
+                            inv.guest_snapshot?.payment_channel ||
+                            (inv.booking_id ? bookingChannels[inv.booking_id] : '') ||
+                            ''
+                          if (!raw) return <span className="text-muted-foreground">–</span>
+                          const label = raw === 'Direct' ? 'Direkt' : raw
+                          return <Badge variant="outline" className="font-normal">{label}</Badge>
+                        })()}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {propertyMap[inv.property_id ?? ''] ?? '–'}

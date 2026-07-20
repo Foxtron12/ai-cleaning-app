@@ -137,7 +137,7 @@ function BuchungenContent() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState('Alle')
-  const [status, setStatus] = useState('upcoming')
+  const [status, setStatus] = useState('Alle')
   const [property, setProperty] = useState('Alle')
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
   const [customFrom, setCustomFrom] = useState('')
