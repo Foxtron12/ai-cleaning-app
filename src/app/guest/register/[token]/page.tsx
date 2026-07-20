@@ -488,6 +488,7 @@ export default function GuestRegistrationPage() {
   }
   const [signature, setSignature] = useState<string | null>(null)
   const [coTravellers, setCoTravellers] = useState<CoTraveller[]>([])
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Language
   const [locale, setLocale] = useState<Locale>('de')
@@ -549,6 +550,12 @@ export default function GuestRegistrationPage() {
     }
 
     setSubmitting(true)
+    setSubmitError(null)
+
+    // Client-Timeout: verhindert Endlos-Spinner, falls Server/Netzwerk klemmt.
+    // 60 s ist reichlich (SmoobuClient hat 15 s, Auto-Message-Race 25 s serverseitig).
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60_000)
 
     try {
       const formPayload = new FormData()
@@ -573,6 +580,7 @@ export default function GuestRegistrationPage() {
       const res = await fetch(`/api/guest-registration/${token}`, {
         method: 'POST',
         body: formPayload,
+        signal: controller.signal,
       })
 
       if (res.ok) {
@@ -580,9 +588,20 @@ export default function GuestRegistrationPage() {
       } else {
         setPageState('error')
       }
-    } catch {
-      setPageState('error')
+    } catch (err) {
+      const isAbort = err instanceof DOMException && err.name === 'AbortError'
+      if (isAbort) {
+        // Bleibt auf der Form-Seite, damit der Gast nach einem Retry nicht alles neu tippen muss.
+        setSubmitError(
+          locale === 'de'
+            ? 'Der Check-in dauert gerade länger als gewöhnlich. Bitte in ein paar Sekunden erneut probieren – deine Eingaben bleiben erhalten.'
+            : 'The check-in is taking longer than usual. Please try again in a few seconds – your entries are preserved.',
+        )
+      } else {
+        setPageState('error')
+      }
     } finally {
+      clearTimeout(timeoutId)
       setSubmitting(false)
     }
   }
@@ -969,6 +988,13 @@ export default function GuestRegistrationPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Submit error (Timeout / Netzwerk) */}
+      {submitError && (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {submitError}
+        </div>
+      )}
 
       {/* Submit */}
       <Button type="submit" className="w-full" size="lg" disabled={submitting || !signature}>

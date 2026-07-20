@@ -13,6 +13,11 @@ import type {
 const SMOOBU_BASE_URL = 'https://login.smoobu.com/api'
 const MAX_REQUESTS_PER_MINUTE = 50
 const RETRY_DELAY_MS = 2000
+// Ohne Timeout kann ein haengender Smoobu-Call z.B. das Gaeste-Registrierungs-
+// POST (auto-message send-message-to-guest) auf unbestimmte Zeit blockieren —
+// der Gast sieht dann nur den Spinner. 15 s pro Request ist reichlich fuer die
+// REST-Endpunkte und begrenzt den Worst-Case bei Retries auf ~60 s.
+const REQUEST_TIMEOUT_MS = 15_000
 
 /** Parse Smoobu datetime (e.g. "2026-03-29 17:38:40") to ISO string.
  *  Smoobu returns datetimes without timezone — we treat them as UTC. */
@@ -49,14 +54,27 @@ export class SmoobuClient {
     }
     this.requestCount++
 
-    const response = await fetch(`${SMOOBU_BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        'Api-Key': this.apiKey,
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    let response: Response
+    try {
+      response = await fetch(`${SMOOBU_BASE_URL}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          'Api-Key': this.apiKey,
+          'Content-Type': 'application/json',
+          ...init?.headers,
+        },
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error(`Smoobu API timeout after ${REQUEST_TIMEOUT_MS}ms: ${path}`)
+      }
+      throw err
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     if (response.status === 429) {
       // Rate limited – wait and retry (max 3 attempts)

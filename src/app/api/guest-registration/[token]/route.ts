@@ -432,21 +432,34 @@ export async function POST(
   }
 
   // ─── Auto-message trigger: send message after check-in completion ──────────
+  // Hardcap: der Auto-Message-Send darf den Check-in-Response NIE blockieren.
+  // SmoobuClient hat schon einen Fetch-Timeout, aber wir race hier zusaetzlich,
+  // damit auch ein Bug im Trigger-Modul das Erfolgs-Feedback fuer den Gast
+  // nicht mehr aufhalten kann.
   if (booking.external_id) {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
     const registrationLink = `${siteUrl}/guest/register/${token}`
-    await fireAutoMessageTrigger(supabase, {
-      userId: regToken.user_id,
-      bookingId: regToken.booking_id,
-      externalId: booking.external_id,
-      eventType: 'guest_checkin_completed',
-      guestName: `${data.firstname} ${data.lastname}`.trim(),
-      propertyName: property?.name ?? '',
-      checkIn: booking.check_in,
-      checkOut: booking.check_out,
-      numberOfGuests: booking.adults ?? 1,
-      registrationLink,
-    })
+    try {
+      await Promise.race([
+        fireAutoMessageTrigger(supabase, {
+          userId: regToken.user_id,
+          bookingId: regToken.booking_id,
+          externalId: booking.external_id,
+          eventType: 'guest_checkin_completed',
+          guestName: `${data.firstname} ${data.lastname}`.trim(),
+          propertyName: property?.name ?? '',
+          checkIn: booking.check_in,
+          checkOut: booking.check_out,
+          numberOfGuests: booking.adults ?? 1,
+          registrationLink,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('auto-message-timeout')), 25_000),
+        ),
+      ])
+    } catch (err) {
+      console.error('Guest registration: auto-message trigger failed (non-fatal):', err)
+    }
   }
 
   return NextResponse.json({ success: true })
