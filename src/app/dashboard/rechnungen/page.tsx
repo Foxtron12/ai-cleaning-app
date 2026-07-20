@@ -2363,7 +2363,7 @@ function RechnungenContent() {
               {invoices.length === 0 ? 'Noch keine Rechnungen erstellt' : 'Keine Rechnungen für diesen Filter'}
             </p>
           ) : (
-            <div className="rounded-md border">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
