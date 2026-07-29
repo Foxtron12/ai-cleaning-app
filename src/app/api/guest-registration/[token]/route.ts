@@ -201,7 +201,8 @@ export async function GET(
       zip: existingForm.guest_zip ?? '',
       country: existingForm.guest_country ?? '',
       trip_purpose: existingForm.trip_purpose ?? 'unknown',
-      co_travellers: existingForm.co_travellers ?? [],
+      // Defensiv: jsonb ohne CHECK — Legacy-Rows koennten kein Array sein.
+      co_travellers: Array.isArray(existingForm.co_travellers) ? existingForm.co_travellers : [],
     } : null,
   })
 }

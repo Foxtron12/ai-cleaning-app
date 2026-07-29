@@ -459,31 +459,45 @@ export default function GuestRegistrationPage() {
   // Compress image to stay under Vercel's 4.5 MB body limit
   async function compressImage(file: File, maxSizeKB = 900): Promise<File> {
     if (file.size <= maxSizeKB * 1024) return file
+    // PDFs / non-images koennen wir nicht ueber <img> dekodieren — sonst haengt
+    // onload endlos und der Submit laeuft bis in den AbortController-Timeout.
+    if (!file.type.startsWith('image/')) return file
     return new Promise((resolve) => {
       const img = new Image()
+      const url = URL.createObjectURL(file)
+      const cleanup = () => URL.revokeObjectURL(url)
       img.onload = () => {
-        const canvas = document.createElement('canvas')
-        let { width, height } = img
-        // Scale down if very large
-        const maxDim = 1600
-        if (width > maxDim || height > maxDim) {
-          const ratio = Math.min(maxDim / width, maxDim / height)
-          width = Math.round(width * ratio)
-          height = Math.round(height * ratio)
+        try {
+          const canvas = document.createElement('canvas')
+          let { width, height } = img
+          const maxDim = 1600
+          if (width > maxDim || height > maxDim) {
+            const ratio = Math.min(maxDim / width, maxDim / height)
+            width = Math.round(width * ratio)
+            height = Math.round(height * ratio)
+          }
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) { cleanup(); resolve(file); return }
+          ctx.drawImage(img, 0, 0, width, height)
+          canvas.toBlob(
+            (blob) => {
+              cleanup()
+              if (!blob) { resolve(file); return }
+              resolve(new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }))
+            },
+            'image/jpeg',
+            0.7,
+          )
+        } catch {
+          cleanup()
+          resolve(file)
         }
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0, width, height)
-        canvas.toBlob(
-          (blob) => {
-            resolve(new File([blob!], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }))
-          },
-          'image/jpeg',
-          0.7
-        )
       }
-      img.src = URL.createObjectURL(file)
+      // HEIC auf Nicht-Safari, korrupte Bilder etc. — Original hochladen statt haengen.
+      img.onerror = () => { cleanup(); resolve(file) }
+      img.src = url
     })
   }
   const [signature, setSignature] = useState<string | null>(null)
@@ -526,7 +540,13 @@ export default function GuestRegistrationPage() {
         if (data.existingForm) {
           setExistingForm(data.existingForm)
           setBirthdate(data.existingForm.birthdate ?? '')
-          setCoTravellers(data.existingForm.co_travellers ?? [])
+          // Defensiv: co_travellers ist jsonb ohne CHECK — Legacy-Rows koennten
+          // {} / string / null enthalten; nur echte Arrays uebernehmen.
+          setCoTravellers(
+            Array.isArray(data.existingForm.co_travellers)
+              ? data.existingForm.co_travellers
+              : [],
+          )
         }
 
         setPageState('form')
