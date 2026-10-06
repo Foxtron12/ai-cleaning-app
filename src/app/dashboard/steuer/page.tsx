@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
 import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
 import { splitBookingByMonth } from '@/lib/calculators/booking-month-split'
+import { computeBhstSummary } from '@/lib/calculators/bhst-summary'
 import type { Booking, Property, CityTaxRule, Settings } from '@/lib/types'
 import { VordruckDialog } from '@/components/vordruck-dialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -181,30 +182,7 @@ function formatRate(config: TaxConfig | null | undefined): string {
 }
 
 function computeSummary(items: TaxDataItem[]) {
-  const otaRemitted = items.filter((d) => d.tax.remittedByOta)
-  const selfRemit = items.filter((d) => !d.tax.remittedByOta)
-  const business = selfRemit.filter((d) => d.tax.exemptReason === 'Befreit')
-  const taxable = selfRemit.filter((d) => !d.tax.isExempt)
-
-  const otaRemittedTax = otaRemitted.reduce((s, d) => s + d.tax.taxAmount, 0)
-  const otaRemittedRevenue = otaRemitted.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
-  const selfRemitTax = taxable.reduce((s, d) => s + d.tax.taxAmount, 0)
-
-  return {
-    totalNights: items.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    otaRemittedNights: otaRemitted.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    otaRemittedTax,
-    otaRemittedRevenue,
-    selfRemitRevenue: selfRemit.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
-    businessNights: business.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    businessRevenue: business.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
-    remainingNights: taxable.reduce((s, d) => s + (d.booking.nights ?? 0), 0),
-    taxableRevenue: selfRemit.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
-      - business.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0),
-    selfRemitTax,
-    totalTax: selfRemitTax + otaRemittedTax,
-    bookingCount: items.length,
-  }
+  return computeBhstSummary(items)
 }
 
 
@@ -592,7 +570,7 @@ function SteuerPageContent() {
           range={range}
           city={selectedCity}
           config={groupedByCity.find((g) => g.city === selectedCity)?.config ?? null}
-          bookings={bookings}
+          period={period}
           cityRules={cityRules}
           properties={properties}
           settings={settings}
@@ -647,7 +625,7 @@ function SteuerPageContent() {
                   {(cityGroup.city.toLowerCase() === 'dresden' || cityGroup.city.toLowerCase() === 'chemnitz') && (
                     <VordruckDialog
                       city={cityGroup.city}
-                      bookings={bookings}
+                      initialPeriod={period}
                       cityRules={cityRules}
                       properties={properties}
                       settings={settings}
@@ -751,7 +729,7 @@ function SingleCitySummary({
   range,
   city,
   config,
-  bookings,
+  period,
   cityRules,
   properties,
   settings,
@@ -760,7 +738,7 @@ function SingleCitySummary({
   range: { label: string }
   city: string
   config: TaxConfig | null
-  bookings: BookingWithProp[]
+  period: string
   cityRules: CityTaxRule[]
   properties: Property[]
   settings: Settings | null
@@ -785,7 +763,7 @@ function SingleCitySummary({
           {showVordruck && (
             <VordruckDialog
               city={city}
-              bookings={bookings}
+              initialPeriod={period}
               cityRules={cityRules}
               properties={properties}
               settings={settings}

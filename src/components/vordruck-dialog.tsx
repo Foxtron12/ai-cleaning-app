@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { FileText, Download, AlertTriangle, Info, ExternalLink } from 'lucide-react'
 import {
   Dialog,
@@ -25,7 +25,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Separator } from '@/components/ui/separator'
 import type { Booking, Property, CityTaxRule, Settings } from '@/lib/types'
 import { calculateAccommodationTax, getTaxConfigForProperty, type TaxConfig, type TaxResult } from '@/lib/calculators/accommodation-tax'
-import { getAccommodationGrossWithoutCityTax } from '@/lib/calculators/booking-price'
+import { computeBhstSummary } from '@/lib/calculators/bhst-summary'
+import { supabase } from '@/lib/supabase'
 import { splitBookingByMonth } from '@/lib/calculators/booking-month-split'
 import { startOfMonth, endOfMonth, format } from 'date-fns'
 
@@ -38,7 +39,8 @@ type FormType = 'anmeldung' | 'berichtigt' | 'korrektur'
 
 interface VordruckDialogProps {
   city: string
-  bookings: BookingWithProp[]
+  /** Zeitraum der Steuer-Uebersicht ('2026-09', '2026-Q3', '2026') als Vorauswahl */
+  initialPeriod?: string
   cityRules: CityTaxRule[]
   properties: Property[]
   settings: Settings | null
@@ -95,6 +97,8 @@ const MONTHS_SHORT = [
   'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez',
 ]
 
+const round2 = (v: number) => Math.round(v * 100) / 100
+
 function formatEur(value: number): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value)
 }
@@ -148,22 +152,50 @@ function getDateRangeForChemnitz(
   }
 }
 
+function parseInitialPeriod(value: string | undefined): { year: number; rhythm: DresdenRhythm; period: number } {
+  const now = new Date()
+  const m = value?.match(/^(\d{4})-(\d{2})$/)
+  if (m) return { year: Number(m[1]), rhythm: 'monthly', period: Number(m[2]) }
+  const q = value?.match(/^(\d{4})-Q([1-4])$/)
+  if (q) return { year: Number(q[1]), rhythm: 'quarterly', period: Number(q[2]) }
+  return { year: now.getFullYear(), rhythm: 'monthly', period: now.getMonth() + 1 }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function VordruckDialog({ city, bookings, cityRules, properties, settings }: VordruckDialogProps) {
+export function VordruckDialog({ city, initialPeriod, cityRules, properties, settings }: VordruckDialogProps) {
   const [open, setOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
+  const [bookings, setBookings] = useState<BookingWithProp[]>([])
+  const [loadingBookings, setLoadingBookings] = useState(false)
 
   const currentYear = new Date().getFullYear()
-  const [year, setYear] = useState(currentYear)
+  const initial = parseInitialPeriod(initialPeriod)
+  const [year, setYear] = useState(initial.year)
 
-  const [rhythm, setRhythm] = useState<DresdenRhythm>('monthly')
-  const [period, setPeriod] = useState(new Date().getMonth() + 1)
+  const [rhythm, setRhythm] = useState<DresdenRhythm>(initial.rhythm)
+  const [period, setPeriod] = useState(initial.period)
 
-  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
-  const [chemnitzRhythm, setChemnitzRhythm] = useState<DresdenRhythm>('monthly')
-  const [chemnitzPeriod, setChemnitzPeriod] = useState(1)
+  const [selectedMonth, setSelectedMonth] = useState<number>(initial.rhythm === 'monthly' ? initial.period : 1)
+  const [chemnitzRhythm, setChemnitzRhythm] = useState<DresdenRhythm>(initial.rhythm)
+  const [chemnitzPeriod, setChemnitzPeriod] = useState(initial.rhythm === 'monthly' ? 1 : initial.period)
+
+  // Beim Oeffnen den Zeitraum der Steuer-Uebersicht uebernehmen
+  function handleOpenChange(v: boolean) {
+    setOpen(v)
+    if (!v) {
+      setDownloadSuccess(false)
+      return
+    }
+    const p = parseInitialPeriod(initialPeriod)
+    setYear(p.year)
+    setRhythm(p.rhythm)
+    setPeriod(p.period)
+    setChemnitzRhythm(p.rhythm)
+    if (p.rhythm === 'monthly') setSelectedMonth(p.period)
+    else setChemnitzPeriod(p.period)
+  }
 
   const isDresden = city.toLowerCase() === 'dresden'
   const [formType, setFormType] = useState<FormType>('anmeldung')
@@ -207,6 +239,27 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDresden, year, rhythm, period, selectedMonth, chemnitzRhythm, chemnitzPeriod])
 
+  // Buchungen fuer den im Dialog gewaehlten Zeitraum selbst laden (gleiche
+  // Abfrage wie die Steuer-Uebersicht), statt nur die vorab geladenen zu nutzen.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setLoadingBookings(true)
+    supabase
+      .from('bookings')
+      .select('*, properties(*)')
+      .or('status.neq.cancelled,accommodation_tax_manual.eq.true')
+      .lte('check_in', dateRange.to)
+      .gte('check_out', dateRange.from)
+      .order('check_in', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled) return
+        setBookings((data ?? []) as BookingWithProp[])
+        setLoadingBookings(false)
+      })
+    return () => { cancelled = true }
+  }, [open, dateRange])
+
   const taxData = useMemo(() => {
     interface TaxDataItem {
       booking: BookingWithProp
@@ -219,9 +272,9 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
       const config = booking.properties
         ? getTaxConfigForProperty(booking.properties, cityRules)
         : null
-      if (booking.check_out <= dateRange.from || booking.check_in > dateRange.to) continue
-
-      const segments = splitBookingByMonth(booking, dateRange.from, dateRange.to, true)
+      // Gleiche Segmentierung wie die Steuer-Uebersicht, damit Vordruck und
+      // Uebersicht identische Zahlen liefern.
+      const segments = splitBookingByMonth(booking, dateRange.from, dateRange.to)
       for (const seg of segments) {
         const tax = config
           ? calculateAccommodationTax(seg, config, booking.properties?.ota_remits_tax ?? [])
@@ -232,42 +285,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
     return items
   }, [cityBookings, cityRules, dateRange])
 
-  const aggregated = useMemo(() => {
-    const otaRemitted = taxData.filter((d) => d.tax.remittedByOta)
-    const selfRemit = taxData.filter((d) => !d.tax.remittedByOta)
-    const exempt = selfRemit.filter((d) => d.tax.isExempt)
-    const taxable = selfRemit.filter((d) => !d.tax.isExempt)
-
-    const totalNights = taxData.reduce((s, d) => s + (d.booking.nights ?? 0), 0)
-    const airbnbNights = otaRemitted.reduce((s, d) => s + (d.booking.nights ?? 0), 0)
-    const remainingNights = totalNights - airbnbNights
-
-    const totalRevenue = taxData.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
-    const selfRemitRevenue = selfRemit.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
-    const exemptRevenue = exempt.reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
-    const taxableRevenue = selfRemitRevenue - exemptRevenue
-    const selfRemitTax = taxable.reduce((s, d) => s + d.tax.taxAmount, 0)
-
-    // Chemnitz: total revenue for Z10 (all bookings), exempt from all for Z11
-    const totalExemptRevenue = taxData.filter(d => d.tax.isExempt && !d.tax.remittedByOta)
-      .reduce((s, d) => s + getAccommodationGrossWithoutCityTax(d.booking), 0)
-    const chemnitzTaxableRevenue = totalRevenue - totalExemptRevenue
-
-    return {
-      totalNights,
-      airbnbNights,
-      remainingNights,
-      selfRemitRevenue: Math.round(selfRemitRevenue * 100) / 100,
-      totalRevenue: Math.round(totalRevenue * 100) / 100,
-      exemptRevenue: Math.round(exemptRevenue * 100) / 100,
-      totalExemptRevenue: Math.round(totalExemptRevenue * 100) / 100,
-      taxableRevenue: Math.round(taxableRevenue * 100) / 100,
-      chemnitzTaxableRevenue: Math.round(chemnitzTaxableRevenue * 100) / 100,
-      selfRemitTax: Math.round(selfRemitTax * 100) / 100,
-      fivePercent: Math.round(chemnitzTaxableRevenue * 0.05 * 100) / 100,
-      bookingCount: taxData.length,
-    }
-  }, [taxData])
+  const aggregated = useMemo(() => computeBhstSummary(taxData), [taxData])
 
   const primaryProperty = useMemo(() => {
     if (isDresden || cityProperties.length === 0) return null
@@ -316,12 +334,12 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
           period,
           type: formType as 'anmeldung' | 'berichtigt',
           totalNights: aggregated.totalNights,
-          airbnbNights: aggregated.airbnbNights,
+          airbnbNights: aggregated.otaRemittedNights,
           remainingNights: aggregated.remainingNights,
-          revenueD: aggregated.selfRemitRevenue,
-          exemptRevenueE: aggregated.exemptRevenue,
-          taxableRevenueF: aggregated.taxableRevenue,
-          taxAmountG: aggregated.selfRemitTax,
+          revenueD: round2(aggregated.selfRemitRevenue),
+          exemptRevenueE: round2(aggregated.businessRevenue),
+          taxableRevenueF: round2(aggregated.taxableRevenue),
+          taxAmountG: round2(aggregated.selfRemitTax),
           ...operatorOverride,
         }
       } else {
@@ -334,11 +352,11 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
           propertyStreet: primaryProperty?.street ?? '',
           propertyZipCity: [primaryProperty?.zip, primaryProperty?.city].filter(Boolean).join(' '),
           nights: aggregated.totalNights,
-          revenue: aggregated.totalRevenue,
-          exemptRevenue: aggregated.totalExemptRevenue,
-          taxableRevenue: aggregated.chemnitzTaxableRevenue,
+          revenue: round2(aggregated.totalRevenue),
+          exemptRevenue: round2(aggregated.totalExemptRevenue),
+          taxableRevenue: round2(aggregated.chemnitzTaxableRevenue),
           fivePercent: aggregated.fivePercent,
-          actualTax: aggregated.selfRemitTax,
+          actualTax: round2(aggregated.selfRemitTax),
           ...operatorOverride,
         }
       }
@@ -448,7 +466,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setDownloadSuccess(false) }}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <FileText className="mr-2 h-4 w-4" />
@@ -658,7 +676,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Vorschau</h3>
               <Badge variant="outline">
-                {aggregated.bookingCount} Buchung{aggregated.bookingCount !== 1 ? 'en' : ''}
+                {loadingBookings ? 'lädt…' : `${aggregated.bookingCount} Buchung${aggregated.bookingCount !== 1 ? 'en' : ''}`}
               </Badge>
             </div>
 
@@ -712,10 +730,10 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
               {isDresden ? (
                 <>
                   <PreviewLine label="A. Entgeltliche Übernachtungen insgesamt" value={String(aggregated.totalNights)} />
-                  <PreviewLine label="B. davon: Airbnb (OTA führt ab)" value={String(aggregated.airbnbNights)} className="text-rose-600" />
+                  <PreviewLine label="B. davon: Airbnb (OTA führt ab)" value={String(aggregated.otaRemittedNights)} className="text-rose-600" />
                   <PreviewLine label="C. Verbleibende Übernachtungen" value={String(aggregated.remainingNights)} />
                   <PreviewLine label="D. Umsätze aus verbleibenden Übernachtungen" value={formatEur(aggregated.selfRemitRevenue)} />
-                  <PreviewLine label="E. abzgl. steuerbefreite Umsätze" value={formatEur(aggregated.exemptRevenue)} className="text-blue-600" />
+                  <PreviewLine label="E. abzgl. steuerbefreite Umsätze" value={formatEur(aggregated.businessRevenue)} className="text-blue-600" />
                   <PreviewLine label="F. Steuerpflichtige Umsätze" value={formatEur(aggregated.taxableRevenue)} bold />
                   <div className="flex justify-between py-2 px-2 bg-emerald-50 rounded mt-1">
                     <span className="font-bold text-sm">G. Eingezogene Beherbergungssteuer</span>
@@ -756,7 +774,7 @@ export function VordruckDialog({ city, bookings, cityRules, properties, settings
           <div className="space-y-3">
             <Button
               onClick={handleDownload}
-              disabled={downloading}
+              disabled={downloading || loadingBookings}
               className="w-full"
             >
               <Download className="mr-2 h-4 w-4" />

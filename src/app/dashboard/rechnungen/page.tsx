@@ -1485,13 +1485,17 @@ function RechnungenContent() {
 
     setGutschriftLoading(true)
     try {
+      // Feldnamen muessen dem Zod-Schema der API-Route entsprechen
       const body: Record<string, unknown> = {
-        type: gutschriftType,
-        positions: gutschriftPositions.filter((p) => p.amount > 0),
-        reason: gutschriftReason.trim() || null,
+        type: gutschriftType === 'shortened' ? 'shortened_stay' : 'simple',
+        positions: gutschriftPositions
+          .filter((p) => p.amount > 0)
+          .map((p) => ({ description: p.description.trim() || 'Gutschrift', amount: p.amount, vat_rate: p.vatRate })),
       }
+      const reason = gutschriftReason.trim()
+      if (reason) body.reason = reason
       if (gutschriftType === 'shortened') {
-        body.newNights = gutschriftNewNights
+        body.new_nights = gutschriftNewNights
       }
 
       const res = await fetch(`/api/rechnungen/${gutschriftInvoice.id}/gutschrift`, {
@@ -1501,7 +1505,10 @@ function RechnungenContent() {
       })
       const result = await res.json()
       if (!res.ok) {
-        toast({ title: 'Fehler', description: result.error ?? 'Gutschrift fehlgeschlagen', variant: 'destructive' })
+        const details = Array.isArray(result.details)
+          ? result.details.map((d: { message?: string }) => d.message).filter(Boolean).join(', ')
+          : ''
+        toast({ title: 'Fehler', description: [result.error ?? 'Gutschrift fehlgeschlagen', details].filter(Boolean).join(': '), variant: 'destructive' })
         return
       }
       toast({ title: 'Gutschrift erstellt', description: result.gutschrift?.invoice_number ?? 'Gutschrift erfolgreich' })

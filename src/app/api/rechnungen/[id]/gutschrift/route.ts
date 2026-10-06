@@ -21,7 +21,7 @@ const GutschriftBodySchema = z.object({
   /** Manual positions (description + gross amount + vat_rate) */
   positions: z.array(GutschriftPositionSchema).min(1, 'Mindestens eine Position erforderlich'),
   /** Optional reason / info text */
-  reason: z.string().optional(),
+  reason: z.string().nullish(),
   /** Required when type = 'shortened_stay': new number of nights */
   new_nights: z.number().int().min(1).optional(),
 })
