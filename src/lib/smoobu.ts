@@ -219,12 +219,16 @@ export class SmoobuClient {
   }
 
   /** Test API connection – returns apartment count */
-  async testConnection(): Promise<{ success: boolean; apartmentCount: number }> {
+  async testConnection(): Promise<{ success: boolean; apartmentCount: number; error?: string }> {
     try {
+      // Cheap auth check first (1 request) so a rejected key/secret surfaces Smoobu's own message
+      await this.fetch<{ apartments: unknown[] }>('/apartments')
       const apartments = await this.getApartments()
       return { success: true, apartmentCount: apartments.length }
-    } catch {
-      return { success: false, apartmentCount: 0 }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      console.error(`Smoobu testConnection failed (auth=${this.usesHmac ? 'hmac' : 'legacy'}):`, error)
+      return { success: false, apartmentCount: 0, error }
     }
   }
 

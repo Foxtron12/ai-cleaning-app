@@ -51,7 +51,7 @@ export async function GET() {
       .from('integrations')
       .update({
         status: result.success ? 'connected' : 'error',
-        error_message: result.success ? null : 'API-Key ungültig oder Smoobu nicht erreichbar',
+        error_message: result.success ? null : `Smoobu: ${result.error ?? 'nicht erreichbar'}`.slice(0, 500),
         updated_at: new Date().toISOString(),
       })
       .eq('id', integration.id)
@@ -61,7 +61,7 @@ export async function GET() {
       apartmentCount: result.apartmentCount,
       message: result.success
         ? `Verbindung erfolgreich! ${result.apartmentCount} Objekt(e) gefunden.`
-        : 'Verbindung fehlgeschlagen. Bitte API-Key pruefen.',
+        : `Verbindung fehlgeschlagen. Antwort von Smoobu: ${result.error ?? 'keine'}`,
     })
   } catch (error) {
     return NextResponse.json(

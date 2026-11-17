@@ -47,9 +47,11 @@ export async function POST(request: NextRequest) {
   if (!testResult.success) {
     return NextResponse.json(
       {
-        error: apiSecret
-          ? 'Smoobu hat API-Key oder Secret abgelehnt. Bitte beide Werte aus Smoobu → Einstellungen → Erweitert → API Keys prüfen.'
-          : 'Ungültiger Smoobu API-Key. Bitte prüfe den Key in deinem Smoobu-Konto.',
+        error:
+          (apiSecret
+            ? 'Smoobu hat API-Key oder Secret abgelehnt. Bitte beide Werte aus Smoobu → Einstellungen → Erweitert → API Keys prüfen.'
+            : 'Ungültiger Smoobu API-Key. Bitte prüfe den Key in deinem Smoobu-Konto.') +
+          (testResult.error ? ` Antwort von Smoobu: ${testResult.error.slice(0, 300)}` : ''),
         status: 'error',
       },
       { status: 400 }
