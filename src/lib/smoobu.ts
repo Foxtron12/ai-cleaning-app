@@ -212,6 +212,13 @@ export class SmoobuClient {
 
     if (!response.ok) {
       const text = await response.text()
+      if (response.status === 401 && !this.usesHmac) {
+        // Smoobu hat den alten Api-Key-Header abgeschaltet (Sunset 31.10.2026)
+        throw new Error(
+          'Smoobu hat den alten API-Key abgeschaltet. Bitte unter Einstellungen → Integrationen einen neuen Smoobu API-Key mit Secret eintragen ' +
+            `(Smoobu → Einstellungen → Erweitert → API Keys). [Smoobu API error 401: ${text}]`
+        )
+      }
       throw new Error(`Smoobu API error ${response.status}: ${text}`)
     }
 
