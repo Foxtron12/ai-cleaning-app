@@ -30,16 +30,136 @@ function parseSmoobuDate(date: string | undefined | null): string {
 }
 
 interface SmoobuClientOptions {
+  /**
+   * Either a legacy Smoobu API key, or a credential string created with
+   * `encodeSmoobuCredential()` (HMAC key + secret). Stored encrypted in
+   * integrations.api_key_encrypted, so call sites only pass the decrypted value.
+   */
   apiKey: string
 }
 
+export interface SmoobuCredential {
+  apiKey: string
+  /** HMAC secret. Missing = legacy `Api-Key` header (sunset by Smoobu 2026-10-31). */
+  apiSecret?: string
+}
+
+/** Serialize key + secret into the single string stored in api_key_encrypted. */
+export function encodeSmoobuCredential(cred: SmoobuCredential): string {
+  if (!cred.apiSecret) return cred.apiKey
+  return JSON.stringify({ apiKey: cred.apiKey, apiSecret: cred.apiSecret })
+}
+
+/** Inverse of encodeSmoobuCredential. Legacy keys are plain strings. */
+export function decodeSmoobuCredential(stored: string): SmoobuCredential {
+  const trimmed = stored.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Partial<SmoobuCredential>
+      if (typeof parsed.apiKey === 'string' && typeof parsed.apiSecret === 'string') {
+        return { apiKey: parsed.apiKey, apiSecret: parsed.apiSecret }
+      }
+    } catch {
+      // fall through: treat as legacy key
+    }
+  }
+  return { apiKey: trimmed }
+}
+
+/** RFC 3986 percent-encoding (space → %20, also encodes !'()*). */
+function rfc3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()
+  )
+}
+
+/** Canonical query string per Smoobu HMAC docs: encoded pairs, sorted by key (then value). */
+function canonicalQuery(search: string): string {
+  const pairs: Array<[string, string]> = []
+  for (const [k, v] of new URLSearchParams(search)) pairs.push([rfc3986(k), rfc3986(v)])
+  pairs.sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0) : a[0] < b[0] ? -1 : 1))
+  return pairs.map(([k, v]) => `${k}=${v}`).join('&')
+}
+
+/**
+ * Build the Smoobu HMAC auth headers and the exact URL to request.
+ * Canonical string: METHOD\nPATH\nQUERY\nTIMESTAMP\nNONCE\nSHA256_HEX(body)\nAPI_KEY,
+ * signature = base64(HMAC-SHA256(secret, canonical)).
+ */
+export async function signSmoobuRequest(params: {
+  method: string
+  url: string
+  body?: string
+  apiKey: string
+  apiSecret: string
+}): Promise<{ url: string; headers: Record<string, string> }> {
+  // Web Crypto (not node:crypto): this module is also imported by client components.
+  const subtle = globalThis.crypto.subtle
+  const enc = new TextEncoder()
+  const u = new URL(params.url)
+  const query = canonicalQuery(u.search)
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const nonce = globalThis.crypto.randomUUID()
+  const bodyHash = Array.from(
+    new Uint8Array(await subtle.digest('SHA-256', enc.encode(params.body ?? ''))),
+    (b) => b.toString(16).padStart(2, '0')
+  ).join('')
+  const canonical = [
+    params.method.toUpperCase(),
+    u.pathname,
+    query,
+    timestamp,
+    nonce,
+    bodyHash,
+    params.apiKey,
+  ].join('\n')
+  const key = await subtle.importKey(
+    'raw',
+    enc.encode(params.apiSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const sig = new Uint8Array(await subtle.sign('HMAC', key, enc.encode(canonical)))
+  let bin = ''
+  for (const b of sig) bin += String.fromCharCode(b)
+  const signature = btoa(bin)
+  return {
+    // Send exactly the query we signed, so encoding/order cannot diverge.
+    url: `${u.origin}${u.pathname}${query ? `?${query}` : ''}`,
+    headers: {
+      'X-API-Key': params.apiKey,
+      'X-Timestamp': timestamp,
+      'X-Nonce': nonce,
+      'X-Signature': signature,
+    },
+  }
+}
+
+/** Auth headers + final URL for a Smoobu request, legacy or HMAC. */
+export async function smoobuAuth(
+  cred: SmoobuCredential,
+  method: string,
+  url: string,
+  body?: string
+): Promise<{ url: string; headers: Record<string, string> }> {
+  if (!cred.apiSecret) return { url, headers: { 'Api-Key': cred.apiKey } }
+  return signSmoobuRequest({ method, url, body, apiKey: cred.apiKey, apiSecret: cred.apiSecret })
+}
+
 export class SmoobuClient {
-  private apiKey: string
+  private credential: SmoobuCredential
   private requestCount = 0
   private resetTime = Date.now() + 60000
 
   constructor(options: SmoobuClientOptions) {
-    this.apiKey = options.apiKey
+    this.credential = decodeSmoobuCredential(options.apiKey)
+  }
+
+  /** true when requests are signed with HMAC (new Smoobu auth). */
+  get usesHmac(): boolean {
+    return !!this.credential.apiSecret
   }
 
   private async fetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -57,14 +177,18 @@ export class SmoobuClient {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     let response: Response
+    // Auth is computed per attempt: HMAC needs a fresh timestamp + nonce each time.
+    const method = (init?.method ?? 'GET').toUpperCase()
+    const body = typeof init?.body === 'string' ? init.body : undefined
+    const auth = await smoobuAuth(this.credential, method, `${SMOOBU_BASE_URL}${path}`, body)
     try {
-      response = await fetch(`${SMOOBU_BASE_URL}${path}`, {
+      response = await fetch(auth.url, {
         ...init,
         signal: controller.signal,
         headers: {
-          'Api-Key': this.apiKey,
           'Content-Type': 'application/json',
           ...init?.headers,
+          ...auth.headers,
         },
       })
     } catch (err) {

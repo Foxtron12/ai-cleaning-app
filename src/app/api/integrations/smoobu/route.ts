@@ -3,10 +3,13 @@ import { z } from 'zod'
 import { getServerUser } from '@/lib/supabase-server'
 import { encrypt } from '@/lib/encryption'
 import { generateWebhookToken } from '@/lib/encryption'
-import { SmoobuClient } from '@/lib/smoobu'
+import { SmoobuClient, encodeSmoobuCredential } from '@/lib/smoobu'
 
 const saveSmoobuSchema = z.object({
-  api_key: z.string().min(1, 'API-Key darf nicht leer sein').max(500),
+  api_key: z.string().trim().min(1, 'API-Key darf nicht leer sein').max(500),
+  // HMAC secret (Smoobu → Einstellungen → Erweitert → API Keys → "Generate Secret").
+  // Optional only for backwards compatibility; the legacy key-only auth is sunset by Smoobu.
+  api_secret: z.string().trim().max(500).optional(),
 })
 
 /**
@@ -35,22 +38,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültiges JSON' }, { status: 400 })
   }
 
-  // Test the API key before saving
-  const smoobu = new SmoobuClient({ apiKey: body.api_key })
+  // Test the credentials before saving
+  const apiSecret = body.api_secret || undefined
+  const credential = encodeSmoobuCredential({ apiKey: body.api_key, apiSecret })
+  const smoobu = new SmoobuClient({ apiKey: credential })
   const testResult = await smoobu.testConnection()
 
   if (!testResult.success) {
     return NextResponse.json(
       {
-        error: 'Ungültiger Smoobu API-Key. Bitte prüfe den Key in deinem Smoobu-Konto.',
+        error: apiSecret
+          ? 'Smoobu hat API-Key oder Secret abgelehnt. Bitte beide Werte aus Smoobu → Einstellungen → Erweitert → API Keys prüfen.'
+          : 'Ungültiger Smoobu API-Key. Bitte prüfe den Key in deinem Smoobu-Konto.',
         status: 'error',
       },
       { status: 400 }
     )
   }
 
-  // Encrypt the API key
-  const apiKeyEncrypted = encrypt(body.api_key)
+  // Encrypt key (+ secret) as one value; every SmoobuClient decodes it
+  const apiKeyEncrypted = encrypt(credential)
 
   // Check if integration already exists
   const { data: existing } = await supabase

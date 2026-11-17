@@ -45,6 +45,7 @@ interface IntegrationData {
   last_synced_at: string | null
   error_message: string | null
   has_api_key: boolean
+  auth_mode?: 'hmac' | 'legacy' | null
 }
 
 type FeedbackMessage = { success: boolean; message: string } | null
@@ -56,6 +57,7 @@ export function IntegrationenTab() {
 
   // Smoobu form state
   const [apiKey, setApiKey] = useState('')
+  const [apiSecret, setApiSecret] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -114,19 +116,20 @@ export function IntegrationenTab() {
   }, [fetchIntegrations])
 
   async function handleSaveSmoobu() {
-    if (!apiKey.trim()) return
+    if (!apiKey.trim() || !apiSecret.trim()) return
     setSaving(true)
     setFeedback(null)
     try {
       const res = await fetch('/api/integrations/smoobu', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey }),
+        body: JSON.stringify({ api_key: apiKey.trim(), api_secret: apiSecret.trim() }),
       })
       const json = await res.json()
       if (res.ok && json.success) {
         setFeedback({ success: true, message: json.message })
         setApiKey('')
+        setApiSecret('')
         await fetchIntegrations()
       } else {
         setFeedback({ success: false, message: json.error ?? 'Speichern fehlgeschlagen' })
@@ -346,32 +349,59 @@ export function IntegrationenTab() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* API Key Input */}
+          {/* Hinweis: alter Key ohne Secret */}
+          {smoobu?.auth_mode === 'legacy' && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              <p className="font-medium">Smoobu-Zugang muss umgestellt werden</p>
+              <p className="mt-1">
+                Smoobu hat die Anmeldung mit dem alten API-Key abgekündigt. Lege in Smoobu unter
+                Einstellungen → Erweitert → API Keys einen neuen Key an, erzeuge dort ein Secret und
+                setze den Haken bei „Guest Data (PII)“. Trage danach beides hier ein.
+              </p>
+            </div>
+          )}
+
+          {/* API Key + Secret Input */}
           <div className="space-y-2">
-            <Label>API-Key</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={smoobu?.status === 'connected' ? '••••••••••••••••' : 'Smoobu API-Key eingeben'}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <Button onClick={handleSaveSmoobu} disabled={saving || !apiKey.trim()}>
+            <Label htmlFor="smoobu-api-key">API-Key</Label>
+            <div className="relative">
+              <Input
+                id="smoobu-api-key"
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                autoComplete="off"
+                placeholder={smoobu?.status === 'connected' ? '••••••••••••••••' : 'Smoobu API-Key eingeben'}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                aria-label={showApiKey ? 'Key und Secret verbergen' : 'Key und Secret anzeigen'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <Label htmlFor="smoobu-api-secret">Secret</Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="smoobu-api-secret"
+                className="flex-1"
+                type={showApiKey ? 'text' : 'password'}
+                value={apiSecret}
+                onChange={(e) => setApiSecret(e.target.value)}
+                autoComplete="off"
+                placeholder={smoobu?.auth_mode === 'hmac' ? '••••••••••••••••' : 'Smoobu Secret eingeben'}
+              />
+              <Button onClick={handleSaveSmoobu} disabled={saving || !apiKey.trim() || !apiSecret.trim()}>
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {saving ? 'Teste...' : 'Speichern & Testen'}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Den API-Key findest du unter Smoobu → Einstellungen → API & Webhooks
+              Key und Secret erzeugst du in Smoobu unter Einstellungen → Erweitert → API Keys
+              („Create API Key“, dann „Generate Secret“). Das Secret wird dort nur einmal angezeigt.
+              Setze den Haken bei „Guest Data (PII)“, sonst fehlen Gästenamen und Kontaktdaten.
             </p>
           </div>
 

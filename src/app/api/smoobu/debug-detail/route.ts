@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerUser } from '@/lib/supabase-server'
 import { decrypt } from '@/lib/encryption'
+import { decodeSmoobuCredential, smoobuAuth } from '@/lib/smoobu'
 
 /**
  * GET /api/smoobu/debug-detail?id=130962675
@@ -34,11 +35,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No Smoobu API key configured' }, { status: 400 })
   }
 
-  const { plaintext: apiKey } = decrypt(integration.api_key_encrypted)
-  const headers = { 'Api-Key': apiKey, 'Content-Type': 'application/json' }
+  const { plaintext } = decrypt(integration.api_key_encrypted)
+  const cred = decodeSmoobuCredential(plaintext)
+  const smoobuGet = async (url: string) => {
+    const auth = await smoobuAuth(cred, 'GET', url)
+    return fetch(auth.url, { headers: { 'Content-Type': 'application/json', ...auth.headers } })
+  }
 
   // 1. Fetch reservation detail
-  const resResponse = await fetch(`https://login.smoobu.com/api/reservations/${reservationId}`, { headers })
+  const resResponse = await smoobuGet(
+    `https://login.smoobu.com/api/reservations/${encodeURIComponent(reservationId)}`
+  )
   if (!resResponse.ok) {
     const text = await resResponse.text()
     return NextResponse.json({ error: `Reservation API ${resResponse.status}`, body: text }, { status: 500 })
@@ -48,7 +55,7 @@ export async function GET(request: NextRequest) {
   // 2. If reservation has guestId, fetch guest details
   let guest = null
   if (reservation.guestId) {
-    const guestResponse = await fetch(`https://login.smoobu.com/api/guests/${reservation.guestId}`, { headers })
+    const guestResponse = await smoobuGet(`https://login.smoobu.com/api/guests/${reservation.guestId}`)
     if (guestResponse.ok) {
       guest = await guestResponse.json()
     }
