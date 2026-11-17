@@ -10,7 +10,7 @@ import type { Json } from '@/lib/database.types'
 import { z } from 'zod'
 
 // Actions that are not reservation events and should be ignored
-const IGNORED_ACTIONS = new Set(['updateRates', 'updateAvailability'])
+const IGNORED_ACTIONS = new Set(['updateRates', 'updateAvailability', 'newMessage'])
 
 // Zod schema for Smoobu webhook payload (validates minimum required fields)
 const webhookPayloadSchema = z.object({
@@ -153,7 +153,9 @@ export async function POST(
         error: JSON.stringify(parsed.error.issues),
       })
       console.warn('Smoobu webhook: invalid payload for token', token.slice(0, 8) + '...', JSON.stringify(parsed.error.issues))
-      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+      // Acknowledge with 200 anyway: a 4xx makes Smoobu report webhook errors to
+      // the user, and the failed payload is already stored in webhook_logs.
+      return NextResponse.json({ success: false, skipped: 'invalid-payload' })
     }
 
     const reservation = parsed.data as SmoobuReservation
